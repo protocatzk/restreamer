@@ -19,7 +19,8 @@ class StreamerConfig:
     id: str
     name: str
     tiktok: str
-    youtube_key_env: str
+    youtube_key_env: str = ""
+    youtube_key: str = ""
     video_mode: str = "copy"
     auto_start: bool = False
     enabled: bool = True

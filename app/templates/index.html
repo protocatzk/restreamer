@@ -52,6 +52,8 @@
       <div class="section-head">
         <h2>Streamer</h2>
         <div class="actions">
+          <button id="add-streamer-btn" class="btn primary" type="button">+ Streamer</button>
+          <button id="settings-btn" class="btn ghost" type="button">Einstellungen</button>
           <button id="reload-btn" class="btn ghost" type="button">Config neu laden</button>
         </div>
       </div>
@@ -74,6 +76,226 @@
     <span>Nur für Inhalte verwenden, für die du die Rechte hast.</span>
     {% if password_required %}<span class="muted">· Dashboard geschützt</span>{% endif %}
   </footer>
+
+  <!-- Streamer bearbeiten / anlegen -->
+  <dialog id="streamer-dialog" class="modal">
+    <form id="streamer-form" novalidate>
+      <div class="modal-head">
+        <h2 id="streamer-title">Streamer hinzufügen</h2>
+        <button type="button" class="icon-btn" data-close aria-label="Schließen">×</button>
+      </div>
+
+      <div class="form-grid">
+        <label class="field">
+          <span>ID</span>
+          <input name="id" required maxlength="64" pattern="[a-z0-9][a-z0-9_-]{0,63}"
+                 placeholder="z. B. alice" autocomplete="off">
+          <small class="hint">Kleinbuchstaben, Zahlen, _ und -</small>
+        </label>
+
+        <label class="field">
+          <span>Anzeigename</span>
+          <input name="name" required maxlength="120" placeholder="z. B. Alice" autocomplete="off">
+        </label>
+
+        <label class="field">
+          <span>TikTok-Handle oder Live-URL</span>
+          <input name="tiktok" required placeholder="alice oder https://www.tiktok.com/@alice/live"
+                 autocomplete="off">
+        </label>
+
+        <label class="field">
+          <span>YouTube-Stream-Key</span>
+          <input name="youtube_key" type="password" autocomplete="new-password"
+                 placeholder="leer lassen = unverändert">
+          <small id="key-hint" class="hint"></small>
+        </label>
+
+        <label class="field">
+          <span>Video-Modus</span>
+          <select name="video_mode">
+            <option value="copy">copy (empfohlen)</option>
+            <option value="reencode">reencode (HEVC/Problemfälle)</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="check-row">
+        <label class="check"><input type="checkbox" name="enabled" checked> Aktiv</label>
+        <label class="check"><input type="checkbox" name="auto_start"> Beim Containerstart automatisch starten</label>
+        <label class="check" id="clear-key-row" hidden>
+          <input type="checkbox" name="clear_youtube_key"> Gespeicherten Key entfernen
+        </label>
+      </div>
+
+      <details class="advanced">
+        <summary>Erweitert</summary>
+        <div class="form-grid">
+          <label class="field">
+            <span>Alternativ: Env-Variablenname für den Key</span>
+            <input name="youtube_key_env" placeholder="z. B. ALICE_YT_KEY" autocomplete="off">
+          </label>
+          <label class="field">
+            <span>yt-dlp zusätzliche Argumente (eine Zeile pro Argument)</span>
+            <textarea name="ytdlp_args" rows="3" spellcheck="false"></textarea>
+          </label>
+          <label class="field">
+            <span>ffmpeg zusätzliche Argumente (eine Zeile pro Argument)</span>
+            <textarea name="ffmpeg_args" rows="3" spellcheck="false"></textarea>
+          </label>
+        </div>
+      </details>
+
+      <p id="streamer-error" class="form-error" hidden></p>
+
+      <div class="modal-actions">
+        <button type="button" class="btn ghost" data-close>Abbrechen</button>
+        <button type="submit" class="btn primary" id="streamer-save">Speichern</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Globale Einstellungen -->
+  <dialog id="settings-dialog" class="modal wide">
+    <form id="settings-form" novalidate>
+      <div class="modal-head">
+        <h2>Einstellungen</h2>
+        <button type="button" class="icon-btn" data-close aria-label="Schließen">×</button>
+      </div>
+
+      <div class="form-sections">
+        <fieldset>
+          <legend>TikTok</legend>
+          <div class="form-grid">
+            <label class="field">
+              <span>Session-ID (sessionid-Cookie)</span>
+              <input name="tiktok_session_id" type="password" autocomplete="new-password"
+                     placeholder="leer lassen = unverändert">
+              <small id="session-hint" class="hint"></small>
+            </label>
+            <label class="field">
+              <span>Target IDC (optional)</span>
+              <input name="tiktok_target_idc" placeholder="z. B. useast5" autocomplete="off">
+            </label>
+            <label class="check"><input type="checkbox" name="clear_tiktok_session"> TikTok-Cookie löschen</label>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>YouTube</legend>
+          <div class="form-grid">
+            <label class="field">
+              <span>RTMP-Basis-URL</span>
+              <input name="youtube_rtmp_url" placeholder="rtmp://a.rtmp.youtube.com/live2">
+            </label>
+            <label class="check"><input type="checkbox" name="youtube_backup"> Zusätzlich YouTube-Backup-RTMP nutzen</label>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Verhalten</legend>
+          <div class="form-grid">
+            <label class="field">
+              <span>Offline-Poll (Sekunden)</span>
+              <input name="offline_poll_seconds" type="number" min="5" step="1">
+            </label>
+            <label class="field">
+              <span>Backoff Start (Sekunden)</span>
+              <input name="backoff_initial_seconds" type="number" min="1" step="1">
+            </label>
+            <label class="field">
+              <span>Backoff Maximum (Sekunden)</span>
+              <input name="backoff_max_seconds" type="number" min="1" step="1">
+            </label>
+            <label class="field">
+              <span>ffmpeg Log-Level</span>
+              <select name="ffmpeg_loglevel">
+                <option value="quiet">quiet</option>
+                <option value="error">error</option>
+                <option value="warning">warning</option>
+                <option value="info">info</option>
+                <option value="verbose">verbose</option>
+                <option value="debug">debug</option>
+              </select>
+            </label>
+          </div>
+          <div class="check-row">
+            <label class="check"><input type="checkbox" name="auto_start"> Auto-Start beim Containerstart</label>
+            <label class="check"><input type="checkbox" name="auto_reencode_fallback"> Automatischer Re-Encode-Fallback</label>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Qualität</legend>
+          <div class="form-grid">
+            <label class="field">
+              <span>Audio-Bitrate</span>
+              <input name="audio_bitrate" placeholder="160k">
+            </label>
+            <label class="field">
+              <span>Video-Bitrate (nur Re-Encode)</span>
+              <input name="reencode_video_bitrate" placeholder="2500k">
+            </label>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Dashboard</legend>
+          <div class="form-grid">
+            <label class="field">
+              <span>Passwort (HTTP-Basic-Auth)</span>
+              <input name="dashboard_password" type="password" autocomplete="new-password"
+                     placeholder="leer lassen = unverändert">
+              <small id="password-hint" class="hint"></small>
+            </label>
+            <label class="check"><input type="checkbox" name="clear_dashboard_password"> Passwort entfernen</label>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Erweitert</legend>
+          <div class="form-grid">
+            <label class="field">
+              <span>yt-dlp Binary</span>
+              <input name="ytdlp_bin" placeholder="yt-dlp">
+            </label>
+            <label class="field">
+              <span>ffmpeg Binary</span>
+              <input name="ffmpeg_bin" placeholder="ffmpeg">
+            </label>
+            <label class="field">
+              <span>Resolver-Timeout (Sekunden)</span>
+              <input name="resolve_timeout_seconds" type="number" min="5" step="1">
+            </label>
+            <label class="field">
+              <span>Stop-Timeout (Sekunden)</span>
+              <input name="terminate_timeout_seconds" type="number" min="1" step="1">
+            </label>
+            <label class="field">
+              <span>Log-Puffer (Zeilen)</span>
+              <input name="log_buffer_lines" type="number" min="50" step="50">
+            </label>
+            <label class="field">
+              <span>yt-dlp Extra-Argumente (eine Zeile pro Argument)</span>
+              <textarea name="ytdlp_extra_args" rows="2" spellcheck="false"></textarea>
+            </label>
+          </div>
+          <dl class="paths">
+            <dt>Streamer-Datei</dt><dd id="path-streamers">–</dd>
+            <dt>Einstellungsdatei</dt><dd id="path-settings">–</dd>
+            <dt>Cookie-Datei</dt><dd id="path-cookies">–</dd>
+          </dl>
+        </fieldset>
+      </div>
+
+      <p id="settings-error" class="form-error" hidden></p>
+
+      <div class="modal-actions">
+        <button type="button" class="btn ghost" data-close>Abbrechen</button>
+        <button type="submit" class="btn primary" id="settings-save">Speichern</button>
+      </div>
+    </form>
+  </dialog>
 
   <script src="/static/app.js"></script>
 </body>

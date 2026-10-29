@@ -231,3 +231,177 @@ footer {
   main { padding: 18px 16px 48px; }
   .summary { grid-template-columns: repeat(2, 1fr); }
 }
+
+/* ---------------------------------------------------------------- Dialoge */
+
+.modal {
+  width: min(720px, calc(100vw - 32px));
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 0;
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6);
+}
+
+.modal.wide { width: min(860px, calc(100vw - 32px)); }
+
+.modal::backdrop {
+  background: rgba(3, 6, 10, 0.75);
+  backdrop-filter: blur(3px);
+}
+
+.modal form { padding: 20px; }
+
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.modal-head h2 { font-size: 18px; }
+
+.icon-btn {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 8px;
+}
+.icon-btn:hover { color: var(--text); background: rgba(139, 155, 171, 0.12); }
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 14px;
+}
+
+.field { display: grid; gap: 5px; font-size: 13px; }
+.field > span { color: var(--muted); }
+
+.field input,
+.field select,
+.field textarea {
+  width: 100%;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 8px 10px;
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+}
+
+.field textarea {
+  font-family: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+  font-size: 12px;
+  resize: vertical;
+}
+
+.field input:focus,
+.field select:focus,
+.field textarea:focus {
+  outline: none;
+  border-color: rgba(255, 45, 85, 0.7);
+  box-shadow: 0 0 0 3px rgba(255, 45, 85, 0.12);
+}
+
+.field input:disabled { opacity: 0.55; cursor: not-allowed; }
+
+.hint { color: var(--muted); font-size: 11px; }
+
+.check-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 22px;
+  margin: 14px 0 4px;
+}
+
+.check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.check input { accent-color: var(--accent); width: 15px; height: 15px; }
+
+.advanced {
+  margin-top: 14px;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+
+.advanced summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 13px;
+  user-select: none;
+}
+
+.advanced .form-grid { margin-top: 12px; }
+
+.form-sections { display: grid; gap: 16px; }
+
+fieldset {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px;
+  margin: 0;
+}
+
+legend {
+  padding: 0 6px;
+  color: var(--muted);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+}
+
+.form-error {
+  margin: 14px 0 0;
+  padding: 9px 12px;
+  border-radius: 9px;
+  border: 1px solid rgba(255, 77, 79, 0.5);
+  background: rgba(255, 77, 79, 0.1);
+  color: #ffb3b4;
+  font-size: 13px;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.danger-text { color: #ffb3b4; }
+
+.paths {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 12px;
+  margin: 14px 0 0;
+  font-size: 11px;
+}
+.paths dt { color: var(--muted); }
+.paths dd {
+  margin: 0;
+  font-family: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 640px) {
+  .modal form { padding: 16px; }
+  .modal-actions { flex-direction: column-reverse; }
+  .modal-actions .btn { width: 100%; }
+}

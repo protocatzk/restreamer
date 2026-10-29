@@ -14,8 +14,10 @@ Restream einzelner TikTok-Live-Streamer auf YouTube – aufgelöst mit **yt-dlp*
 - Automatische H.264-Bevorzugung; Re-Encode-Fallback für HEVC-Quellen
 - yt-dlp löst die HLS-URL bei jedem Reconnect neu auf (TikTok-URLs laufen ab)
 - Offline-Polling, Reconnect-Backoff 5 s → 5 min, Watch-Modus
-- Web-Dashboard mit Status, Start/Stop/Switch und Log-Tail
-- TikTok-Cookie wird beim Start aus `TIKTOK_SESSION_ID` erzeugt
+- Web-Dashboard mit Status, Start/Stop/Switch, Log-Tail
+- Streamer komplett im Dashboard anlegen, bearbeiten und löschen
+- Alle Einstellungen und Secrets (YouTube-Keys, TikTok-Cookie, Passwort) im Dashboard pflegen
+- TikTok-Cookie wird beim Start aus `TIKTOK_SESSION_ID` oder den Dashboard-Einstellungen erzeugt
 - Docker-Compose, Healthcheck, non-root, nur an `127.0.0.1` gebunden
 - Tests und CI (ruff + pytest + Docker-Build)
 
@@ -26,10 +28,12 @@ git clone git@github.com:protocatzk/restreamer.git
 cd restreamer
 
 cp .env.example .env
-cp config/streamers.example.yml config/streamers.yml
 
-# .env: TIKTOK_SESSION_ID und die YouTube-Keys eintragen
-# config/streamers.yml: Streamer anpassen
+# Optional: Streamer lieber per YAML pflegen?
+# cp config/streamers.example.yml config/streamers.yml
+
+# .env: TIKTOK_SESSION_ID (oder im Dashboard eintragen)
+# Streamer und Einstellungen können komplett im Dashboard gepflegt werden.
 
 docker compose up -d --build
 ```
@@ -40,6 +44,14 @@ Dashboard: <http://127.0.0.1:8000> (vom Server aus per SSH-Tunnel):
 ssh -L 8000:127.0.0.1:8000 <user>@<server>
 ```
 
+Im Dashboard:
+
+1. **Einstellungen** → TikTok-Session-ID und ggf. YouTube-Optionen eintragen.
+2. **+ Streamer** → ID, Name, TikTok-Handle und YouTube-Key eintragen.
+3. **Starten**.
+
+Alternativ funktioniert weiterhin die manuelle Pflege von `config/streamers.yml` und `.env`.
+
 ## Konfiguration
 
 ### `config/streamers.yml`
@@ -49,7 +61,7 @@ streamers:
   - id: alice
     name: Alice
     tiktok: alice                 # Handle oder https://www.tiktok.com/@alice/live
-    youtube_key_env: ALICE_YT_KEY # Name der Variable in .env
+    youtube_key: xxxx-xxxx-xxxx   # ODER youtube_key_env: ALICE_YT_KEY
     video_mode: copy              # copy | reencode
     auto_start: false             # beim Containerstart automatisch starten
     enabled: true
@@ -60,39 +72,59 @@ streamers:
 | `id` | ja | Eindeutig, `a-z 0-9 _ -`, max. 64 Zeichen |
 | `name` | ja | Anzeigename im Dashboard |
 | `tiktok` | ja | TikTok-Handle oder Live-URL |
-| `youtube_key_env` | ja | Env-Variable mit dem festen YouTube-Key |
+| `youtube_key` | ja* | Fester YouTube-Key, wird im Dashboard verwaltet |
+| `youtube_key_env` | ja* | Alternative: Name der Env-Variable mit dem Key |
 | `video_mode` | nein | `copy` (Default) oder `reencode` |
 | `auto_start` | nein | Beim Start des Containers automatisch starten |
 | `enabled` | nein | Streamer im Dashboard deaktivieren |
 | `ytdlp_args` | nein | Zusätzliche yt-dlp-Argumente (Liste) |
 | `ffmpeg_args` | nein | Zusätzliche ffmpeg-Argumente (Liste) |
 
-Die Datei ist gitignored. Änderungen werden automatisch per mtime erkannt; alternativ „Config neu laden“ im Dashboard.
+\* Mindestens `youtube_key` oder `youtube_key_env` muss gesetzt sein.
+
+Die Datei ist gitignored und wird vom Dashboard atomar mit Dateimodus `600` geschrieben. Änderungen werden automatisch per mtime erkannt; alternativ „Config neu laden“ im Dashboard.
 
 ### `.env`
 
 ```dotenv
 TIKTOK_SESSION_ID=...        # sessionid-Cookie von tiktok.com
-ALICE_YT_KEY=xxxx-xxxx-...   # YouTube-Stream-Key
-BOB_YT_KEY=yyyy-yyyy-...
-DASHBOARD_PASSWORD=...       # optional, empfohlen bei öffentlichem Zugriff
-YOUTUBE_BACKUP=false         # true = zusätzlich YouTube-Backup-RTMP
+ALICE_YT_KEY=xxxx-xxxx-...   # optional, falls youtube_key_env genutzt wird
+DASHBOARD_PASSWORD=...       # optional
+YOUTUBE_BACKUP=false
 ```
 
 Alle Optionen sind in [`.env.example`](.env.example) dokumentiert.
 
+**Priorität:** Werte, die im Dashboard gespeichert werden, landen in `config/settings.yml` und überschreiben die entsprechenden `.env`-Werte. Die Datei ist gitignored und hat Modus `600`. Wenn du wieder ausschließlich `.env` nutzen willst, `config/settings.yml` löschen und den Container neu starten.
+
+### Dashboard-Einstellungen
+
+Über **Einstellungen** im Dashboard lassen sich alle Laufzeitwerte pflegen:
+
+- TikTok-Session-ID und Target IDC (Cookie wird sofort neu geschrieben)
+- YouTube-RTMP-URL und Backup-RTMP
+- Offline-Poll, Backoff, Auto-Start, Reencode-Fallback
+- ffmpeg Log-Level, Audio-/Video-Bitrate
+- Dashboard-Passwort
+- Binärpfade, Timeouts, Log-Puffer, yt-dlp-Extra-Argumente
+
+Secrets werden nie im Klartext an den Browser zurückgegeben; die API meldet nur, ob ein Wert gesetzt ist. Leere Passwort-/Cookie-Felder bedeuten „unverändert“. Zum Entfernen gibt es eigene Checkboxen.
+
 ### YouTube-Key
 
-YouTube Studio → **Live** → Stream-Einstellungen → **Stream-Key** kopieren. Der Key gehört in `.env`, nie in die YAML oder ins Repository. Alternativ akzeptiert `build_youtube_urls` auch eine vollständige RTMP-URL als Key.
+YouTube Studio → **Live** → Stream-Einstellungen → **Stream-Key** kopieren. Der Key kann direkt im Streamer-Dialog des Dashboards hinterlegt oder über `youtube_key_env` aus einer Env-Variable gelesen werden. Er wird nie über die API ausgeliefert. Alternativ akzeptiert `build_youtube_urls` auch eine vollständige RTMP-URL als Key.
 
 ### TikTok-Cookies
 
-Ohne Session-Cookie verweigert TikTok die Extraktion häufig. `TIKTOK_SESSION_ID` ist der Wert des `sessionid`-Cookies aus dem eingeloggten Browser. Der Entrypoint erzeugt daraus `/app/data/cookies.txt`.
+Ohne Session-Cookie verweigert TikTok die Extraktion häufig. `TIKTOK_SESSION_ID` ist der Wert des `sessionid`-Cookies aus dem eingeloggten Browser. Du kannst ihn im Dashboard unter **Einstellungen** oder in `.env` hinterlegen; die App erzeugt daraus `/app/data/cookies.txt`.
 
-Eine eigene `data/cookies.txt` (Netscape-Format, z. B. per Browser-Export) wird bevorzugt und nicht überschrieben.
+Eine eigene `data/cookies.txt` (Netscape-Format, z. B. per Browser-Export) funktioniert ebenfalls, solange keine Session-ID in den Einstellungen gesetzt ist.
 
 ## Bedienung
 
+- **+ Streamer**: ID, Name, TikTok-Handle und YouTube-Key eintragen; optional Key-Env-Name, Video-Modus und Zusatzargumente.
+- **Bearbeiten**: Werte ändern; ein leeres Key-Feld behält den gespeicherten Key. „Gespeicherten Key entfernen“ löscht ihn.
+- **Löschen**: nur möglich, wenn der Streamer nicht gerade aktiv ist.
 - **Starten**: löst den Stream auf und startet ffmpeg. Ist der Streamer offline, wird im Watch-Modus weiter gepollt.
 - **Stoppen**: SIGINT an ffmpeg, danach SIGTERM/SIGKILL als Fallback.
 - **Wechseln**: beendet den aktiven Stream und startet den ausgewählten Streamer.
@@ -104,6 +136,11 @@ Eine eigene `data/cookies.txt` (Netscape-Format, z. B. per Browser-Export) wird 
 | :--- | :--- | :--- |
 | `GET` | `/healthz` | Healthcheck (ohne Auth) |
 | `GET` | `/api/status` | Status + Streamerliste |
+| `GET` | `/api/settings` | Einstellungen (Secrets maskiert) |
+| `PUT` | `/api/settings` | Einstellungen speichern |
+| `POST` | `/api/streamers` | Streamer anlegen |
+| `PUT` | `/api/streamers/{id}` | Streamer bearbeiten |
+| `DELETE` | `/api/streamers/{id}` | Streamer löschen |
 | `POST` | `/api/streamers/{id}/start` | Start (Body optional `{"watch": true}`) |
 | `POST` | `/api/streamers/{id}/stop` | Aktiven Stream stoppen |
 | `POST` | `/api/streamers/{id}/switch` | Aktiven Stream ersetzen |
@@ -165,8 +202,9 @@ Logs: `logs/<streamer>-<zeitstempel>.log` auf dem Host, zusätzlich im Dashboard
 ## Sicherheit
 
 - Dashboard standardmäßig nur auf `127.0.0.1:8000`.
-- `DASHBOARD_PASSWORD` aktiviert HTTP-Basic-Auth (Benutzername beliebig).
-- `.env`, `config/streamers.yml`, `data/` und `logs/` sind gitignored.
+- `DASHBOARD_PASSWORD` (oder das Dashboard-Feld) aktiviert HTTP-Basic-Auth (Benutzername beliebig).
+- `.env`, `config/streamers.yml`, `config/settings.yml`, `data/` und `logs/` sind gitignored.
+- `config/streamers.yml` und `config/settings.yml` werden mit Modus `600` geschrieben und enthalten Secrets (YouTube-Keys, TikTok-Cookie, Passwort).
 - Stream-Keys erscheinen in der ffmpeg-Kommandozeile (Prozessliste). Auf Mehrbenutzersystemen entsprechend absichern.
 
 ## Lizenz

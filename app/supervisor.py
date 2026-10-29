@@ -113,6 +113,13 @@ class Supervisor:
         }
 
     def _streamer_view(self, cfg: StreamerConfig) -> dict:
+        env_value = os.getenv(cfg.youtube_key_env, "").strip() if cfg.youtube_key_env else ""
+        if cfg.youtube_key:
+            key_source = "config"
+        elif env_value:
+            key_source = "env"
+        else:
+            key_source = "missing"
         return {
             "id": cfg.id,
             "name": cfg.name,
@@ -120,7 +127,9 @@ class Supervisor:
             "enabled": cfg.enabled,
             "auto_start": cfg.auto_start,
             "video_mode": cfg.video_mode,
-            "key_configured": bool(os.getenv(cfg.youtube_key_env, "").strip()),
+            "youtube_key_env": cfg.youtube_key_env,
+            "key_configured": key_source != "missing",
+            "key_source": key_source,
             "active": cfg.id == self._active_id,
         }
 
@@ -384,10 +393,15 @@ class Supervisor:
     # ---------------------------------------------------------------- utilities
 
     def _youtube_key(self, streamer: StreamerConfig) -> str:
-        key = os.getenv(streamer.youtube_key_env, "").strip()
+        if streamer.youtube_key.strip():
+            return streamer.youtube_key.strip()
+        env_name = streamer.youtube_key_env.strip()
+        key = os.getenv(env_name, "").strip() if env_name else ""
         if not key:
             raise KeyNotConfigured(
-                f"Kein YouTube-Key: Umgebungsvariable {streamer.youtube_key_env} ist leer"
+                f"Kein YouTube-Key: für {streamer.id} ist weder ein Key "
+                "hinterlegt noch die Variable "
+                f"{env_name or '(youtube_key_env)'} gesetzt"
             )
         return key
 

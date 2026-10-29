@@ -1,6 +1,7 @@
 # Secrets & runtime data
 .env
 config/streamers.yml
+config/settings.yml
 data/
 logs/
 cookies.txt

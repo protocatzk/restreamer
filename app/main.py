@@ -12,9 +12,14 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from app import __version__
+from app.cookies import write_tiktok_cookies
 from app.resolver import Resolver
-from app.settings import Settings
-from app.store import ConfigError, StreamerStore
+from app.settings import SECRET_FIELDS, Settings
+from app.store import (
+    ConfigError,
+    StreamerStore,
+    build_streamer,
+)
 from app.supervisor import (
     KeyNotConfigured,
     StreamerDisabled,
@@ -49,6 +54,16 @@ def _basic_auth_ok(header: str | None, password: str) -> bool:
     return secrets.compare_digest(provided, password)
 
 
+async def _json_object(request: Request) -> dict:
+    try:
+        payload = await request.json()
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail="Ungültiges JSON") from exc
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="JSON-Objekt erwartet")
+    return payload
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or Settings.from_env()
     store = StreamerStore(settings.streamers_file)
@@ -64,6 +79,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         logger.info("py_restream %s startet", __version__)
         if store.error:
             logger.warning("Konfigurationsfehler: %s", store.error)
+
+        if write_tiktok_cookies(
+            settings.cookies_file,
+            settings.tiktok_session_id,
+            settings.tiktok_target_idc,
+        ):
+            logger.info("cookies.txt aus den Einstellungen geschrieben")
 
         if settings.auto_start:
             for candidate in store.streamers:
@@ -95,11 +117,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def basic_auth_middleware(request: Request, call_next):
         password = settings.dashboard_password
         path = request.url.path
-        if (
-            not password
-            or path in PUBLIC_PATHS
-            or path.startswith("/static/")
-        ):
+        if not password or path in PUBLIC_PATHS or path.startswith("/static/"):
             return await call_next(request)
 
         if not _basic_auth_ok(request.headers.get("authorization"), password):
@@ -132,6 +150,141 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/api/status")
     async def api_status():
         return supervisor.status()
+
+    # ------------------------------------------------------------- Einstellungen
+
+    @app.get("/api/settings")
+    async def api_get_settings():
+        return settings.to_public_dict()
+
+    @app.put("/api/settings")
+    async def api_put_settings(request: Request):
+        payload = await _json_object(request)
+
+        clear_password = bool(payload.pop("clear_dashboard_password", False))
+        clear_session = bool(payload.pop("clear_tiktok_session", False))
+
+        updates = dict(payload)
+        for field in SECRET_FIELDS:
+            if field not in updates or not str(updates.get(field) or "").strip():
+                updates.pop(field, None)
+        if clear_password:
+            updates["dashboard_password"] = ""
+        if clear_session:
+            updates["tiktok_session_id"] = ""
+
+        try:
+            candidate = settings.updated(updates)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        try:
+            candidate.save_runtime()
+        except OSError as exc:
+            raise HTTPException(
+                status_code=500, detail=f"Einstellungen nicht speicherbar: {exc}"
+            ) from exc
+
+        settings.apply_from(candidate)
+
+        if clear_session and settings.cookies_file.exists():
+            try:
+                settings.cookies_file.unlink()
+            except OSError:
+                logger.warning("cookies.txt konnte nicht gelöscht werden")
+
+        if write_tiktok_cookies(
+            settings.cookies_file,
+            settings.tiktok_session_id,
+            settings.tiktok_target_idc,
+        ):
+            logger.info("cookies.txt nach Einstellungsänderung neu geschrieben")
+
+        return settings.to_public_dict()
+
+    # ------------------------------------------------------------------ Streamer
+
+    @app.post("/api/streamers", status_code=201)
+    async def api_create_streamer(request: Request):
+        payload = await _json_object(request)
+        try:
+            streamer = build_streamer(payload)
+        except ConfigError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        if store.get(streamer.id) is not None:
+            raise HTTPException(
+                status_code=409, detail=f"Streamer-ID existiert bereits: {streamer.id}"
+            )
+
+        try:
+            store.upsert(streamer)
+        except ConfigError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except OSError as exc:
+            raise HTTPException(
+                status_code=500, detail=f"Konfiguration nicht speicherbar: {exc}"
+            ) from exc
+
+        return {"ok": True, "streamers": [cfg.id for cfg in store.streamers]}
+
+    @app.put("/api/streamers/{streamer_id}")
+    async def api_update_streamer(streamer_id: str, request: Request):
+        existing = store.get(streamer_id)
+        if existing is None:
+            raise HTTPException(status_code=404, detail="Streamer nicht gefunden")
+
+        payload = await _json_object(request)
+        try:
+            streamer = build_streamer(payload, existing=existing)
+        except ConfigError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        status = supervisor.status()
+        if status["active"] == streamer_id and streamer.id != streamer_id:
+            raise HTTPException(
+                status_code=409,
+                detail="Aktiven Streamer zuerst stoppen, bevor die ID geändert wird",
+            )
+        if streamer.id != streamer_id and store.get(streamer.id) is not None:
+            raise HTTPException(
+                status_code=409, detail=f"Streamer-ID existiert bereits: {streamer.id}"
+            )
+
+        try:
+            store.upsert(streamer, original_id=streamer_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Streamer nicht gefunden") from exc
+        except ConfigError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except OSError as exc:
+            raise HTTPException(
+                status_code=500, detail=f"Konfiguration nicht speicherbar: {exc}"
+            ) from exc
+
+        return {"ok": True, "streamers": [cfg.id for cfg in store.streamers]}
+
+    @app.delete("/api/streamers/{streamer_id}")
+    async def api_delete_streamer(streamer_id: str):
+        if store.get(streamer_id) is None:
+            raise HTTPException(status_code=404, detail="Streamer nicht gefunden")
+        if supervisor.status()["active"] == streamer_id:
+            raise HTTPException(
+                status_code=409, detail="Aktiven Streamer zuerst stoppen"
+            )
+
+        try:
+            store.delete(streamer_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Streamer nicht gefunden") from exc
+        except OSError as exc:
+            raise HTTPException(
+                status_code=500, detail=f"Konfiguration nicht speicherbar: {exc}"
+            ) from exc
+
+        return {"ok": True, "streamers": [cfg.id for cfg in store.streamers]}
+
+    # -------------------------------------------------------------------- Control
 
     @app.post("/api/streamers/{streamer_id}/start")
     async def api_start(streamer_id: str, request: Request):

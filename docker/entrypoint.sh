@@ -26,7 +26,7 @@ if [ -n "${TIKTOK_SESSION_ID:-}" ] && [ ! -s "$COOKIES_FILE" ]; then
 elif [ -s "$COOKIES_FILE" ]; then
     echo "[entrypoint] vorhandene cookies.txt wird verwendet"
 else
-    echo "[entrypoint] WARNUNG: keine TikTok-Cookies konfiguriert (TIKTOK_SESSION_ID leer)"
+    echo "[entrypoint] kein TikTok-Cookie in der Umgebung – ggf. im Dashboard hinterlegen"
 fi
 
 if [ ! -f "$STREAMERS_FILE" ]; then
