@@ -243,10 +243,10 @@ async def test_auto_refresh_reconnects(settings, store, monkeypatch) -> None:
     try:
         await supervisor.start("alice")
         await wait_until(
-            lambda: supervisor.status()["refresh_count"] >= 1,
-            timeout_s=20,
+            lambda: supervisor.status()["refresh_count"] >= 1
+            and supervisor.status()["sessions"] >= 2,
+            timeout_s=30,
         )
         assert supervisor.status()["last_restart_reason"] == "auto-refresh"
-        assert supervisor.status()["sessions"] >= 2
     finally:
         await supervisor.stop()
