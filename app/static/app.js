@@ -68,6 +68,22 @@ function renderStatus(status) {
   $("active-pid").textContent = status.pid ? String(status.pid) : "–";
   $("active-sessions").textContent = String(status.sessions || 0);
   $("cookies-state").textContent = status.cookies_configured ? "vorhanden" : "fehlen";
+  const progressAge = status.progress_age_seconds;
+  const speed = status.progress_speed;
+  $("progress-age").textContent =
+    progressAge == null
+      ? "–"
+      : `${Math.round(progressAge)} s${speed ? ` · ${speed}` : ""}`;
+  if (status.auto_refresh_minutes === 0) {
+    $("next-refresh").textContent = "aus";
+  } else if (status.next_refresh_in_seconds == null) {
+    $("next-refresh").textContent = "–";
+  } else {
+    const total = Math.max(0, Math.round(status.next_refresh_in_seconds));
+    const minutes = Math.floor(total / 60);
+    const seconds = String(total % 60).padStart(2, "0");
+    $("next-refresh").textContent = `${minutes}:${seconds}`;
+  }
 
   if (status.config_error) {
     setBanner(`Konfigurationsfehler: ${status.config_error}`, "error");
@@ -120,6 +136,12 @@ function renderStreamers(status) {
     if (streamer.key_source === "config") badges.append(badge("Key gespeichert", "ok"));
     else if (streamer.key_source === "env") badges.append(badge("Key aus ENV", "ok"));
     else badges.append(badge("Key fehlt", "error"));
+    if (streamer.active && status.refresh_count) {
+      badges.append(badge(`Refreshes: ${status.refresh_count}`));
+    }
+    if (streamer.active && status.stall_count) {
+      badges.append(badge(`Stalls: ${status.stall_count}`, "warn"));
+    }
     card.append(badges);
 
     const actions = document.createElement("div");

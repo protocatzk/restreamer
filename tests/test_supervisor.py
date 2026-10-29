@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
+from dataclasses import replace
 
 import pytest
 
@@ -43,7 +44,7 @@ async def spawn_sleep(args: list[str]) -> asyncio.subprocess.Process:
         "sleep",
         "60",
         stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.STDOUT,
+        stderr=asyncio.subprocess.PIPE,
         start_new_session=True,
     )
 
@@ -174,14 +175,78 @@ class FakeStdout:
 
 class FakeOutputProcess:
     def __init__(self, chunks: list[bytes]) -> None:
-        self.stdout = FakeStdout(chunks)
+        self.stderr = FakeStdout(chunks)
+        self.stdout = FakeStdout([])
 
 
-async def test_pump_splits_progress_on_carriage_return(settings, store) -> None:
+async def test_pump_logs_splits_progress_on_carriage_return(settings, store) -> None:
     supervisor = Supervisor(
         settings, store, FakeResolver(OFFLINE), spawn=spawn_sleep
     )
 
-    await supervisor._pump(FakeOutputProcess([b"frame= 1\rframe= 2\nrest"]))
+    await supervisor._pump_logs(FakeOutputProcess([b"frame= 1\rframe= 2\nrest"]))
 
     assert supervisor._log.tail(10) == ["frame= 1", "frame= 2", "rest"]
+
+
+async def test_pump_progress_updates_progress_state(settings, store) -> None:
+    supervisor = Supervisor(
+        settings, store, FakeResolver(OFFLINE), spawn=spawn_sleep
+    )
+    process = FakeOutputProcess([])
+    process.stdout = FakeStdout(
+        [b"out_time_us=1000000\ntotal_size=5000\nspeed=1.01x\n"]
+    )
+
+    await supervisor._pump_progress(process)
+
+    assert supervisor._last_out_time_us == 1_000_000
+    assert supervisor._last_total_size == 5000
+    assert supervisor._progress_out_time_us == 1_000_000
+    assert supervisor._progress_speed == "1.01x"
+    assert supervisor._last_progress_monotonic is not None
+
+
+async def test_stall_triggers_restart(settings, store, monkeypatch) -> None:
+    monkeypatch.setenv("ALICE_YT_KEY", "alice-key")
+    quick = replace(
+        settings,
+        stall_timeout_seconds=2,
+        watchdog_interval_seconds=2,
+        auto_refresh_minutes=0,
+        backoff_initial_seconds=1,
+    )
+    supervisor = Supervisor(quick, store, FakeResolver(LIVE), spawn=spawn_sleep)
+
+    try:
+        await supervisor.start("alice")
+        await wait_until(
+            lambda: supervisor.status()["stall_count"] >= 1,
+            timeout_s=15,
+        )
+        assert supervisor.status()["last_restart_reason"] == "stall"
+    finally:
+        await supervisor.stop()
+
+
+async def test_auto_refresh_reconnects(settings, store, monkeypatch) -> None:
+    monkeypatch.setenv("ALICE_YT_KEY", "alice-key")
+    quick = replace(
+        settings,
+        auto_refresh_minutes=0.05,
+        stall_timeout_seconds=60,
+        watchdog_interval_seconds=2,
+        backoff_initial_seconds=1,
+    )
+    supervisor = Supervisor(quick, store, FakeResolver(LIVE), spawn=spawn_sleep)
+
+    try:
+        await supervisor.start("alice")
+        await wait_until(
+            lambda: supervisor.status()["refresh_count"] >= 1,
+            timeout_s=20,
+        )
+        assert supervisor.status()["last_restart_reason"] == "auto-refresh"
+        assert supervisor.status()["sessions"] >= 2
+    finally:
+        await supervisor.stop()

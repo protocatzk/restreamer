@@ -12,7 +12,9 @@ Restream einzelner TikTok-Live-Streamer auf YouTube – aufgelöst mit **yt-dlp*
 - Ein aktiver Stream, Wechsel per Klick (alter Prozess wird sauber beendet)
 - Video-Copy → kaum CPU-Last; Audio wird für YouTube nach AAC gewandelt
 - Automatische H.264-Bevorzugung; Re-Encode-Fallback für HEVC-Quellen
-- yt-dlp löst die HLS-URL bei jedem Reconnect neu auf (TikTok-URLs laufen ab)
+- yt-dlp löst die HLS-/FLV-URL bei jedem Reconnect neu auf (TikTok-URLs laufen ab)
+- **Auto-Refresh** alle 20 Minuten (einstellbar) mit vorab aufgelöster URL – verhindert Artefakte durch langlebige RTMP-Sessions
+- **Stall-Watchdog**: 30 s ohne Fortschritt → automatischer Neustart
 - Offline-Polling, Reconnect-Backoff 5 s → 5 min, Watch-Modus
 - Web-Dashboard mit Status, Start/Stop/Switch, Log-Tail
 - Streamer komplett im Dashboard anlegen, bearbeiten und löschen
@@ -103,7 +105,8 @@ Alle Optionen sind in [`.env.example`](.env.example) dokumentiert.
 
 - TikTok-Session-ID und Target IDC (Cookie wird sofort neu geschrieben)
 - YouTube-RTMP-URL und Backup-RTMP
-- Offline-Poll, Backoff, Auto-Start, Reencode-Fallback
+- Offline-Poll, Backoff, **Auto-Refresh-Intervall**, **Stall-Timeout**, **Watchdog-Intervall**
+- Auto-Start, Reencode-Fallback
 - ffmpeg Log-Level, Audio-/Video-Bitrate
 - Dashboard-Passwort
 - Binärpfade, Timeouts, Log-Puffer, yt-dlp-Extra-Argumente
@@ -126,6 +129,8 @@ Eine eigene `data/cookies.txt` (Netscape-Format, z. B. per Browser-Export) funkt
 - **Bearbeiten**: Werte ändern; ein leeres Key-Feld behält den gespeicherten Key. „Gespeicherten Key entfernen“ löscht ihn.
 - **Löschen**: nur möglich, wenn der Streamer nicht gerade aktiv ist.
 - **Starten**: löst den Stream auf und startet ffmpeg. Ist der Streamer offline, wird im Watch-Modus weiter gepollt.
+- **Auto-Refresh**: Alle `auto_refresh_minutes` (Default 20, `0` = aus) wird die TikTok-URL im Hintergrund neu aufgelöst und ffmpeg mit frischer Verbindung neu gestartet. Das behebt YouTube-Artefakte, die sich bei langen RTMP-Sessions einschleichen. Der Stream buffert dabei kurz, geht aber nicht offline.
+- **Stall-Watchdog**: 30 s ohne Fortschritt bei `out_time`/`total_size` → Neustart. Einstellbar über `stall_timeout_seconds`.
 - **Stoppen**: SIGINT an ffmpeg, danach SIGTERM/SIGKILL als Fallback.
 - **Wechseln**: beendet den aktiven Stream und startet den ausgewählten Streamer.
 - **Log**: letzte 400 Zeilen, aktualisiert alle 1,5 s.
@@ -194,6 +199,7 @@ Tests laufen ohne ffmpeg/yt-dlp (gemockt). Der Docker-Build installiert beides.
 | Problem | Ursache / Lösung |
 | :--- | :--- |
 | Streamer „offline“, obwohl live | yt-dlp-Fallback auf die deprecated `api/live/detail`-API. Der Container nutzt dafür `YTDLP_BIN=yt-dlp-live` (Wrapper in `app/ytdlp_wrapper.py`). Prüfen: `docker exec py_restream which yt-dlp-live`. |
+| YouTube-Artefakte nach längerer Laufzeit | Auto-Refresh baut die RTMP-Session regelmäßig neu auf (`auto_refresh_minutes`, Default 20). Bei Bedarf auf 15 senken. |
 | `yt-dlp Fehler (rc=1): ... 403` | Cookies fehlen/abgelaufen → TikTok-Cookie im Dashboard erneuern |
 | ffmpeg bricht mit Codec-Fehler ab | HEVC-Quelle → `video_mode: reencode` oder Fallback aktiv lassen |
 | YouTube meldet „No data“ | Key falsch, oder Video-Codec nicht unterstützt → Log prüfen |

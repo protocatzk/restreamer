@@ -46,6 +46,14 @@
         <span class="label">Cookies</span>
         <strong id="cookies-state">–</strong>
       </div>
+      <div>
+        <span class="label">Fortschritt</span>
+        <strong id="progress-age">–</strong>
+      </div>
+      <div>
+        <span class="label">Nächster Refresh</span>
+        <strong id="next-refresh">–</strong>
+      </div>
     </section>
 
     <section>
@@ -217,6 +225,18 @@
                 <option value="verbose">verbose</option>
                 <option value="debug">debug</option>
               </select>
+            </label>
+            <label class="field">
+              <span>Auto-Refresh (Minuten, 0 = aus)</span>
+              <input name="auto_refresh_minutes" type="number" min="0" step="1">
+            </label>
+            <label class="field">
+              <span>Stall-Timeout (Sekunden)</span>
+              <input name="stall_timeout_seconds" type="number" min="10" step="1">
+            </label>
+            <label class="field">
+              <span>Watchdog-Intervall (Sekunden)</span>
+              <input name="watchdog_interval_seconds" type="number" min="2" step="1">
             </label>
           </div>
           <div class="check-row">

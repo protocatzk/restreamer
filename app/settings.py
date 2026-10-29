@@ -15,6 +15,9 @@ INT_FIELDS = {
     "offline_poll_seconds",
     "backoff_initial_seconds",
     "backoff_max_seconds",
+    "auto_refresh_minutes",
+    "stall_timeout_seconds",
+    "watchdog_interval_seconds",
     "resolve_timeout_seconds",
     "terminate_timeout_seconds",
     "log_buffer_lines",
@@ -122,6 +125,9 @@ class Settings:
     offline_poll_seconds: int = 60
     backoff_initial_seconds: int = 5
     backoff_max_seconds: int = 300
+    auto_refresh_minutes: int = 20
+    stall_timeout_seconds: int = 30
+    watchdog_interval_seconds: int = 5
     auto_start: bool = False
     auto_reencode_fallback: bool = True
     ffmpeg_loglevel: str = "info"
@@ -160,6 +166,9 @@ class Settings:
             offline_poll_seconds=_env_int("OFFLINE_POLL_SECONDS", 60),
             backoff_initial_seconds=_env_int("BACKOFF_INITIAL_SECONDS", 5),
             backoff_max_seconds=_env_int("BACKOFF_MAX_SECONDS", 300),
+            auto_refresh_minutes=_env_int("AUTO_REFRESH_MINUTES", 20),
+            stall_timeout_seconds=_env_int("STALL_TIMEOUT_SECONDS", 30),
+            watchdog_interval_seconds=_env_int("WATCHDOG_INTERVAL_SECONDS", 5),
             auto_start=_env_bool("AUTO_START", False),
             auto_reencode_fallback=_env_bool("AUTO_REENCODE_FALLBACK", True),
             ffmpeg_loglevel=os.getenv("FFMPEG_LOGLEVEL", "info"),
@@ -219,6 +228,20 @@ class Settings:
         if self.backoff_max_seconds < self.backoff_initial_seconds:
             raise ValueError(
                 "backoff_max_seconds darf nicht kleiner als backoff_initial_seconds sein"
+            )
+        if self.auto_refresh_minutes < 0:
+            raise ValueError("auto_refresh_minutes darf nicht negativ sein")
+        if not 10 <= self.stall_timeout_seconds <= 600:
+            raise ValueError(
+                "stall_timeout_seconds muss zwischen 10 und 600 liegen"
+            )
+        if not 2 <= self.watchdog_interval_seconds <= 60:
+            raise ValueError(
+                "watchdog_interval_seconds muss zwischen 2 und 60 liegen"
+            )
+        if self.watchdog_interval_seconds >= self.stall_timeout_seconds:
+            raise ValueError(
+                "watchdog_interval_seconds muss kleiner als stall_timeout_seconds sein"
             )
         if self.resolve_timeout_seconds < 5:
             raise ValueError("resolve_timeout_seconds muss mindestens 5 sein")

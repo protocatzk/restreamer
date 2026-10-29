@@ -12,7 +12,7 @@ from pathlib import Path
 
 from app.ffmpeg_cmd import build_ffmpeg_command, command_uses_reencode
 from app.logs import RingLog, redact
-from app.models import StreamerConfig, StreamState
+from app.models import ResolvedStream, StreamerConfig, StreamState
 from app.resolver import ResolveError, Resolver
 from app.settings import Settings
 from app.store import StreamerStore
@@ -51,7 +51,7 @@ async def _default_spawn(args: list[str]) -> asyncio.subprocess.Process:
     return await asyncio.create_subprocess_exec(
         *args,
         stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.STDOUT,
+        stderr=asyncio.subprocess.PIPE,
         start_new_session=True,
     )
 
@@ -89,10 +89,37 @@ class Supervisor:
         self._log_file = None
         self._log_path: Path | None = None
 
+        self._last_progress_monotonic: float | None = None
+        self._last_out_time_us = -1
+        self._last_total_size = -1
+        self._progress_out_time_us = 0
+        self._progress_speed = ""
+        self._live_started_monotonic: float | None = None
+        self._next_refresh_monotonic: float | None = None
+        self._last_refresh_at: str | None = None
+        self._refresh_count = 0
+        self._stall_count = 0
+        self._last_stall_at: str | None = None
+        self._last_restart_reason = ""
+        self._restart_reason: str | None = None
+        self._prefetched: ResolvedStream | None = None
+        self._current_stream: ResolvedStream | None = None
+
     # ------------------------------------------------------------------ status
 
     def status(self) -> dict:
         self.store.refresh()
+        now = time.monotonic()
+        progress_age = (
+            round(now - self._last_progress_monotonic, 1)
+            if self._last_progress_monotonic is not None
+            else None
+        )
+        next_refresh = (
+            max(0, int(self._next_refresh_monotonic - now))
+            if self._next_refresh_monotonic is not None
+            else None
+        )
         return {
             "active": self._active_id,
             "state": self._state.value,
@@ -109,6 +136,20 @@ class Supervisor:
             "log_file": str(self._log_path) if self._log_path else None,
             "config_error": self.store.error,
             "cookies_configured": self.settings.cookies_file.exists(),
+            "auto_refresh_minutes": self.settings.auto_refresh_minutes,
+            "next_refresh_in_seconds": next_refresh,
+            "last_refresh_at": self._last_refresh_at,
+            "refresh_count": self._refresh_count,
+            "stall_count": self._stall_count,
+            "last_stall_at": self._last_stall_at,
+            "last_restart_reason": self._last_restart_reason,
+            "progress_age_seconds": progress_age,
+            "progress_out_time_seconds": (
+                round(self._progress_out_time_us / 1_000_000, 1)
+                if self._progress_out_time_us
+                else None
+            ),
+            "progress_speed": self._progress_speed or None,
             "streamers": [self._streamer_view(cfg) for cfg in self.store.streamers],
         }
 
@@ -170,6 +211,15 @@ class Supervisor:
             self._last_error = ""
             self._sessions = 0
             self._secrets = [key]
+            self._prefetched = None
+            self._current_stream = None
+            self._restart_reason = None
+            self._last_restart_reason = ""
+            self._refresh_count = 0
+            self._stall_count = 0
+            self._last_refresh_at = None
+            self._last_stall_at = None
+            self._reset_progress()
             self._log.clear()
             self._open_log_file(streamer.id)
 
@@ -227,8 +277,21 @@ class Supervisor:
         self._title = ""
         self._started_at = None
         self._secrets = []
+        self._prefetched = None
+        self._current_stream = None
+        self._restart_reason = None
+        self._reset_progress()
         self._close_log_file()
         self._set_state(StreamState.IDLE)
+
+    def _reset_progress(self) -> None:
+        self._last_progress_monotonic = None
+        self._last_out_time_us = -1
+        self._last_total_size = -1
+        self._progress_out_time_us = 0
+        self._progress_speed = ""
+        self._live_started_monotonic = None
+        self._next_refresh_monotonic = None
 
     # ------------------------------------------------------------------- runner
 
@@ -239,19 +302,27 @@ class Supervisor:
         try:
             while not self._stop_event.is_set():
                 self._set_state(StreamState.RESOLVING)
-                try:
-                    stream = await self.resolver.resolve(streamer)
-                except ResolveError as exc:
-                    message = self._redact(str(exc))
-                    self._last_error = message
-                    self._record(f"[py_restream] Auflösung fehlgeschlagen: {message}")
-                    self._set_state(StreamState.ERROR)
-                    if not await self._sleep(backoff):
-                        break
-                    backoff = min(backoff * 2, self.settings.backoff_max_seconds)
-                    continue
+
+                prefetched = self._prefetched
+                self._prefetched = None
+                if prefetched is not None:
+                    stream = prefetched
+                    self._record("[py_restream] Nutze vorab aufgelöste URL")
+                else:
+                    try:
+                        stream = await self.resolver.resolve(streamer)
+                    except ResolveError as exc:
+                        message = self._redact(str(exc))
+                        self._last_error = message
+                        self._record(f"[py_restream] Auflösung fehlgeschlagen: {message}")
+                        self._set_state(StreamState.ERROR)
+                        if not await self._sleep(backoff):
+                            break
+                        backoff = min(backoff * 2, self.settings.backoff_max_seconds)
+                        continue
 
                 if not stream.is_live:
+                    self._current_stream = None
                     self._last_error = "Streamer ist offline"
                     self._record("[py_restream] Streamer ist offline")
                     self._set_state(StreamState.OFFLINE)
@@ -263,6 +334,7 @@ class Supervisor:
 
                 self._title = stream.title
                 self._last_error = ""
+                self._current_stream = stream
                 reencode = command_uses_reencode(streamer, stream, force_reencode)
                 args = build_ffmpeg_command(
                     streamer, stream, key, self.settings, force_reencode=force_reencode
@@ -288,21 +360,69 @@ class Supervisor:
 
                 self._proc = process
                 self._sessions += 1
-                self._set_state(StreamState.LIVE)
                 started = time.monotonic()
+                self._live_started_monotonic = started
+                self._last_progress_monotonic = started
+                self._last_out_time_us = -1
+                self._last_total_size = -1
+                self._progress_out_time_us = 0
+                self._progress_speed = ""
+                self._restart_reason = None
+                self._next_refresh_monotonic = (
+                    started + self.settings.auto_refresh_minutes * 60
+                    if self.settings.auto_refresh_minutes > 0
+                    else None
+                )
+                self._set_state(StreamState.LIVE)
 
-                reader = asyncio.create_task(self._pump(process))
+                log_reader = asyncio.create_task(self._pump_logs(process))
+                progress_reader = asyncio.create_task(self._pump_progress(process))
+                watchdog = asyncio.create_task(self._watch(process, streamer))
+
                 returncode = await process.wait()
-                try:
-                    await asyncio.wait_for(reader, timeout=2)
-                except TimeoutError:
-                    reader.cancel()
-                    with suppress(asyncio.CancelledError):
-                        await reader
+
+                watchdog.cancel()
+                with suppress(asyncio.CancelledError):
+                    await watchdog
+
+                for reader in (log_reader, progress_reader):
+                    try:
+                        await asyncio.wait_for(reader, timeout=2)
+                    except TimeoutError:
+                        reader.cancel()
+                        with suppress(asyncio.CancelledError):
+                            await reader
 
                 self._proc = None
+                reason = self._restart_reason
+                self._restart_reason = None
+                self._live_started_monotonic = None
+                self._next_refresh_monotonic = None
+                self._last_progress_monotonic = None
+
                 if self._stop_event.is_set():
                     break
+
+                if reason == "auto-refresh":
+                    self._refresh_count += 1
+                    self._last_refresh_at = _utc_now_iso()
+                    self._last_restart_reason = "auto-refresh"
+                    self._record(
+                        "[py_restream] Auto-Refresh: starte mit frischer Verbindung"
+                    )
+                    backoff = self.settings.backoff_initial_seconds
+                    continue
+
+                if reason == "stall":
+                    self._stall_count += 1
+                    self._last_stall_at = _utc_now_iso()
+                    self._last_restart_reason = "stall"
+                    self._record("[py_restream] Stall erkannt – Neustart")
+                    self._set_state(StreamState.BACKOFF)
+                    if not await self._sleep(min(backoff, 10)):
+                        break
+                    backoff = min(backoff * 2, self.settings.backoff_max_seconds)
+                    continue
 
                 self._last_error = f"ffmpeg beendet (rc={returncode})"
                 self._record(f"[py_restream] ffmpeg beendet (rc={returncode})")
@@ -341,17 +461,85 @@ class Supervisor:
                 self._title = ""
                 self._started_at = None
                 self._secrets = []
+                self._prefetched = None
+                self._reset_progress()
                 self._close_log_file()
                 self._set_state(StreamState.IDLE)
                 self._task = None
 
-    async def _pump(self, process: asyncio.subprocess.Process) -> None:
-        if process.stdout is None:
+    async def _watch(
+        self,
+        process: asyncio.subprocess.Process,
+        streamer: StreamerConfig,
+    ) -> None:
+        interval = max(2, self.settings.watchdog_interval_seconds)
+        while True:
+            await asyncio.sleep(interval)
+            if self._stop_event.is_set() or process.returncode is not None:
+                return
+
+            now = time.monotonic()
+
+            if (
+                self._next_refresh_monotonic is not None
+                and now >= self._next_refresh_monotonic
+            ):
+                if await self._prefetch(streamer):
+                    self._restart_reason = "auto-refresh"
+                    self._record(
+                        "[py_restream] Auto-Refresh fällig – neue URL vorab aufgelöst"
+                    )
+                    await self._terminate(process)
+                    return
+                if self._current_stream is not None:
+                    self._prefetched = self._current_stream
+                    self._restart_reason = "auto-refresh"
+                    self._record(
+                        "[py_restream] Auto-Refresh fällig – nutze bestehende URL "
+                        "für neuen RTMP-Aufbau"
+                    )
+                    await self._terminate(process)
+                    return
+                self._next_refresh_monotonic = now + 60
+                self._record(
+                    "[py_restream] Auto-Refresh verschoben – neuer Versuch in 60s"
+                )
+
+            if (
+                self._last_progress_monotonic is not None
+                and now - self._last_progress_monotonic
+                >= self.settings.stall_timeout_seconds
+            ):
+                self._restart_reason = "stall"
+                self._record(
+                    f"[py_restream] {self.settings.stall_timeout_seconds}s ohne "
+                    "Fortschritt – Neustart"
+                )
+                await self._terminate(process)
+                return
+
+    async def _prefetch(self, streamer: StreamerConfig) -> bool:
+        try:
+            stream = await self.resolver.resolve(streamer)
+        except ResolveError as exc:
+            self._record(
+                "[py_restream] Auto-Refresh: Auflösung fehlgeschlagen: "
+                + self._redact(str(exc))
+            )
+            return False
+        if not stream.is_live:
+            self._record("[py_restream] Auto-Refresh: Quelle meldet offline")
+            return False
+        self._prefetched = stream
+        return True
+
+    async def _pump_logs(self, process: asyncio.subprocess.Process) -> None:
+        if process.stderr is None:
             return
         buffer = ""
         try:
             while True:
-                chunk = await process.stdout.read(4096)
+                chunk = await process.stderr.read(4096)
                 if not chunk:
                     break
                 buffer += chunk.decode("utf-8", errors="replace")
@@ -372,6 +560,54 @@ class Supervisor:
                 self._record(buffer.strip())
         except Exception:  # noqa: BLE001 - stream can close at any time
             pass
+
+    async def _pump_progress(self, process: asyncio.subprocess.Process) -> None:
+        if process.stdout is None:
+            return
+        buffer = ""
+        try:
+            while True:
+                chunk = await process.stdout.read(4096)
+                if not chunk:
+                    break
+                buffer += chunk.decode("utf-8", errors="replace")
+                while "\n" in buffer:
+                    line, buffer = buffer.split("\n", 1)
+                    self._handle_progress_line(line.strip())
+            if buffer.strip():
+                self._handle_progress_line(buffer.strip())
+        except Exception:  # noqa: BLE001 - stream can close at any time
+            pass
+
+    def _handle_progress_line(self, line: str) -> None:
+        if not line or "=" not in line:
+            return
+        key, _, value = line.partition("=")
+        key = key.strip()
+        value = value.strip()
+
+        if key == "out_time_us":
+            try:
+                microseconds = int(value)
+            except ValueError:
+                return
+            if microseconds > self._last_out_time_us:
+                self._last_out_time_us = microseconds
+                self._progress_out_time_us = microseconds
+                self._touch_progress()
+        elif key == "total_size":
+            try:
+                total_size = int(value)
+            except ValueError:
+                return
+            if total_size > self._last_total_size:
+                self._last_total_size = total_size
+                self._touch_progress()
+        elif key == "speed":
+            self._progress_speed = "" if value in {"", "N/A"} else value
+
+    def _touch_progress(self) -> None:
+        self._last_progress_monotonic = time.monotonic()
 
     async def _terminate(self, process: asyncio.subprocess.Process) -> None:
         if process.returncode is not None:
