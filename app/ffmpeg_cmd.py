@@ -45,6 +45,8 @@ def build_ffmpeg_command(
         settings.ffmpeg_loglevel,
         "-stats_period",
         "30",
+        "-fflags",
+        "+genpts",
         "-rw_timeout",
         "15000000",
         "-reconnect",
@@ -89,6 +91,8 @@ def build_ffmpeg_command(
         args += ["-c:v", "copy"]
 
     args += [
+        "-af",
+        "aresample=async=1:first_pts=0",
         "-c:a",
         "aac",
         "-b:a",

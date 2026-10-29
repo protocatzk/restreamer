@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 from collections.abc import Awaitable, Callable
 from contextlib import suppress
 
@@ -65,15 +66,43 @@ def is_h264(vcodec: str) -> bool:
     return codec.startswith(("avc1", "avc3", "h264"))
 
 
-def select_format(info: dict) -> tuple[str, str, int | None, bool]:
-    """Pick the best H.264 format if available, otherwise the best format.
+def _number(value: object) -> float:
+    try:
+        return float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return 0.0
 
-    Returns (url, vcodec, height, needs_reencode).
+
+def format_height(fmt: dict) -> int:
+    height = fmt.get("height")
+    if isinstance(height, (int, float)) and height > 0:
+        return int(height)
+    resolution = str(fmt.get("resolution") or "")
+    match = re.match(r"(\d+)x(\d+)", resolution)
+    if match:
+        return max(int(match.group(1)), int(match.group(2)))
+    match = re.search(r"(\d+)p", resolution)
+    return int(match.group(1)) if match else 0
+
+
+def is_audio_only(fmt: dict) -> bool:
+    if str(fmt.get("vcodec") or "").lower() == "none":
+        return True
+    if str(fmt.get("format_id") or "").lower().endswith("-ao"):
+        return True
+    return "only_audio=1" in str(fmt.get("url") or "")
+
+
+def select_format(info: dict) -> tuple[str, str, int | None, bool]:
+    """Pick the best H.264 video format if available, otherwise the best one.
+
+    Handles both HLS/DASH formats with height metadata and TikTok FLV formats
+    that only expose ``resolution`` and a quality rank.
     """
     formats = [
         fmt
         for fmt in (info.get("formats") or [])
-        if fmt.get("url") and str(fmt.get("vcodec", "")).lower() != "none"
+        if fmt.get("url") and not is_audio_only(fmt)
     ]
 
     if formats:
@@ -82,16 +111,19 @@ def select_format(info: dict) -> tuple[str, str, int | None, bool]:
         best = max(
             pool,
             key=lambda fmt: (
-                fmt.get("height") or 0,
-                fmt.get("tbr") or 0,
-                fmt.get("abr") or 0,
+                1 if format_height(fmt) else 0,
+                format_height(fmt),
+                _number(fmt.get("quality")),
+                _number(fmt.get("tbr")),
+                _number(fmt.get("abr")),
             ),
         )
         vcodec = str(best.get("vcodec") or "")
+        height = format_height(best) or None
         return (
             str(best["url"]),
             vcodec,
-            best.get("height"),
+            height,
             bool(vcodec) and not is_h264(vcodec),
         )
 
@@ -100,7 +132,8 @@ def select_format(info: dict) -> tuple[str, str, int | None, bool]:
         raise ResolveError("yt-dlp lieferte weder Formate noch eine Stream-URL")
 
     vcodec = str(info.get("vcodec") or "")
-    return str(url), vcodec, info.get("height"), bool(vcodec) and not is_h264(vcodec)
+    height = format_height(info) or None
+    return str(url), vcodec, height, bool(vcodec) and not is_h264(vcodec)
 
 
 class Resolver:

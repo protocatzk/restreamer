@@ -160,10 +160,13 @@ TikTok Live ──yt-dlp──▶ HLS-URL (H.264 bevorzugt)
 ```
 
 - `app/resolver.py` – yt-dlp-Aufruf, Formatwahl, Offline-Erkennung
+- `app/ytdlp_wrapper.py` – Workaround für TikToks deprecated Live-Detail-API (FLV-only-Streams)
 - `app/ffmpeg_cmd.py` – deterministischer ffmpeg-Command-Builder
 - `app/supervisor.py` – Single-Session-Lock, Reconnect, Backoff, Logs
 - `app/store.py` – YAML-Validierung mit Hot-Reload
 - `app/main.py` – FastAPI, Auth, Dashboard
+
+TikTok liefert bei manchen Lives **nur FLV-Formate**. yt-dlp ruft dann zusätzlich die inzwischen abgeschaltete `api/live/detail`-API auf und meldet fälschlich „not live“. Das Image startet yt-dlp deshalb über `yt-dlp-live` (`YTDLP_BIN`), das genau diesen Fehler ignoriert und die bereits gefundenen FLV-Formate behält.
 
 ### Warum Audio neu encodiert wird
 
@@ -190,8 +193,8 @@ Tests laufen ohne ffmpeg/yt-dlp (gemockt). Der Docker-Build installiert beides.
 
 | Problem | Ursache / Lösung |
 | :--- | :--- |
-| `yt-dlp Fehler (rc=1): ... 403` | Cookies fehlen/abgelaufen → `TIKTOK_SESSION_ID` erneuern |
-| Streamer „offline“, obwohl live | Handle prüfen, Cookie erneuern, `yt-dlp -J <url>` manuell testen |
+| Streamer „offline“, obwohl live | yt-dlp-Fallback auf die deprecated `api/live/detail`-API. Der Container nutzt dafür `YTDLP_BIN=yt-dlp-live` (Wrapper in `app/ytdlp_wrapper.py`). Prüfen: `docker exec py_restream which yt-dlp-live`. |
+| `yt-dlp Fehler (rc=1): ... 403` | Cookies fehlen/abgelaufen → TikTok-Cookie im Dashboard erneuern |
 | ffmpeg bricht mit Codec-Fehler ab | HEVC-Quelle → `video_mode: reencode` oder Fallback aktiv lassen |
 | YouTube meldet „No data“ | Key falsch, oder Video-Codec nicht unterstützt → Log prüfen |
 | Kein Ton auf YouTube | Quelle ohne Audiospur; ggf. `ffmpeg_args` erweitern |

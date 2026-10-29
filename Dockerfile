@@ -3,7 +3,8 @@ FROM python:3.11-slim
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    YTDLP_BIN=yt-dlp-live
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
@@ -19,6 +20,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app ./app
 COPY docker/entrypoint.sh /entrypoint.sh
+
+RUN printf '#!/bin/sh\nexec python /app/app/ytdlp_wrapper.py "$@"\n' \
+        > /usr/local/bin/yt-dlp-live \
+    && chmod 755 /usr/local/bin/yt-dlp-live
 
 RUN useradd --uid 1001 --create-home --user-group appuser \
     && mkdir -p /app/config /app/data /app/logs \

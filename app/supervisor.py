@@ -348,9 +348,28 @@ class Supervisor:
     async def _pump(self, process: asyncio.subprocess.Process) -> None:
         if process.stdout is None:
             return
+        buffer = ""
         try:
-            async for raw in process.stdout:
-                self._record(raw.decode("utf-8", errors="replace").rstrip())
+            while True:
+                chunk = await process.stdout.read(4096)
+                if not chunk:
+                    break
+                buffer += chunk.decode("utf-8", errors="replace")
+                while True:
+                    positions = [
+                        position
+                        for position in (buffer.find("\n"), buffer.find("\r"))
+                        if position >= 0
+                    ]
+                    if not positions:
+                        break
+                    index = min(positions)
+                    line = buffer[:index].strip()
+                    buffer = buffer[index + 1 :]
+                    if line:
+                        self._record(line)
+            if buffer.strip():
+                self._record(buffer.strip())
         except Exception:  # noqa: BLE001 - stream can close at any time
             pass
 

@@ -30,6 +30,8 @@ def test_copy_mode_uses_stream_copy(settings: Settings) -> None:
     assert "libx264" not in args
     assert args[-1] == "rtmp://a.rtmp.youtube.com/live2/key-123"
     assert args[args.index("-c:a") + 1] == "aac"
+    assert args[args.index("-af") + 1] == "aresample=async=1:first_pts=0"
+    assert "+genpts" in args
 
 
 def test_reencode_mode(settings: Settings) -> None:

@@ -162,3 +162,26 @@ async def test_unknown_streamer_is_rejected(settings, store) -> None:
 
     with pytest.raises(StreamerNotFound):
         await supervisor.start("nobody")
+
+
+class FakeStdout:
+    def __init__(self, chunks: list[bytes]) -> None:
+        self._chunks = iter(chunks)
+
+    async def read(self, size: int) -> bytes:
+        return next(self._chunks, b"")
+
+
+class FakeOutputProcess:
+    def __init__(self, chunks: list[bytes]) -> None:
+        self.stdout = FakeStdout(chunks)
+
+
+async def test_pump_splits_progress_on_carriage_return(settings, store) -> None:
+    supervisor = Supervisor(
+        settings, store, FakeResolver(OFFLINE), spawn=spawn_sleep
+    )
+
+    await supervisor._pump(FakeOutputProcess([b"frame= 1\rframe= 2\nrest"]))
+
+    assert supervisor._log.tail(10) == ["frame= 1", "frame= 2", "rest"]

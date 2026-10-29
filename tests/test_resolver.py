@@ -67,6 +67,58 @@ def test_select_format_hevc_only_marks_reencode() -> None:
     assert needs_reencode is True
 
 
+def test_select_format_flv_skips_audio_only_and_uses_resolution() -> None:
+    info = {
+        "formats": [
+            {
+                "url": "https://cdn/audio.flv?only_audio=1",
+                "format_id": "flv-ao",
+                "vcodec": "h264",
+                "quality": -1,
+            },
+            {
+                "url": "https://cdn/hd1.flv",
+                "format_id": "flv-hd1",
+                "vcodec": "h264",
+                "quality": 4,
+            },
+            {
+                "url": "https://cdn/hd.flv",
+                "format_id": "flv-hd",
+                "vcodec": "h264",
+                "resolution": "720x1440",
+                "quality": 5,
+                "tbr": 1000,
+            },
+            {
+                "url": "https://cdn/origin.flv",
+                "format_id": "rtmp-pull",
+                "vcodec": "h264",
+                "quality": 8,
+            },
+        ]
+    }
+    url, vcodec, height, needs_reencode = select_format(info)
+
+    assert url == "https://cdn/hd.flv"
+    assert vcodec == "h264"
+    assert height == 1440
+    assert needs_reencode is False
+
+
+def test_select_format_skips_audio_only_without_format_id() -> None:
+    info = {
+        "formats": [
+            {"url": "https://cdn/a.flv?only_audio=1", "vcodec": "h264"},
+            {"url": "https://cdn/v.flv", "vcodec": "h264", "height": 720},
+        ]
+    }
+    url, _vcodec, height, _needs_reencode = select_format(info)
+
+    assert url == "https://cdn/v.flv"
+    assert height == 720
+
+
 async def test_resolve_live(settings: Settings) -> None:
     runner = StubRunner(
         payload(
