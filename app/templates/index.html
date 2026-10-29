@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>py_restream</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">▶</span>
+      <div>
+        <h1>py_restream</h1>
+        <p class="sub">TikTok Live → YouTube · yt-dlp + ffmpeg copy</p>
+      </div>
+    </div>
+    <div class="top-status">
+      <span id="global-dot" class="dot idle"></span>
+      <span id="global-state">bereit</span>
+      <span class="version">v{{ version }}</span>
+    </div>
+  </header>
+
+  <main>
+    <div id="banner" class="banner hidden"></div>
+
+    <section class="summary">
+      <div>
+        <span class="label">Aktiver Stream</span>
+        <strong id="active-name">–</strong>
+      </div>
+      <div>
+        <span class="label">Status</span>
+        <strong id="active-state">–</strong>
+      </div>
+      <div>
+        <span class="label">PID</span>
+        <strong id="active-pid">–</strong>
+      </div>
+      <div>
+        <span class="label">Sessions</span>
+        <strong id="active-sessions">0</strong>
+      </div>
+      <div>
+        <span class="label">Cookies</span>
+        <strong id="cookies-state">–</strong>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2>Streamer</h2>
+        <div class="actions">
+          <button id="reload-btn" class="btn ghost" type="button">Config neu laden</button>
+        </div>
+      </div>
+      <div id="streamers" class="grid"></div>
+    </section>
+
+    <section id="log-section" class="log-section">
+      <div class="section-head">
+        <h2>Log <span id="log-name" class="muted"></span></h2>
+        <div class="actions">
+          <button id="log-refresh" class="btn ghost" type="button">Aktualisieren</button>
+          <button id="log-close" class="btn ghost" type="button">Schließen</button>
+        </div>
+      </div>
+      <pre id="log" class="log">Kein Streamer ausgewählt.</pre>
+    </section>
+  </main>
+
+  <footer>
+    <span>Nur für Inhalte verwenden, für die du die Rechte hast.</span>
+    {% if password_required %}<span class="muted">· Dashboard geschützt</span>{% endif %}
+  </footer>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

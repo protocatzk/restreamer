@@ -1,0 +1,21 @@
+# Kopieren nach config/streamers.yml und anpassen.
+# Die Datei ist per .gitignore vom Repository ausgeschlossen.
+#
+# youtube_key_env verweist auf eine Variable in .env, die den festen
+# YouTube-Stream-Key enthält. Keys gehören niemals in diese YAML.
+streamers:
+  - id: alice
+    name: Alice
+    tiktok: alice
+    youtube_key_env: ALICE_YT_KEY
+    video_mode: copy      # copy | reencode
+    auto_start: false     # beim Containerstart automatisch starten
+    enabled: true
+
+  - id: bob
+    name: Bob
+    tiktok: bob
+    youtube_key_env: BOB_YT_KEY
+    video_mode: copy
+    auto_start: false
+    enabled: true

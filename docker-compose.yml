@@ -1,0 +1,33 @@
+services:
+  restreamer:
+    build:
+      context: .
+    image: py-restream:local
+    container_name: py_restream
+    restart: unless-stopped
+    init: true
+    env_file:
+      - .env
+    environment:
+      TZ: ${TZ:-Europe/Berlin}
+      STREAMERS_FILE: /app/config/streamers.yml
+      LOGS_DIR: /app/logs
+      COOKIES_FILE: /app/data/cookies.txt
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - ./config:/app/config
+      - ./logs:/app/logs
+      - ./data:/app/data
+    user: "${PUID:-1001}:${PGID:-1001}"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/healthz"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

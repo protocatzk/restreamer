@@ -1,0 +1,14 @@
+.git
+.gitignore
+.github
+.env
+config/streamers.yml
+data
+logs
+tests
+__pycache__
+.pytest_cache
+.ruff_cache
+.venv
+venv
+*.md
