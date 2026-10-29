@@ -32,6 +32,12 @@ class FakeResolver:
         return self.stream
 
 
+class HangingResolver:
+    async def resolve(self, streamer) -> ResolvedStream:
+        await asyncio.sleep(3600)
+        return OFFLINE
+
+
 async def spawn_sleep(args: list[str]) -> asyncio.subprocess.Process:
     return await asyncio.create_subprocess_exec(
         "sleep",
@@ -133,6 +139,20 @@ async def test_missing_key_is_rejected(settings, store, monkeypatch) -> None:
 
     with pytest.raises(KeyNotConfigured):
         await supervisor.start("alice")
+
+
+async def test_stop_cancels_hanging_resolver(settings, store, monkeypatch) -> None:
+    monkeypatch.setenv("ALICE_YT_KEY", "alice-key")
+    supervisor = Supervisor(
+        settings, store, HangingResolver(), spawn=spawn_sleep
+    )
+
+    await supervisor.start("alice")
+    await asyncio.sleep(0.05)
+    await supervisor.stop()
+
+    assert supervisor.status()["state"] == "idle"
+    assert supervisor.status()["active"] is None
 
 
 async def test_unknown_streamer_is_rejected(settings, store) -> None:

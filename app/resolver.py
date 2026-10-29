@@ -45,6 +45,13 @@ async def run_command(args: list[str], timeout_s: int) -> CommandResult:
         with suppress(Exception):
             await process.wait()
         raise ResolveError(f"yt-dlp Timeout nach {timeout_s}s") from exc
+    except asyncio.CancelledError:
+        # Beim Wechsel/Stopp darf kein yt-dlp-Prozess zurückbleiben.
+        with suppress(ProcessLookupError):
+            process.kill()
+        with suppress(Exception):
+            await process.wait()
+        raise
 
     return CommandResult(
         returncode=process.returncode or 0,

@@ -194,13 +194,17 @@ class Supervisor:
         process = self._proc
         if process is not None and process.returncode is None:
             await self._terminate(process)
-
-        try:
-            await asyncio.wait_for(
-                asyncio.shield(task),
-                timeout=self.settings.terminate_timeout_seconds + 5,
-            )
-        except TimeoutError:
+            try:
+                await asyncio.wait_for(
+                    asyncio.shield(task),
+                    timeout=self.settings.terminate_timeout_seconds + 5,
+                )
+            except TimeoutError:
+                task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await task
+        else:
+            # Kein ffmpeg aktiv (z.B. yt-dlp läuft noch) – sofort abbrechen.
             task.cancel()
             with suppress(asyncio.CancelledError):
                 await task
