@@ -36,6 +36,9 @@ def test_index_page(settings, streamers_file) -> None:
         assert 'id="playlist-dialog"' in response.text
         assert 'id="playlist-tabs"' in response.text
         assert 'id="playlist-new-btn"' in response.text
+        assert 'id="playlist-end-mode"' in response.text
+        assert 'name="end_after_minutes"' in response.text
+        assert 'name="end_time"' in response.text
         assert 'id="channel-strip"' in response.text
 
 
@@ -269,6 +272,55 @@ def test_create_update_delete_playlists(settings, streamers_file) -> None:
 
         missing = client.delete("/api/playlists/nobody")
         assert missing.status_code == 404
+
+
+def test_create_playlist_with_end_settings(settings, streamers_file) -> None:
+    app = create_app(replace(settings, streamers_file=streamers_file))
+
+    with TestClient(app) as client:
+        created = client.post(
+            "/api/playlists",
+            json={
+                "id": "abend",
+                "name": "Abendprogramm",
+                "channels": ["alice"],
+                "end_after_minutes": 90,
+            },
+        )
+        assert created.status_code == 201
+
+        view = next(
+            item
+            for item in client.get("/api/playlists").json()["playlists"]
+            if item["id"] == "abend"
+        )
+        assert view["end_after_minutes"] == 90
+        assert view["end_time"] == ""
+        assert view["ends_at"] is None
+        assert view["end_in_seconds"] is None
+
+        switched = client.put(
+            "/api/playlists/abend", json={"end_time": "23:00"}
+        )
+        assert switched.status_code == 200
+        updated = next(
+            item
+            for item in switched.json()["playlists"]
+            if item["id"] == "abend"
+        )
+        assert updated["end_time"] == "23:00"
+        assert updated["end_after_minutes"] == 0
+
+        invalid = client.put(
+            "/api/playlists/abend", json={"end_time": "25:00"}
+        )
+        assert invalid.status_code == 400
+
+        both = client.put(
+            "/api/playlists/abend",
+            json={"end_time": "23:00", "end_after_minutes": 60},
+        )
+        assert both.status_code == 400
 
 
 def test_playlist_rejects_unknown_channel(settings, streamers_file) -> None:

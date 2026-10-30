@@ -107,6 +107,21 @@ function renderStatus(status) {
   renderStreamers(status);
 }
 
+function formatRemaining(seconds) {
+  const total = Math.max(0, Math.round(seconds));
+  if (total >= 3600) {
+    const hours = Math.floor(total / 3600);
+    const minutes = Math.floor((total % 3600) / 60);
+    return `${hours} h ${String(minutes).padStart(2, "0")} min`;
+  }
+  if (total >= 60) return `${Math.floor(total / 60)} min`;
+  return `${total} s`;
+}
+
+function formatDurationMinutes(minutes) {
+  return formatRemaining(Math.max(0, Number(minutes) || 0) * 60);
+}
+
 function renderPlaylistTabs(playlists, status) {
   const tabs = $("playlist-tabs");
   tabs.replaceChildren();
@@ -275,6 +290,21 @@ function renderPlaylist(status) {
     );
   } else {
     hints.push("Automatisches Weiterschalten ist aus.");
+  }
+  if (playlist?.mode_active && playlist?.end_in_seconds != null) {
+    hints.push(
+      `Automatisches Ende in ${formatRemaining(playlist.end_in_seconds)}${
+        playlist.end_time ? ` (täglich ${playlist.end_time} Uhr)` : ""
+      }.`
+    );
+  } else if (playlist?.end_time) {
+    hints.push(`Tägliches Ende um ${playlist.end_time} Uhr.`);
+  } else if (playlist?.end_after_minutes) {
+    hints.push(
+      `Automatisches Ende nach ${formatDurationMinutes(
+        playlist.end_after_minutes
+      )} ab Playlist-Start.`
+    );
   }
   if (playlist?.last_switch_reason) {
     hints.push(
@@ -604,6 +634,14 @@ async function deleteStreamer(streamer) {
 const playlistDialog = $("playlist-dialog");
 const playlistForm = $("playlist-form");
 
+function updatePlaylistEndMode() {
+  const mode = $("playlist-end-mode").value;
+  $("playlist-end-duration-row").hidden = mode !== "duration";
+  $("playlist-end-time-row").hidden = mode !== "time";
+}
+
+$("playlist-end-mode").addEventListener("change", updatePlaylistEndMode);
+
 function streamerInfo(id) {
   return (
     (app.status?.streamers || []).find((streamer) => streamer.id === id) ||
@@ -763,6 +801,16 @@ async function openPlaylistDialog(playlistId = null) {
   );
   elements.auto_advance.checked = playlist?.auto_advance ?? true;
   elements.wrap.checked = playlist?.wrap ?? true;
+  const endAfterMinutes = Number(playlist?.end_after_minutes || 0);
+  const hasEndTime = Boolean(playlist?.end_time);
+  elements.end_mode.value = endAfterMinutes > 0
+    ? "duration"
+    : hasEndTime
+      ? "time"
+      : "off";
+  elements.end_after_minutes.value = String(endAfterMinutes || 180);
+  elements.end_time.value = playlist?.end_time || "23:00";
+  updatePlaylistEndMode();
   elements.youtube_key_env.value = playlist?.youtube_key_env || "";
   elements.youtube_key.value = "";
   elements.clear_youtube_key.checked = false;
@@ -795,11 +843,17 @@ playlistForm.addEventListener("submit", async (event) => {
 
   const elements = playlistForm.elements;
   const editingId = app.playlistEditingId;
+  const endMode = elements.end_mode.value;
   const data = {
     name: elements.name.value.trim() || "Programm",
     advance_delay_seconds: Number(elements.advance_delay_seconds.value || 0),
     auto_advance: elements.auto_advance.checked,
     wrap: elements.wrap.checked,
+    end_time: endMode === "time" ? elements.end_time.value : "",
+    end_after_minutes:
+      endMode === "duration"
+        ? Number(elements.end_after_minutes.value || 0)
+        : 0,
     youtube_key_env: elements.youtube_key_env.value.trim(),
     channels: [...app.playlistDraft],
   };

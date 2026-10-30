@@ -237,6 +237,32 @@
         </label>
       </div>
 
+      <fieldset class="playlist-end">
+        <legend>Automatisches Ende</legend>
+        <div class="form-grid">
+          <label class="field">
+            <span>Ende</span>
+            <select name="end_mode" id="playlist-end-mode">
+              <option value="off">Kein automatisches Ende</option>
+              <option value="duration">Nach Dauer</option>
+              <option value="time">Zu Uhrzeit</option>
+            </select>
+          </label>
+          <label class="field" id="playlist-end-duration-row" hidden>
+            <span>Dauer ab Playlist-Start (Minuten)</span>
+            <input name="end_after_minutes" type="number" min="1" max="43200" step="1">
+          </label>
+          <label class="field" id="playlist-end-time-row" hidden>
+            <span>Ende täglich um (Uhrzeit)</span>
+            <input name="end_time" type="time" value="23:00">
+          </label>
+        </div>
+        <small class="hint">
+          Uhrzeit gilt in der Container-Zeitzone. Ist sie beim Start bereits vorbei,
+          wird die Playlist am nächsten Tag zur selben Zeit beendet.
+        </small>
+      </fieldset>
+
       <div class="playlist-editor">
         <div class="playlist-editor-head">
           <span>Senderreihenfolge</span>

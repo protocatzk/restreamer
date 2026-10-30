@@ -14,6 +14,8 @@ logger = logging.getLogger(__name__)
 
 ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 PLAYLIST_ADVANCE_DELAY_MAX = 60
+PLAYLIST_END_AFTER_MAX_MINUTES = 30 * 24 * 60
+PLAYLIST_END_TIME_PATTERN = re.compile(r"^(\d{1,2}):(\d{2})$")
 DEFAULT_PLAYLIST_NAME = "Programm"
 TIKTOK_HANDLE_PATTERN = re.compile(r"^[A-Za-z0-9._]{2,64}$")
 URL_HANDLE_PATTERN = re.compile(r"@([A-Za-z0-9._]+)")
@@ -52,6 +54,50 @@ def _parse_args(value: object) -> tuple[str, ...]:
     if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
         raise ConfigError("ytdlp_args/ffmpeg_args müssen Listen von Strings sein")
     return tuple(value)
+
+
+def normalize_end_time(value: object) -> str:
+    """Normalize a daily end time to ``HH:MM`` (empty means disabled)."""
+    if isinstance(value, bool):
+        raise ConfigError(f"Ungültige Endzeit {value!r} (erwartet HH:MM)")
+    if isinstance(value, int):
+        # PyYAML parses an unquoted ``23:00`` as the sexagesimal integer 1380.
+        if 0 <= value < 24 * 60:
+            hour, minute = divmod(value, 60)
+            return f"{hour:02d}:{minute:02d}"
+        raise ConfigError(
+            f"Ungültige Endzeit {value!r} (erwartet HH:MM, z. B. \"23:00\")"
+        )
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    match = PLAYLIST_END_TIME_PATTERN.match(raw)
+    if not match:
+        raise ConfigError(
+            f"Ungültige Endzeit {raw!r} (erwartet HH:MM, z. B. \"23:00\")"
+        )
+    hour = int(match.group(1))
+    minute = int(match.group(2))
+    if not 0 <= hour <= 23 or not 0 <= minute <= 59:
+        raise ConfigError(f"Ungültige Endzeit {raw!r} (erwartet 00:00–23:59)")
+    return f"{hour:02d}:{minute:02d}"
+
+
+def _parse_end_after_minutes(value: object, playlist_id: str) -> int:
+    if value is None or str(value).strip() == "":
+        return 0
+    try:
+        minutes = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ConfigError(
+            f"Senderliste {playlist_id}: end_after_minutes muss eine Ganzzahl sein"
+        ) from exc
+    if not 0 <= minutes <= PLAYLIST_END_AFTER_MAX_MINUTES:
+        raise ConfigError(
+            f"Senderliste {playlist_id}: end_after_minutes muss zwischen 0 und "
+            f"{PLAYLIST_END_AFTER_MAX_MINUTES} liegen"
+        )
+    return minutes
 
 
 def _parse_streamer(raw: dict, index: int) -> StreamerConfig:
@@ -186,6 +232,16 @@ def _parse_playlist(
             f"{PLAYLIST_ADVANCE_DELAY_MAX} liegen"
         )
 
+    end_time = normalize_end_time(raw.get("end_time"))
+    end_after_minutes = _parse_end_after_minutes(
+        raw.get("end_after_minutes"), raw_id
+    )
+    if end_time and end_after_minutes:
+        raise ConfigError(
+            f"Senderliste {raw_id}: entweder end_time oder end_after_minutes "
+            "angeben, nicht beides"
+        )
+
     return PlaylistConfig(
         id=raw_id,
         name=name,
@@ -195,6 +251,8 @@ def _parse_playlist(
         auto_advance=_parse_bool(raw.get("auto_advance"), True),
         wrap=_parse_bool(raw.get("wrap"), True),
         advance_delay_seconds=delay,
+        end_time=end_time,
+        end_after_minutes=end_after_minutes,
     )
 
 
@@ -307,6 +365,18 @@ def _validate_playlist(
         raise ConfigError(
             "Senderliste: advance_delay_seconds muss zwischen 0 und "
             f"{PLAYLIST_ADVANCE_DELAY_MAX} liegen"
+        )
+    if normalize_end_time(playlist.end_time) != playlist.end_time:
+        raise ConfigError("Senderliste: end_time muss im Format HH:MM vorliegen")
+    if not 0 <= playlist.end_after_minutes <= PLAYLIST_END_AFTER_MAX_MINUTES:
+        raise ConfigError(
+            "Senderliste: end_after_minutes muss zwischen 0 und "
+            f"{PLAYLIST_END_AFTER_MAX_MINUTES} liegen"
+        )
+    if playlist.end_time and playlist.end_after_minutes:
+        raise ConfigError(
+            "Senderliste: entweder end_time oder end_after_minutes angeben, "
+            "nicht beides"
         )
 
     known_ids = {streamer.id for streamer in streamers}
@@ -428,6 +498,16 @@ def build_playlist(
     except (TypeError, ValueError) as exc:
         raise ConfigError("advance_delay_seconds muss eine Ganzzahl sein") from exc
 
+    end_time = normalize_end_time(pick("end_time", current.end_time))
+    end_after_minutes = _parse_end_after_minutes(
+        pick("end_after_minutes", current.end_after_minutes), playlist_id
+    )
+    if end_time and end_after_minutes:
+        if "end_time" in payload and "end_after_minutes" not in payload:
+            end_after_minutes = 0
+        elif "end_after_minutes" in payload and "end_time" not in payload:
+            end_time = ""
+
     playlist = PlaylistConfig(
         id=playlist_id,
         name=name,
@@ -437,6 +517,8 @@ def build_playlist(
         auto_advance=_parse_bool(pick("auto_advance", True), True),
         wrap=_parse_bool(pick("wrap", True), True),
         advance_delay_seconds=delay,
+        end_time=end_time,
+        end_after_minutes=end_after_minutes,
     )
     _validate_playlists([playlist], streamers or [])
     return playlist
@@ -454,6 +536,10 @@ def playlist_to_document(playlist: PlaylistConfig) -> dict:
         entry["youtube_key"] = playlist.youtube_key
     if playlist.youtube_key_env:
         entry["youtube_key_env"] = playlist.youtube_key_env
+    if playlist.end_time:
+        entry["end_time"] = playlist.end_time
+    if playlist.end_after_minutes:
+        entry["end_after_minutes"] = playlist.end_after_minutes
     entry["channels"] = list(playlist.channels)
     return entry
 

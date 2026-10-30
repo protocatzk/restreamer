@@ -598,6 +598,9 @@ fieldset {
   margin: 0;
 }
 
+.playlist-end { margin-top: 14px; }
+.playlist-end .hint { display: block; margin-top: 8px; }
+
 legend {
   padding: 0 6px;
   color: var(--muted);

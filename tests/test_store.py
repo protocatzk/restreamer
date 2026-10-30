@@ -511,3 +511,137 @@ def test_legacy_playlist_is_migrated_on_save(tmp_path: Path) -> None:
     loaded, playlists = load_config(path)
     assert [streamer.id for streamer in loaded] == ["alice", "bob"]
     assert [playlist.id for playlist in playlists] == ["abend"]
+
+
+def test_playlist_end_duration_and_time_are_parsed(tmp_path: Path) -> None:
+    path = tmp_path / "streamers.yml"
+    path.write_text(
+        """
+playlists:
+  - id: abend
+    channels: [alice]
+    end_time: "9:30"
+  - id: nacht
+    channels: [alice]
+    end_after_minutes: 120
+  - id: unquoted
+    channels: [alice]
+    end_time: 23:00
+streamers:
+  - id: alice
+    name: Alice
+    tiktok: alice
+    youtube_key: alice-key
+""",
+        encoding="utf-8",
+    )
+
+    _, playlists = load_config(path)
+
+    assert playlists[0].end_time == "09:30"
+    assert playlists[0].end_after_minutes == 0
+    assert playlists[1].end_time == ""
+    assert playlists[1].end_after_minutes == 120
+    assert playlists[2].end_time == "23:00"
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("end_time", "24:00"),
+        ("end_time", "23:60"),
+        ("end_after_minutes", -1),
+        ("end_after_minutes", 43201),
+    ],
+)
+def test_playlist_invalid_end_values_rejected(
+    tmp_path: Path, field: str, value: object
+) -> None:
+    path = tmp_path / "streamers.yml"
+    path.write_text(
+        f"""
+playlists:
+  - id: abend
+    channels: [alice]
+    {field}: {value}
+streamers:
+  - id: alice
+    name: Alice
+    tiktok: alice
+    youtube_key: alice-key
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ConfigError, match="Endzeit|end_after_minutes"):
+        load_config(path)
+
+
+def test_playlist_end_fields_are_exclusive(tmp_path: Path) -> None:
+    path = tmp_path / "streamers.yml"
+    path.write_text(
+        """
+playlists:
+  - id: abend
+    channels: [alice]
+    end_time: "23:00"
+    end_after_minutes: 60
+streamers:
+  - id: alice
+    name: Alice
+    tiktok: alice
+    youtube_key: alice-key
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ConfigError, match="nicht beides"):
+        load_config(path)
+
+
+def test_build_playlist_switches_end_variant() -> None:
+    streamers = [
+        StreamerConfig(id="alice", name="Alice", tiktok="alice", youtube_key="a")
+    ]
+    playlist = build_playlist(
+        {"channels": ["alice"], "end_after_minutes": 90},
+        streamers=streamers,
+    )
+
+    assert playlist.end_after_minutes == 90
+    assert playlist.end_time == ""
+
+    switched = build_playlist(
+        {"end_time": "22:15"},
+        existing=playlist,
+        streamers=streamers,
+    )
+    assert switched.end_time == "22:15"
+    assert switched.end_after_minutes == 0
+
+    cleared = build_playlist(
+        {"end_time": "", "end_after_minutes": 0},
+        existing=switched,
+        streamers=streamers,
+    )
+    assert cleared.end_time == ""
+    assert cleared.end_after_minutes == 0
+
+
+def test_playlist_end_roundtrip_in_yaml(tmp_path: Path) -> None:
+    path = tmp_path / "streamers.yml"
+    store = StreamerStore(path)
+    streamers = [
+        StreamerConfig(id="alice", name="Alice", tiktok="alice", youtube_key="a")
+    ]
+    playlist = PlaylistConfig(
+        id="abend",
+        name="Abend",
+        channels=("alice",),
+        end_time="23:00",
+    )
+
+    store.save(streamers, [playlist])
+
+    _, loaded = load_config(path)
+    assert loaded == [playlist]

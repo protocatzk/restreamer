@@ -44,6 +44,8 @@ class PlaylistConfig:
     auto_advance: bool = True
     wrap: bool = True
     advance_delay_seconds: int = 2
+    end_time: str = ""
+    end_after_minutes: int = 0
 
 
 @dataclass(frozen=True)

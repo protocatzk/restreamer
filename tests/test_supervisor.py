@@ -1,14 +1,21 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from collections.abc import Callable
 from dataclasses import replace
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from app.models import ResolvedStream
+from app.models import PlaylistConfig, ResolvedStream
 from app.store import StreamerStore
-from app.supervisor import KeyNotConfigured, StreamerNotFound, Supervisor
+from app.supervisor import (
+    KeyNotConfigured,
+    StreamerNotFound,
+    Supervisor,
+    playlist_end_deadline,
+)
 
 CONFIG = """
 streamers:
@@ -768,5 +775,99 @@ async def test_auto_advance_stays_inside_active_playlist(settings) -> None:
         assert status["active_playlist"] == "abend"
         assert resolver.calls == ["alice", "bob"]
         assert playlist_view(status, "abend")["switch_count"] == 1
+    finally:
+        await supervisor.stop()
+
+
+def test_playlist_end_deadline_duration() -> None:
+    now = datetime(2026, 10, 30, 20, 0, tzinfo=UTC)
+    playlist = PlaylistConfig(end_after_minutes=90)
+
+    assert playlist_end_deadline(playlist, now) == now + timedelta(minutes=90)
+
+
+def test_playlist_end_deadline_daily_time() -> None:
+    playlist = PlaylistConfig(end_time="23:00")
+    evening = datetime(2026, 10, 30, 20, 0, tzinfo=UTC)
+    late = datetime(2026, 10, 30, 23, 30, tzinfo=UTC)
+
+    assert playlist_end_deadline(playlist, evening) == datetime(
+        2026, 10, 30, 23, 0, tzinfo=UTC
+    )
+    assert playlist_end_deadline(playlist, late) == datetime(
+        2026, 10, 31, 23, 0, tzinfo=UTC
+    )
+    assert playlist_end_deadline(PlaylistConfig(), evening) is None
+
+
+async def test_playlist_end_stops_the_stream(settings) -> None:
+    body = PLAYLIST_PER_KEY.replace(
+        "advance_delay_seconds: 0",
+        "advance_delay_seconds: 0\n  end_after_minutes: 60",
+    )
+    store = make_store(settings, body)
+    supervisor = Supervisor(
+        settings, store, FakeResolver(LIVE), spawn=SequenceSpawn()
+    )
+
+    try:
+        await supervisor.playlist_play("main")
+        await wait_until(lambda: supervisor.status()["state"] == "live")
+
+        playlist = store.playlist("main")
+        await supervisor._cancel_playlist_end()
+        ends_at = datetime.now(UTC).isoformat(timespec="seconds")
+        deadline = time.monotonic() + 0.05
+        supervisor._playlist_end_at = ends_at
+        supervisor._playlist_end_at_monotonic = deadline
+        supervisor._start_playlist_end(
+            playlist,
+            supervisor._session_token,
+            keep_at=ends_at,
+            keep_monotonic=deadline,
+        )
+
+        await wait_until(
+            lambda: supervisor.status()["state"] == "idle", timeout_s=5
+        )
+        status = supervisor.status()
+        assert status["active"] is None
+        assert status["active_playlist"] is None
+    finally:
+        await supervisor.stop()
+
+
+async def test_manual_step_keeps_playlist_end_deadline(settings) -> None:
+    body = PLAYLIST_PER_KEY.replace(
+        "advance_delay_seconds: 0",
+        "advance_delay_seconds: 0\n  end_after_minutes: 60",
+    )
+    store = make_store(settings, body)
+    supervisor = Supervisor(
+        settings, store, FakeResolver(LIVE), spawn=SequenceSpawn()
+    )
+
+    try:
+        await supervisor.playlist_play("main")
+        await wait_until(lambda: supervisor.status()["state"] == "live")
+
+        playlist = store.playlist("main")
+        await supervisor._cancel_playlist_end()
+        ends_at = "2026-10-30T23:00:00+00:00"
+        deadline = time.monotonic() + 300
+        supervisor._playlist_end_at = ends_at
+        supervisor._playlist_end_at_monotonic = deadline
+        supervisor._start_playlist_end(
+            playlist,
+            supervisor._session_token,
+            keep_at=ends_at,
+            keep_monotonic=deadline,
+        )
+
+        await supervisor.playlist_step("main", 1)
+
+        assert supervisor.status()["active"] == "bob"
+        assert supervisor._playlist_end_at == ends_at
+        assert supervisor._playlist_end_at_monotonic == pytest.approx(deadline)
     finally:
         await supervisor.stop()

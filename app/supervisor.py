@@ -7,7 +7,7 @@ import signal
 import time
 from collections.abc import Awaitable, Callable
 from contextlib import suppress
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from app.ffmpeg_cmd import build_ffmpeg_command, command_uses_reencode
@@ -59,6 +59,25 @@ class PlaylistNotFound(LookupError):
 
 def _utc_now_iso() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
+
+
+def playlist_end_deadline(
+    playlist: PlaylistConfig, now: datetime
+) -> datetime | None:
+    """Return the wall-clock deadline for a playlist, or None if disabled.
+
+    A configured ``end_time`` is interpreted as a daily local time; if it has
+    already passed, the next day is used.
+    """
+    if playlist.end_after_minutes > 0:
+        return now + timedelta(minutes=playlist.end_after_minutes)
+    if playlist.end_time:
+        hour, minute = (int(part) for part in playlist.end_time.split(":", 1))
+        target = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        if target <= now:
+            target += timedelta(days=1)
+        return target
+    return None
 
 
 async def _default_spawn(args: list[str]) -> asyncio.subprocess.Process:
@@ -130,6 +149,10 @@ class Supervisor:
         self._offline_cycle: set[str] = set()
         self._switch_count = 0
         self._last_switch_reason = ""
+        self._playlist_end_at: str | None = None
+        self._playlist_end_at_monotonic: float | None = None
+        self._playlist_end_task: asyncio.Task | None = None
+        self._session_token = 0
 
     # ------------------------------------------------------------------ status
 
@@ -228,12 +251,23 @@ class Supervisor:
         if self._active_id is not None and self._active_id in playlist.channels:
             active_index = playlist.channels.index(self._active_id)
 
+        end_in_seconds = None
+        if mode_active and self._playlist_end_at_monotonic is not None:
+            end_in_seconds = max(
+                0,
+                int(round(self._playlist_end_at_monotonic - time.monotonic())),
+            )
+
         return {
             "id": playlist.id,
             "name": playlist.name,
             "auto_advance": playlist.auto_advance,
             "wrap": playlist.wrap,
             "advance_delay_seconds": playlist.advance_delay_seconds,
+            "end_time": playlist.end_time,
+            "end_after_minutes": playlist.end_after_minutes,
+            "ends_at": self._playlist_end_at if mode_active else None,
+            "end_in_seconds": end_in_seconds,
             "youtube_key_env": playlist.youtube_key_env,
             "channels": channels,
             "channel_ids": list(playlist.channels),
@@ -295,6 +329,7 @@ class Supervisor:
         *,
         playlist_mode: bool = False,
         playlist_id: str | None = None,
+        keep_playlist_end: bool = False,
     ) -> dict:
         self.store.refresh()
         streamer = self.store.get(streamer_id)
@@ -319,9 +354,22 @@ class Supervisor:
         )
 
         async with self._lock:
+            keep_end_at = None
+            keep_end_monotonic = None
+            if (
+                keep_playlist_end
+                and playlist is not None
+                and self._playlist_mode
+                and self._playlist_id == playlist.id
+                and (playlist.end_time or playlist.end_after_minutes)
+            ):
+                keep_end_at = self._playlist_end_at
+                keep_end_monotonic = self._playlist_end_at_monotonic
+
             await self._stop_locked()
 
             self._stop_event = asyncio.Event()
+            self._session_token += 1
             self._playlist_mode = playlist_mode
             self._playlist_id = playlist.id if playlist is not None else None
             self._offline_cycle.clear()
@@ -346,6 +394,14 @@ class Supervisor:
             self._reset_progress()
             self._log.clear()
             self._open_log_file(streamer.id)
+
+            if playlist is not None:
+                self._start_playlist_end(
+                    playlist,
+                    self._session_token,
+                    keep_end_at,
+                    keep_end_monotonic,
+                )
 
             self._task = asyncio.create_task(
                 self._run(streamer, key, watch), name=f"restream-{streamer.id}"
@@ -458,6 +514,7 @@ class Supervisor:
             watch=watch,
             playlist_mode=True,
             playlist_id=playlist.id,
+            keep_playlist_end=True,
         )
 
     async def playlist_tune(
@@ -479,12 +536,85 @@ class Supervisor:
             watch=watch,
             playlist_mode=True,
             playlist_id=playlist.id,
+            keep_playlist_end=True,
         )
+
+    def _start_playlist_end(
+        self,
+        playlist: PlaylistConfig,
+        session_token: int,
+        keep_at: str | None = None,
+        keep_monotonic: float | None = None,
+    ) -> None:
+        if keep_at is not None and keep_monotonic is not None:
+            self._playlist_end_at = keep_at
+            self._playlist_end_at_monotonic = keep_monotonic
+        else:
+            now = datetime.now().astimezone()
+            target = playlist_end_deadline(playlist, now)
+            if target is None:
+                self._playlist_end_at = None
+                self._playlist_end_at_monotonic = None
+                return
+            self._playlist_end_at = target.isoformat(timespec="seconds")
+            self._playlist_end_at_monotonic = time.monotonic() + max(
+                0.0, (target - now).total_seconds()
+            )
+
+        self._playlist_end_task = asyncio.create_task(
+            self._end_playlist_when_due(
+                playlist.id,
+                session_token,
+                self._playlist_end_at_monotonic,
+                self._playlist_end_at,
+            ),
+            name=f"playlist-end-{playlist.id}",
+        )
+
+    async def _end_playlist_when_due(
+        self,
+        playlist_id: str,
+        session_token: int,
+        deadline_monotonic: float,
+        ends_at: str | None,
+    ) -> None:
+        delay = deadline_monotonic - time.monotonic()
+        try:
+            if delay > 0:
+                await asyncio.sleep(delay)
+        except asyncio.CancelledError:
+            raise
+
+        if asyncio.current_task() is self._playlist_end_task:
+            self._playlist_end_task = None
+
+        async with self._lock:
+            if (
+                session_token != self._session_token
+                or not self._playlist_mode
+                or self._playlist_id != playlist_id
+            ):
+                return
+            self._record(
+                "[Restreamer] Geplantes Playlist-Ende erreicht"
+                + (f" ({ends_at})" if ends_at else "")
+                + " – stoppe Stream"
+            )
+            await self._stop_locked()
+
+    async def _cancel_playlist_end(self) -> None:
+        task = self._playlist_end_task
+        self._playlist_end_task = None
+        if task is not None and task is not asyncio.current_task():
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
 
     async def shutdown(self) -> None:
         await self.stop()
 
     async def _stop_locked(self) -> None:
+        await self._cancel_playlist_end()
         task = self._task
         if task is None:
             await self._stop_pause()
@@ -531,6 +661,10 @@ class Supervisor:
         self._offline_cycle.clear()
         self._switch_count = 0
         self._last_switch_reason = ""
+        self._playlist_end_at = None
+        self._playlist_end_at_monotonic = None
+        self._playlist_end_task = None
+        self._session_token += 1
         self._reset_progress()
         self._reset_pause()
         self._close_log_file()
@@ -870,6 +1004,7 @@ class Supervisor:
         finally:
             with suppress(asyncio.CancelledError):
                 await self._stop_pause()
+            await self._cancel_playlist_end()
             self._proc = None
             self._pause_task = None
             if not self._stop_event.is_set():
@@ -884,6 +1019,10 @@ class Supervisor:
                 self._offline_cycle.clear()
                 self._switch_count = 0
                 self._last_switch_reason = ""
+                self._playlist_end_at = None
+                self._playlist_end_at_monotonic = None
+                self._playlist_end_task = None
+                self._session_token += 1
                 self._reset_progress()
                 self._reset_pause()
                 self._close_log_file()

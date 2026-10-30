@@ -18,6 +18,7 @@ Restream einzelner TikTok-Live-Streamer auf YouTube – aufgelöst mit **yt-dlp*
 - Offline-Polling, Reconnect-Backoff 5 s → 5 min, Watch-Modus
 - **Pausenscreen**: Bei Stream-Ende/Offline wird automatisch ein generierter Pausenscreen (Text + stille Audiospur) auf YouTube eingespielt, bis der Streamer zurück ist
 - **Mehrere Senderlisten (Playlists)**: Streamer in festen Reihenfolgen wie TV-Sender durchschalten – automatisch bei Stream-Ende/Offline oder manuell per Vor/Zurück
+- **Automatisches Playlist-Ende**: Senderliste nach einer Dauer oder täglich zu einer festen Uhrzeit beenden
 - **Gemeinsame oder eigene YouTube-Ausgabe**: optional ein Key pro Senderliste, sonst behält jeder Streamer seinen eigenen
 - Web-Dashboard mit Status, Start/Stop/Switch, umschaltbaren Senderlisten und Log-Tail
 - Streamer komplett im Dashboard anlegen, bearbeiten und löschen
@@ -101,6 +102,8 @@ playlists:
     auto_advance: true          # bei Stream-Ende/offline weiterschalten
     wrap: true                  # nach dem letzten Sender wieder beim ersten beginnen
     advance_delay_seconds: 2    # kurze Pause vor dem Umschalten
+    end_after_minutes: 180      # optional: nach 3 h ab Playlist-Start beenden
+    # end_time: "23:00"         # optional: täglich um 23:00 beenden
     youtube_key: xxxx-xxxx      # optional: gemeinsame YouTube-Ausgabe
     # youtube_key_env: PLAYLIST_YT_KEY
     channels:
@@ -122,7 +125,11 @@ playlists:
 | `auto_advance` | Bei Stream-Ende/offline automatisch den nächsten Sender starten |
 | `wrap` | Nach dem letzten Sender wieder beim ersten beginnen |
 | `advance_delay_seconds` | Wartezeit vor dem Umschalten (0–60) |
+| `end_time` | Optional: tägliches Ende zur Uhrzeit `HH:MM` (Container-Zeitzone); in YAML am besten als `"23:00"` |
+| `end_after_minutes` | Optional: Ende nach dieser Dauer ab „Playlist starten“ (1–43200) |
 | `youtube_key` / `youtube_key_env` | Optionaler gemeinsamer Key für alle Sender dieser Liste |
+
+`end_time` und `end_after_minutes` schließen sich gegenseitig aus; beide leer bzw. `0` bedeutet „kein automatisches Ende“. Ist eine `end_time` beim Start bereits vorbei, gilt sie am nächsten Tag zur selben Zeit. Beim Erreichen wird der komplette Restream inklusive Pausenscreen gestoppt; Auto-Refresh, Stall-Neustart und manuelles Vor/Zurück innerhalb der Playlist verschieben das Ende nicht. Änderungen an der End-Konfiguration greifen beim nächsten Playlist-Start.
 
 Die frühere einzelne `playlist:`-Schreibweise wird weiterhin gelesen und als Senderliste mit der ID `main` behandelt. Beim nächsten Speichern über das Dashboard wird sie automatisch in das neue `playlists:`-Format überführt. `playlist:` und `playlists:` dürfen nicht gleichzeitig in einer Datei stehen.
 
@@ -175,7 +182,7 @@ Eine eigene `data/cookies.txt` (Netscape-Format, z. B. per Browser-Export) funkt
 - **Löschen**: nur möglich, wenn der Streamer nicht gerade aktiv ist.
 - **Starten**: löst den Stream auf und startet ffmpeg. Ist der Streamer offline, wird im Watch-Modus weiter gepollt.
 - **Senderleiste**: Über die Tabs wird die gewünschte Senderliste ausgewählt. „Playlist starten“ startet den ersten bzw. aktuellen Sender dieser Liste. „Vorheriger“/„Nächster“ wechseln sofort, ein Klick auf eine Senderkachel schaltet direkt um. Endet ein Stream oder ist der Sender offline, wird automatisch der nächste erreichbare Sender derselben Liste gestartet.
-- **Senderliste bearbeiten**: ID, Name, Reihenfolge, Auto-Weiter, Wrap-around, Verzögerung und optional ein gemeinsamer YouTube-Key. Über „+ Senderliste“ lassen sich weitere Listen anlegen; Löschen entfernt nur die Liste, nicht die Streamer.
+- **Senderliste bearbeiten**: ID, Name, Reihenfolge, Auto-Weiter, Wrap-around, Verzögerung, automatisches Ende (Dauer oder Uhrzeit) und optional ein gemeinsamer YouTube-Key. Über „+ Senderliste“ lassen sich weitere Listen anlegen; Löschen entfernt nur die Liste, nicht die Streamer.
 - **Auto-Refresh**: Alle `auto_refresh_minutes` (Default 20, `0` = aus) wird die TikTok-URL im Hintergrund neu aufgelöst und ffmpeg mit frischer Verbindung neu gestartet. Das behebt YouTube-Artefakte, die sich bei langen RTMP-Sessions einschleichen. Der Stream buffert dabei kurz, geht aber nicht offline.
 - **Stall-Watchdog**: 30 s ohne Fortschritt bei `out_time`/`total_size` → Neustart. Einstellbar über `stall_timeout_seconds`.
 - **Pausenscreen**: Endet der TikTok-Stream oder meldet der Resolver „offline“, startet der Bot einen zweiten ffmpeg, der einen aus Hintergrundfarbe und Text generierten Screen samt stiller Audiospur an denselben YouTube-Key sendet. Kommt der Streamer zurück, wird der Pause-ffmpeg beendet und der Restream neu aufgebaut. Kein Pausenscreen bei manuellem Stopp/Wechsel, Auto-Refresh, Stall-Neustart oder `watch=false`. Texte, Farbe, Schrift und Maximaldauer sind im Dashboard unter **Einstellungen → Pausenscreen** konfigurierbar (`PAUSE_SCREEN_*` in `.env`).
