@@ -65,6 +65,36 @@ def test_new_defaults_are_present(tmp_path: Path) -> None:
     assert data["auto_refresh_minutes"] == 20
     assert data["stall_timeout_seconds"] == 30
     assert data["watchdog_interval_seconds"] == 5
+    assert data["pause_screen_enabled"] is True
+    assert data["pause_screen_text"] == "Stream pausiert"
+    assert data["pause_screen_subtext"] == "Gleich geht's weiter"
+    assert data["pause_screen_background"] == "101418"
+    assert data["pause_screen_font"] == ""
+    assert data["pause_screen_max_minutes"] == 0
+
+
+def test_pause_screen_values_are_validated(tmp_path: Path) -> None:
+    settings = Settings(runtime_file=tmp_path / "settings.yml")
+
+    with pytest.raises(ValueError, match="pause_screen_background"):
+        settings.updated({"pause_screen_background": "rot"})
+    with pytest.raises(ValueError, match="pause_screen_max_minutes"):
+        settings.updated({"pause_screen_max_minutes": -1})
+    with pytest.raises(ValueError, match="pause_screen_text"):
+        settings.updated({"pause_screen_text": "x" * 121})
+    with pytest.raises(ValueError, match="pause_screen_subtext"):
+        settings.updated({"pause_screen_subtext": "x" * 161})
+
+    updated = settings.updated(
+        {
+            "pause_screen_enabled": False,
+            "pause_screen_background": "#00ff00",
+            "pause_screen_max_minutes": 30,
+        }
+    )
+    assert updated.pause_screen_enabled is False
+    assert updated.pause_screen_background == "#00ff00"
+    assert updated.pause_screen_max_minutes == 30
 
 
 def test_updated_does_not_mutate_original(tmp_path: Path) -> None:

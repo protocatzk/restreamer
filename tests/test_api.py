@@ -33,6 +33,10 @@ def test_index_page(settings, streamers_file) -> None:
         assert "py_restream" in response.text
         assert 'id="streamer-dialog"' in response.text
         assert 'id="settings-dialog"' in response.text
+        assert 'id="playlist-dialog"' in response.text
+        assert 'id="playlist-tabs"' in response.text
+        assert 'id="playlist-new-btn"' in response.text
+        assert 'id="channel-strip"' in response.text
 
 
 def test_basic_auth(settings, streamers_file) -> None:
@@ -182,3 +186,155 @@ def test_update_settings(tmp_path, settings, streamers_file) -> None:
         assert cleared.status_code == 200
         assert cleared.json()["tiktok_session_id_set"] is False
         assert not cookies_file.exists()
+
+
+def test_playlists_default_empty(settings, streamers_file) -> None:
+    app = create_app(replace(settings, streamers_file=streamers_file))
+
+    with TestClient(app) as client:
+        payload = client.get("/api/playlists").json()
+        assert payload["playlists"] == []
+        assert payload["active_playlist"] is None
+
+        status = client.get("/api/status").json()
+        assert status["playlists"] == []
+        assert status["active_playlist"] is None
+
+
+def test_create_update_delete_playlists(settings, streamers_file) -> None:
+    app = create_app(replace(settings, streamers_file=streamers_file))
+
+    with TestClient(app) as client:
+        created = client.post(
+            "/api/playlists",
+            json={
+                "id": "abend",
+                "name": "Abendprogramm",
+                "channels": ["bob", "alice"],
+                "auto_advance": True,
+                "wrap": False,
+                "advance_delay_seconds": 4,
+                "youtube_key": "shared-secret-key",
+            },
+        )
+        assert created.status_code == 201
+        assert created.json()["playlist_id"] == "abend"
+        assert "shared-secret-key" not in created.text
+
+        second = client.post(
+            "/api/playlists",
+            json={"name": "Nachtprogramm", "channels": ["alice"]},
+        )
+        assert second.status_code == 201
+        assert second.json()["playlist_id"] == "nachtprogramm"
+
+        duplicate = client.post(
+            "/api/playlists", json={"id": "abend", "name": "Doppelt"}
+        )
+        assert duplicate.status_code == 409
+
+        payload = client.get("/api/playlists").json()
+        assert [item["id"] for item in payload["playlists"]] == [
+            "abend",
+            "nachtprogramm",
+        ]
+        abend = payload["playlists"][0]
+        assert abend["channel_ids"] == ["bob", "alice"]
+        assert abend["shared_key_source"] == "config"
+        assert abend["shared_key_stored"] is True
+        assert abend["advance_delay_seconds"] == 4
+        assert abend["channels"][0]["number"] == 1
+        assert abend["channels"][0]["id"] == "bob"
+
+        status = client.get("/api/status").json()
+        assert len(status["playlists"]) == 2
+        assert "shared-secret-key" not in str(status)
+
+        cleared = client.put(
+            "/api/playlists/abend",
+            json={"clear_youtube_key": True},
+        )
+        assert cleared.status_code == 200
+        updated = next(
+            item
+            for item in cleared.json()["playlists"]
+            if item["id"] == "abend"
+        )
+        assert updated["shared_key_source"] == "missing"
+        assert updated["shared_key_stored"] is False
+
+        deleted = client.delete("/api/playlists/nachtprogramm")
+        assert deleted.status_code == 200
+        assert [item["id"] for item in deleted.json()["playlists"]] == ["abend"]
+
+        missing = client.delete("/api/playlists/nobody")
+        assert missing.status_code == 404
+
+
+def test_playlist_rejects_unknown_channel(settings, streamers_file) -> None:
+    app = create_app(replace(settings, streamers_file=streamers_file))
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/playlists",
+            json={"id": "abend", "channels": ["alice", "nobody"]},
+        )
+        assert response.status_code == 400
+        assert "unbekannten Streamer" in response.text
+
+
+def test_playlist_start_without_channels(settings, streamers_file) -> None:
+    app = create_app(replace(settings, streamers_file=streamers_file))
+
+    with TestClient(app) as client:
+        created = client.post(
+            "/api/playlists", json={"id": "leer", "name": "Leer"}
+        )
+        assert created.status_code == 201
+
+        response = client.post("/api/playlists/leer/start")
+        assert response.status_code == 400
+        assert "leer" in response.text
+
+        unknown = client.post("/api/playlists/nobody/start")
+        assert unknown.status_code == 404
+
+
+def test_playlist_start_fails_without_shared_key_value(
+    settings, streamers_file, monkeypatch
+) -> None:
+    monkeypatch.delenv("UNSET_PLAYLIST_KEY", raising=False)
+    app = create_app(replace(settings, streamers_file=streamers_file))
+
+    with TestClient(app) as client:
+        saved = client.post(
+            "/api/playlists",
+            json={
+                "id": "abend",
+                "channels": ["alice"],
+                "youtube_key_env": "UNSET_PLAYLIST_KEY",
+            },
+        )
+        assert saved.status_code == 201
+
+        response = client.post("/api/playlists/abend/start")
+        assert response.status_code == 400
+        assert "gemeinsamer YouTube-Key" in response.text
+
+
+def test_playlist_tune_requires_membership(settings, streamers_file) -> None:
+    app = create_app(replace(settings, streamers_file=streamers_file))
+
+    with TestClient(app) as client:
+        created = client.post(
+            "/api/playlists",
+            json={"id": "abend", "channels": ["alice"]},
+        )
+        assert created.status_code == 201
+
+        response = client.post("/api/playlists/abend/tune/bob")
+        assert response.status_code == 404
+        assert "nicht Teil der Senderliste" in response.text
+
+        unknown = client.post("/api/playlists/nobody/tune/alice")
+        assert unknown.status_code == 404

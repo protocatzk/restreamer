@@ -18,10 +18,13 @@ from app.settings import SECRET_FIELDS, Settings
 from app.store import (
     ConfigError,
     StreamerStore,
+    build_playlist,
     build_streamer,
 )
 from app.supervisor import (
     KeyNotConfigured,
+    PlaylistEmpty,
+    PlaylistNotFound,
     StreamerDisabled,
     StreamerNotFound,
     Supervisor,
@@ -201,6 +204,150 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             logger.info("cookies.txt nach Einstellungsänderung neu geschrieben")
 
         return settings.to_public_dict()
+
+    # ---------------------------------------------------------------- Senderlisten
+
+    @app.get("/api/playlists")
+    async def api_get_playlists():
+        return supervisor.playlists_view()
+
+    @app.post("/api/playlists", status_code=201)
+    async def api_create_playlist(request: Request):
+        payload = await _json_object(request)
+        try:
+            playlist = build_playlist(
+                payload, existing=None, streamers=store.streamers
+            )
+        except ConfigError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        if store.playlist(playlist.id) is not None:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Senderlisten-ID existiert bereits: {playlist.id}",
+            )
+
+        try:
+            store.save_playlists([*store.playlists, playlist])
+        except ConfigError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except OSError as exc:
+            raise HTTPException(
+                status_code=500, detail=f"Senderliste nicht speicherbar: {exc}"
+            ) from exc
+
+        return {"playlist_id": playlist.id, **supervisor.playlists_view()}
+
+    @app.put("/api/playlists/{playlist_id}")
+    async def api_update_playlist(playlist_id: str, request: Request):
+        existing = store.playlist(playlist_id)
+        if existing is None:
+            raise HTTPException(status_code=404, detail="Senderliste nicht gefunden")
+
+        payload = await _json_object(request)
+        try:
+            playlist = build_playlist(
+                payload, existing=existing, streamers=store.streamers
+            )
+        except ConfigError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        try:
+            store.save_playlists(
+                [
+                    playlist if item.id == playlist_id else item
+                    for item in store.playlists
+                ]
+            )
+        except ConfigError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except OSError as exc:
+            raise HTTPException(
+                status_code=500, detail=f"Senderliste nicht speicherbar: {exc}"
+            ) from exc
+
+        return {"playlist_id": playlist.id, **supervisor.playlists_view()}
+
+    @app.delete("/api/playlists/{playlist_id}")
+    async def api_delete_playlist(playlist_id: str):
+        if store.playlist(playlist_id) is None:
+            raise HTTPException(status_code=404, detail="Senderliste nicht gefunden")
+        if supervisor.active_playlist_id() == playlist_id:
+            raise HTTPException(
+                status_code=409,
+                detail="Aktive Senderliste zuerst stoppen",
+            )
+
+        try:
+            store.save_playlists(
+                [
+                    item
+                    for item in store.playlists
+                    if item.id != playlist_id
+                ]
+            )
+        except ConfigError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except OSError as exc:
+            raise HTTPException(
+                status_code=500, detail=f"Senderliste nicht speicherbar: {exc}"
+            ) from exc
+
+        return {"ok": True, **supervisor.playlists_view()}
+
+    @app.post("/api/playlists/stop")
+    async def api_playlists_stop():
+        return await supervisor.stop()
+
+    @app.post("/api/playlists/{playlist_id}/start")
+    async def api_playlist_start(playlist_id: str, request: Request):
+        watch = await _watch_flag(request)
+        try:
+            return await supervisor.playlist_play(playlist_id, watch=watch)
+        except PlaylistNotFound as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except PlaylistEmpty as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except (StreamerDisabled, KeyNotConfigured, ConfigError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/playlists/{playlist_id}/next")
+    async def api_playlist_next(playlist_id: str, request: Request):
+        watch = await _watch_flag(request)
+        try:
+            return await supervisor.playlist_step(playlist_id, 1, watch=watch)
+        except PlaylistNotFound as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except PlaylistEmpty as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except (StreamerDisabled, KeyNotConfigured, ConfigError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/playlists/{playlist_id}/previous")
+    async def api_playlist_previous(playlist_id: str, request: Request):
+        watch = await _watch_flag(request)
+        try:
+            return await supervisor.playlist_step(playlist_id, -1, watch=watch)
+        except PlaylistNotFound as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except PlaylistEmpty as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except (StreamerDisabled, KeyNotConfigured, ConfigError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/playlists/{playlist_id}/tune/{streamer_id}")
+    async def api_playlist_tune(
+        playlist_id: str, streamer_id: str, request: Request
+    ):
+        watch = await _watch_flag(request)
+        try:
+            return await supervisor.playlist_tune(
+                playlist_id, streamer_id, watch=watch
+            )
+        except (PlaylistNotFound, StreamerNotFound) as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except (StreamerDisabled, KeyNotConfigured, ConfigError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     # ------------------------------------------------------------------ Streamer
 

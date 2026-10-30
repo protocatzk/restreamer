@@ -21,11 +21,13 @@ INT_FIELDS = {
     "resolve_timeout_seconds",
     "terminate_timeout_seconds",
     "log_buffer_lines",
+    "pause_screen_max_minutes",
 }
 BOOL_FIELDS = {
     "youtube_backup",
     "auto_start",
     "auto_reencode_fallback",
+    "pause_screen_enabled",
 }
 TUPLE_FIELDS = {"ytdlp_extra_args"}
 SECRET_FIELDS = {"dashboard_password", "tiktok_session_id"}
@@ -39,6 +41,10 @@ STRING_FIELDS = {
     "ffmpeg_loglevel",
     "reencode_video_bitrate",
     "audio_bitrate",
+    "pause_screen_text",
+    "pause_screen_subtext",
+    "pause_screen_background",
+    "pause_screen_font",
 }
 EDITABLE_FIELDS = INT_FIELDS | BOOL_FIELDS | TUPLE_FIELDS | STRING_FIELDS
 
@@ -54,6 +60,9 @@ LOGGLELEVELS = {
     "trace",
 }
 BITRATE_PATTERN = re.compile(r"^\d+(?:\.\d+)?[kKmM]?$")
+COLOR_PATTERN = re.compile(r"^(?:#|0x|0X)?[0-9a-fA-F]{6}$")
+PAUSE_SCREEN_TEXT_MAX_LENGTH = 120
+PAUSE_SCREEN_SUBTEXT_MAX_LENGTH = 160
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -135,6 +144,13 @@ class Settings:
     reencode_video_bitrate: str = "2500k"
     audio_bitrate: str = "160k"
 
+    pause_screen_enabled: bool = True
+    pause_screen_text: str = "Stream pausiert"
+    pause_screen_subtext: str = "Gleich geht's weiter"
+    pause_screen_background: str = "101418"
+    pause_screen_font: str = ""
+    pause_screen_max_minutes: int = 0
+
     resolve_timeout_seconds: int = 90
     terminate_timeout_seconds: int = 10
     log_buffer_lines: int = 500
@@ -175,6 +191,14 @@ class Settings:
             ytdlp_extra_args=tuple(shlex.split(os.getenv("YTDLP_EXTRA_ARGS", ""))),
             reencode_video_bitrate=os.getenv("REENCODE_VIDEO_BITRATE", "2500k"),
             audio_bitrate=os.getenv("AUDIO_BITRATE", "160k"),
+            pause_screen_enabled=_env_bool("PAUSE_SCREEN_ENABLED", True),
+            pause_screen_text=os.getenv("PAUSE_SCREEN_TEXT", "Stream pausiert"),
+            pause_screen_subtext=os.getenv(
+                "PAUSE_SCREEN_SUBTEXT", "Gleich geht's weiter"
+            ),
+            pause_screen_background=os.getenv("PAUSE_SCREEN_BACKGROUND", "101418"),
+            pause_screen_font=os.getenv("PAUSE_SCREEN_FONT", ""),
+            pause_screen_max_minutes=_env_int("PAUSE_SCREEN_MAX_MINUTES", 0),
             resolve_timeout_seconds=_env_int("RESOLVE_TIMEOUT_SECONDS", 90),
             terminate_timeout_seconds=_env_int("TERMINATE_TIMEOUT_SECONDS", 10),
             log_buffer_lines=_env_int("LOG_BUFFER_LINES", 500),
@@ -265,6 +289,23 @@ class Settings:
             raise ValueError("audio_bitrate muss z.B. 160k sein")
         if not BITRATE_PATTERN.match(self.reencode_video_bitrate):
             raise ValueError("reencode_video_bitrate muss z.B. 2500k sein")
+        if not COLOR_PATTERN.match(self.pause_screen_background.strip()):
+            raise ValueError(
+                "pause_screen_background muss ein 6-stelliger Hex-Wert sein "
+                "(z.B. 101418)"
+            )
+        if len(self.pause_screen_text) > PAUSE_SCREEN_TEXT_MAX_LENGTH:
+            raise ValueError(
+                "pause_screen_text darf höchstens "
+                f"{PAUSE_SCREEN_TEXT_MAX_LENGTH} Zeichen lang sein"
+            )
+        if len(self.pause_screen_subtext) > PAUSE_SCREEN_SUBTEXT_MAX_LENGTH:
+            raise ValueError(
+                "pause_screen_subtext darf höchstens "
+                f"{PAUSE_SCREEN_SUBTEXT_MAX_LENGTH} Zeichen lang sein"
+            )
+        if self.pause_screen_max_minutes < 0:
+            raise ValueError("pause_screen_max_minutes darf nicht negativ sein")
 
     def save_runtime(self) -> None:
         payload: dict[str, object] = {}

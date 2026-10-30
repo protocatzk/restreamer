@@ -11,6 +11,7 @@ RUN apt-get update \
         ca-certificates \
         curl \
         ffmpeg \
+        fonts-dejavu-core \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

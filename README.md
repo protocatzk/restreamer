@@ -2,13 +2,13 @@
 
 [![CI](https://github.com/protocatzk/restreamer/actions/workflows/ci.yml/badge.svg?branch=stream)](https://github.com/protocatzk/restreamer/actions/workflows/ci.yml)
 
-Restream einzelner TikTok-Live-Streamer auf YouTube – aufgelöst mit **yt-dlp**, übertragen mit **ffmpeg** (Video-Stream-Copy, Audio nach AAC). Läuft als Docker-Container mit Web-Dashboard und ist für **einen gleichzeitigen Stream** ausgelegt.
+Restream einzelner TikTok-Live-Streamer auf YouTube – aufgelöst mit **yt-dlp**, übertragen mit **ffmpeg** (Video-Stream-Copy, Audio nach AAC). Läuft als Docker-Container mit Web-Dashboard, Senderliste und ist für **einen gleichzeitigen Stream** ausgelegt.
 
 > **Hinweis:** Restreaming fremder Inhalte kann gegen die Nutzungsbedingungen von TikTok/YouTube und gegen Urheberrechte verstoßen. Verwende das Projekt nur für Inhalte, für die du die erforderlichen Rechte hast.
 
 ## Funktionen
 
-- Feste YouTube-Stream-Keys pro Streamer (Keys ausschließlich in `.env`)
+- Feste YouTube-Stream-Keys pro Streamer (im Dashboard, in `config/streamers.yml` oder per `.env`)
 - Ein aktiver Stream, Wechsel per Klick (alter Prozess wird sauber beendet)
 - Video-Copy → kaum CPU-Last; Audio wird für YouTube nach AAC gewandelt
 - Automatische H.264-Bevorzugung; Re-Encode-Fallback für HEVC-Quellen
@@ -16,7 +16,10 @@ Restream einzelner TikTok-Live-Streamer auf YouTube – aufgelöst mit **yt-dlp*
 - **Auto-Refresh** alle 20 Minuten (einstellbar) mit vorab aufgelöster URL – verhindert Artefakte durch langlebige RTMP-Sessions
 - **Stall-Watchdog**: 30 s ohne Fortschritt → automatischer Neustart
 - Offline-Polling, Reconnect-Backoff 5 s → 5 min, Watch-Modus
-- Web-Dashboard mit Status, Start/Stop/Switch, Log-Tail
+- **Pausenscreen**: Bei Stream-Ende/Offline wird automatisch ein generierter Pausenscreen (Text + stille Audiospur) auf YouTube eingespielt, bis der Streamer zurück ist
+- **Mehrere Senderlisten (Playlists)**: Streamer in festen Reihenfolgen wie TV-Sender durchschalten – automatisch bei Stream-Ende/Offline oder manuell per Vor/Zurück
+- **Gemeinsame oder eigene YouTube-Ausgabe**: optional ein Key pro Senderliste, sonst behält jeder Streamer seinen eigenen
+- Web-Dashboard mit Status, Start/Stop/Switch, umschaltbaren Senderlisten und Log-Tail
 - Streamer komplett im Dashboard anlegen, bearbeiten und löschen
 - Alle Einstellungen und Secrets (YouTube-Keys, TikTok-Cookie, Passwort) im Dashboard pflegen
 - TikTok-Cookie wird beim Start aus `TIKTOK_SESSION_ID` oder den Dashboard-Einstellungen erzeugt
@@ -50,7 +53,8 @@ Im Dashboard:
 
 1. **Einstellungen** → TikTok-Session-ID und ggf. YouTube-Optionen eintragen.
 2. **+ Streamer** → ID, Name, TikTok-Handle und YouTube-Key eintragen.
-3. **Starten**.
+3. Optional: **Senderliste bearbeiten** → Sender in die gewünschte Reihenfolge bringen.
+4. **Starten** bzw. **Playlist starten**.
 
 Alternativ funktioniert weiterhin die manuelle Pflege von `config/streamers.yml` und `.env`.
 
@@ -86,6 +90,46 @@ streamers:
 
 Die Datei ist gitignored und wird vom Dashboard atomar mit Dateimodus `600` geschrieben. Änderungen werden automatisch per mtime erkannt; alternativ „Config neu laden“ im Dashboard.
 
+### Senderlisten (Playlists)
+
+Es können beliebig viele Senderlisten in derselben Datei gepflegt werden. Jede Liste hat eine eigene Reihenfolge, eigene Optionen und optional einen eigenen gemeinsamen YouTube-Key:
+
+```yaml
+playlists:
+  - id: abend
+    name: Abendprogramm
+    auto_advance: true          # bei Stream-Ende/offline weiterschalten
+    wrap: true                  # nach dem letzten Sender wieder beim ersten beginnen
+    advance_delay_seconds: 2    # kurze Pause vor dem Umschalten
+    youtube_key: xxxx-xxxx      # optional: gemeinsame YouTube-Ausgabe
+    # youtube_key_env: PLAYLIST_YT_KEY
+    channels:
+      - alice
+      - bob
+
+  - id: nacht
+    name: Nachtprogramm
+    auto_advance: false
+    channels:
+      - carol
+```
+
+| Feld | Bedeutung |
+| :--- | :--- |
+| `id` | Eindeutige ID der Senderliste (`a-z 0-9 _ -`, max. 64 Zeichen); wird beim Anlegen aus dem Namen erzeugt, wenn sie leer bleibt |
+| `name` | Anzeigename der Senderliste im Dashboard |
+| `channels` | Streamer-IDs in Senderreihenfolge (müssen existieren und eindeutig sein) |
+| `auto_advance` | Bei Stream-Ende/offline automatisch den nächsten Sender starten |
+| `wrap` | Nach dem letzten Sender wieder beim ersten beginnen |
+| `advance_delay_seconds` | Wartezeit vor dem Umschalten (0–60) |
+| `youtube_key` / `youtube_key_env` | Optionaler gemeinsamer Key für alle Sender dieser Liste |
+
+Die frühere einzelne `playlist:`-Schreibweise wird weiterhin gelesen und als Senderliste mit der ID `main` behandelt. Beim nächsten Speichern über das Dashboard wird sie automatisch in das neue `playlists:`-Format überführt. `playlist:` und `playlists:` dürfen nicht gleichzeitig in einer Datei stehen.
+
+**Ausgabe-Verhalten:** Ist in einer Senderliste ein gemeinsamer Key gesetzt, senden alle Sender dieser Liste auf denselben YouTube-Stream; beim Umschalten wechselt nur die TikTok-Quelle. Ohne gemeinsamen Key nutzt jeder Sender seinen eigenen YouTube-Key – Zuschauer wechseln dann mit dem Sender auf ein anderes YouTube-Video.
+
+Automatisch weitergeschaltet wird immer innerhalb der aktiven Senderliste, bei einem sauberen Stream-Ende oder wenn TikTok „offline“ meldet. Auto-Refresh und Stall-Watchdog starten dagegen weiterhin denselben Sender neu. Ist kein Sender der aktiven Liste erreichbar, greift der Pausenscreen und nach `offline_poll_seconds` wird die Liste erneut versucht. Ein manuelles „Starten“ auf einer Streamer-Karte bleibt im Einzelmodus und schaltet nicht automatisch weiter; die Senderleiste startet den Playlist-Modus.
+
 ### `.env`
 
 ```dotenv
@@ -107,6 +151,7 @@ Alle Optionen sind in [`.env.example`](.env.example) dokumentiert.
 - YouTube-RTMP-URL und Backup-RTMP
 - Offline-Poll, Backoff, **Auto-Refresh-Intervall**, **Stall-Timeout**, **Watchdog-Intervall**
 - Auto-Start, Reencode-Fallback
+- **Pausenscreen**: Ein/Aus, Texte, Hintergrundfarbe, Schriftdatei und Maximaldauer
 - ffmpeg Log-Level, Audio-/Video-Bitrate
 - Dashboard-Passwort
 - Binärpfade, Timeouts, Log-Puffer, yt-dlp-Extra-Argumente
@@ -129,8 +174,11 @@ Eine eigene `data/cookies.txt` (Netscape-Format, z. B. per Browser-Export) funkt
 - **Bearbeiten**: Werte ändern; ein leeres Key-Feld behält den gespeicherten Key. „Gespeicherten Key entfernen“ löscht ihn.
 - **Löschen**: nur möglich, wenn der Streamer nicht gerade aktiv ist.
 - **Starten**: löst den Stream auf und startet ffmpeg. Ist der Streamer offline, wird im Watch-Modus weiter gepollt.
+- **Senderleiste**: Über die Tabs wird die gewünschte Senderliste ausgewählt. „Playlist starten“ startet den ersten bzw. aktuellen Sender dieser Liste. „Vorheriger“/„Nächster“ wechseln sofort, ein Klick auf eine Senderkachel schaltet direkt um. Endet ein Stream oder ist der Sender offline, wird automatisch der nächste erreichbare Sender derselben Liste gestartet.
+- **Senderliste bearbeiten**: ID, Name, Reihenfolge, Auto-Weiter, Wrap-around, Verzögerung und optional ein gemeinsamer YouTube-Key. Über „+ Senderliste“ lassen sich weitere Listen anlegen; Löschen entfernt nur die Liste, nicht die Streamer.
 - **Auto-Refresh**: Alle `auto_refresh_minutes` (Default 20, `0` = aus) wird die TikTok-URL im Hintergrund neu aufgelöst und ffmpeg mit frischer Verbindung neu gestartet. Das behebt YouTube-Artefakte, die sich bei langen RTMP-Sessions einschleichen. Der Stream buffert dabei kurz, geht aber nicht offline.
 - **Stall-Watchdog**: 30 s ohne Fortschritt bei `out_time`/`total_size` → Neustart. Einstellbar über `stall_timeout_seconds`.
+- **Pausenscreen**: Endet der TikTok-Stream oder meldet der Resolver „offline“, startet der Bot einen zweiten ffmpeg, der einen aus Hintergrundfarbe und Text generierten Screen samt stiller Audiospur an denselben YouTube-Key sendet. Kommt der Streamer zurück, wird der Pause-ffmpeg beendet und der Restream neu aufgebaut. Kein Pausenscreen bei manuellem Stopp/Wechsel, Auto-Refresh, Stall-Neustart oder `watch=false`. Texte, Farbe, Schrift und Maximaldauer sind im Dashboard unter **Einstellungen → Pausenscreen** konfigurierbar (`PAUSE_SCREEN_*` in `.env`).
 - **Stoppen**: SIGINT an ffmpeg, danach SIGTERM/SIGKILL als Fallback.
 - **Wechseln**: beendet den aktiven Stream und startet den ausgewählten Streamer.
 - **Log**: letzte 400 Zeilen, aktualisiert alle 1,5 s.
@@ -140,7 +188,7 @@ Eine eigene `data/cookies.txt` (Netscape-Format, z. B. per Browser-Export) funkt
 | Methode | Pfad | Beschreibung |
 | :--- | :--- | :--- |
 | `GET` | `/healthz` | Healthcheck (ohne Auth) |
-| `GET` | `/api/status` | Status + Streamerliste |
+| `GET` | `/api/status` | Status + Senderliste + Streamerliste |
 | `GET` | `/api/settings` | Einstellungen (Secrets maskiert) |
 | `PUT` | `/api/settings` | Einstellungen speichern |
 | `POST` | `/api/streamers` | Streamer anlegen |
@@ -149,6 +197,15 @@ Eine eigene `data/cookies.txt` (Netscape-Format, z. B. per Browser-Export) funkt
 | `POST` | `/api/streamers/{id}/start` | Start (Body optional `{"watch": true}`) |
 | `POST` | `/api/streamers/{id}/stop` | Aktiven Stream stoppen |
 | `POST` | `/api/streamers/{id}/switch` | Aktiven Stream ersetzen |
+| `GET` | `/api/playlists` | Alle Senderlisten mit maskierter Key-Info |
+| `POST` | `/api/playlists` | Senderliste anlegen |
+| `PUT` | `/api/playlists/{id}` | Senderliste speichern |
+| `DELETE` | `/api/playlists/{id}` | Senderliste löschen |
+| `POST` | `/api/playlists/stop` | Playlist-Modus beenden |
+| `POST` | `/api/playlists/{id}/start` | Playlist-Modus starten |
+| `POST` | `/api/playlists/{id}/next` | Nächster Sender |
+| `POST` | `/api/playlists/{id}/previous` | Vorheriger Sender |
+| `POST` | `/api/playlists/{id}/tune/{streamer_id}` | Direkt auf Sender schalten |
 | `GET` | `/api/logs/{id}?lines=200` | Logzeilen |
 | `POST` | `/api/reload` | YAML neu laden |
 
@@ -204,6 +261,10 @@ Tests laufen ohne ffmpeg/yt-dlp (gemockt). Der Docker-Build installiert beides.
 | ffmpeg bricht mit Codec-Fehler ab | HEVC-Quelle → `video_mode: reencode` oder Fallback aktiv lassen |
 | YouTube meldet „No data“ | Key falsch, oder Video-Codec nicht unterstützt → Log prüfen |
 | Kein Ton auf YouTube | Quelle ohne Audiospur; ggf. `ffmpeg_args` erweitern |
+| Senderliste schaltet nicht weiter | `auto_advance` aktiv? Sender aktiviert und mit Key versehen? Bei gemeinsamem Key prüfen, ob `youtube_key` bzw. die Env-Variable gesetzt ist |
+| Beim Umschalten wechselt der YouTube-Stream | Kein gemeinsamer Playlist-Key gesetzt – dann nutzt jeder Sender seinen eigenen Key |
+| Pausenscreen ohne Text | Keine Schriftdatei gefunden → `PAUSE_SCREEN_FONT` auf eine vorhandene TTF setzen (im Docker-Image ist DejaVu enthalten) |
+| Kurze Lücke beim Wechsel Pause → Live | Der YouTube-RTMP-Ingest muss für den Wechsel neu aufgebaut werden; das ist normal und die Übertragung bleibt in der Regel live |
 | Dashboard nicht erreichbar | Port ist an `127.0.0.1` gebunden → SSH-Tunnel nutzen |
 
 Logs: `logs/<streamer>-<zeitstempel>.log` auf dem Host, zusätzlich im Dashboard.

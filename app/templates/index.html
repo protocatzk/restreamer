@@ -58,6 +58,37 @@
 
     <section>
       <div class="section-head">
+        <h2>Sender</h2>
+        <div class="actions">
+          <button id="playlist-new-btn" class="btn ghost" type="button">+ Senderliste</button>
+          <button id="playlist-edit-btn" class="btn ghost" type="button">Senderliste bearbeiten</button>
+        </div>
+      </div>
+      <div class="channel-mixer">
+        <div id="playlist-tabs" class="playlist-tabs"></div>
+        <div class="now-playing">
+          <div class="now-number">
+            <span class="label">Jetzt läuft</span>
+            <strong id="now-number">–</strong>
+          </div>
+          <div class="now-info">
+            <strong id="now-name">Kein Sender</strong>
+            <p id="now-meta" class="muted">Noch keine Senderliste angelegt.</p>
+          </div>
+          <span id="now-badge" class="badge offline">bereit</span>
+        </div>
+        <div class="transport">
+          <button id="channel-prev" class="btn ghost" type="button">◀ Vorheriger</button>
+          <button id="channel-play" class="btn primary" type="button">▶ Playlist starten</button>
+          <button id="channel-next" class="btn ghost" type="button">Nächster ▶</button>
+        </div>
+        <div id="channel-strip" class="channel-strip"></div>
+        <p id="playlist-hint" class="hint"></p>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head">
         <h2>Streamer</h2>
         <div class="actions">
           <button id="add-streamer-btn" class="btn primary" type="button">+ Streamer</button>
@@ -163,6 +194,72 @@
     </form>
   </dialog>
 
+  <!-- Senderliste bearbeiten -->
+  <dialog id="playlist-dialog" class="modal wide">
+    <form id="playlist-form" novalidate>
+      <div class="modal-head">
+        <h2 id="playlist-title">Senderliste bearbeiten</h2>
+        <button type="button" class="icon-btn" data-close aria-label="Schließen">×</button>
+      </div>
+
+      <div class="form-grid">
+        <label class="field">
+          <span>ID der Senderliste</span>
+          <input name="id" maxlength="64" pattern="[a-z0-9][a-z0-9_-]{0,63}"
+                 placeholder="z. B. abend" autocomplete="off">
+          <small class="hint">Kleinbuchstaben, Zahlen, _ und - · nach dem Anlegen nicht änderbar</small>
+        </label>
+        <label class="field">
+          <span>Name der Senderliste</span>
+          <input name="name" maxlength="80" placeholder="Programm" autocomplete="off">
+        </label>
+        <label class="field">
+          <span>Pause vor dem Umschalten (Sekunden)</span>
+          <input name="advance_delay_seconds" type="number" min="0" max="60" step="1">
+        </label>
+        <label class="field">
+          <span>Gemeinsamer YouTube-Stream-Key (optional)</span>
+          <input name="youtube_key" type="password" autocomplete="new-password"
+                 placeholder="leer lassen = unverändert">
+          <small id="playlist-key-hint" class="hint"></small>
+        </label>
+        <label class="field">
+          <span>Alternativ: Env-Variablenname für den gemeinsamen Key</span>
+          <input name="youtube_key_env" placeholder="z. B. PLAYLIST_YT_KEY" autocomplete="off">
+        </label>
+      </div>
+
+      <div class="check-row">
+        <label class="check"><input type="checkbox" name="auto_advance"> Bei Stream-Ende automatisch weiterschalten</label>
+        <label class="check"><input type="checkbox" name="wrap"> Nach dem letzten Sender wieder beim ersten beginnen</label>
+        <label class="check" id="playlist-clear-key-row" hidden>
+          <input type="checkbox" name="clear_youtube_key"> Gespeicherten gemeinsamen Key entfernen
+        </label>
+      </div>
+
+      <div class="playlist-editor">
+        <div class="playlist-editor-head">
+          <span>Senderreihenfolge</span>
+          <small class="hint">Nur Sender in dieser Liste werden durchgeschaltet.</small>
+        </div>
+        <div id="playlist-channels" class="playlist-channels"></div>
+        <div class="playlist-add">
+          <select id="playlist-add-select" aria-label="Sender auswählen"></select>
+          <button type="button" id="playlist-add-btn" class="btn ghost">+ Sender hinzufügen</button>
+        </div>
+      </div>
+
+      <p id="playlist-error" class="form-error" hidden></p>
+
+      <div class="modal-actions playlist-modal-actions">
+        <button type="button" class="btn danger" id="playlist-delete" hidden>Senderliste löschen</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn ghost" data-close>Abbrechen</button>
+        <button type="submit" class="btn primary" id="playlist-save">Speichern</button>
+      </div>
+    </form>
+  </dialog>
+
   <!-- Globale Einstellungen -->
   <dialog id="settings-dialog" class="modal wide">
     <form id="settings-form" novalidate>
@@ -256,6 +353,35 @@
               <span>Video-Bitrate (nur Re-Encode)</span>
               <input name="reencode_video_bitrate" placeholder="2500k">
             </label>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Pausenscreen</legend>
+          <div class="form-grid">
+            <label class="field">
+              <span>Haupttext</span>
+              <input name="pause_screen_text" placeholder="Stream pausiert">
+            </label>
+            <label class="field">
+              <span>Untertitel</span>
+              <input name="pause_screen_subtext" placeholder="Gleich geht's weiter">
+            </label>
+            <label class="field">
+              <span>Hintergrundfarbe (Hex)</span>
+              <input name="pause_screen_background" placeholder="101418">
+            </label>
+            <label class="field">
+              <span>Schriftdatei (optional)</span>
+              <input name="pause_screen_font" placeholder="leer = automatisch">
+            </label>
+            <label class="field">
+              <span>Maximale Dauer (Minuten, 0 = unbegrenzt)</span>
+              <input name="pause_screen_max_minutes" type="number" min="0" step="1">
+            </label>
+          </div>
+          <div class="check-row">
+            <label class="check"><input type="checkbox" name="pause_screen_enabled"> Pausenscreen bei Verbindungsverlust einspielen</label>
           </div>
         </fieldset>
 

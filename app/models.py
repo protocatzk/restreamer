@@ -33,6 +33,20 @@ class StreamerConfig:
 
 
 @dataclass(frozen=True)
+class PlaylistConfig:
+    """Ordered channel list ("Senderliste") with optional shared output."""
+
+    id: str = "main"
+    name: str = "Programm"
+    channels: tuple[str, ...] = ()
+    youtube_key: str = ""
+    youtube_key_env: str = ""
+    auto_advance: bool = True
+    wrap: bool = True
+    advance_delay_seconds: int = 2
+
+
+@dataclass(frozen=True)
 class ResolvedStream:
     url: str
     title: str = ""
