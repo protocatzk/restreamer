@@ -29,4 +29,4 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Image bauen
-        run: docker build -t py-restream:ci .
+        run: docker build -t restreamer:ci .

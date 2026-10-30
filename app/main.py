@@ -42,7 +42,7 @@ def _unauthorized() -> Response:
     return Response(
         status_code=401,
         content="Authentifizierung erforderlich",
-        headers={"WWW-Authenticate": 'Basic realm="py_restream", charset="UTF-8"'},
+        headers={"WWW-Authenticate": 'Basic realm="Restreamer", charset="UTF-8"'},
     )
 
 
@@ -79,7 +79,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             level=logging.INFO,
             format="%(asctime)s %(levelname)s %(name)s: %(message)s",
         )
-        logger.info("py_restream %s startet", __version__)
+        logger.info("Restreamer %s startet", __version__)
         if store.error:
             logger.warning("Konfigurationsfehler: %s", store.error)
 
@@ -103,10 +103,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         yield
 
         await supervisor.shutdown()
-        logger.info("py_restream beendet")
+        logger.info("Restreamer beendet")
 
     app = FastAPI(
-        title="py_restream",
+        title="Restreamer",
         version=__version__,
         lifespan=lifespan,
         docs_url=None,

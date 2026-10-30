@@ -12,7 +12,7 @@ if [ -n "${TIKTOK_SESSION_ID:-}" ] && [ ! -s "$COOKIES_FILE" ]; then
     tmp="$(mktemp)"
     {
         printf '# Netscape HTTP Cookie File\n'
-        printf '# Generated from TIKTOK_SESSION_ID by py_restream entrypoint\n\n'
+        printf '# Generated from TIKTOK_SESSION_ID by Restreamer entrypoint\n\n'
         printf '.tiktok.com\tTRUE\t/\tTRUE\t0\tsessionid\t%s\n' "$TIKTOK_SESSION_ID"
         printf '.tiktok.com\tTRUE\t/\tTRUE\t0\tsessionid_ss\t%s\n' "$TIKTOK_SESSION_ID"
         printf '.tiktok.com\tTRUE\t/\tTRUE\t0\tsid_tt\t%s\n' "$TIKTOK_SESSION_ID"

@@ -2,8 +2,8 @@ services:
   restreamer:
     build:
       context: .
-    image: py-restream:local
-    container_name: py_restream
+    image: restreamer:local
+    container_name: restreamer
     restart: unless-stopped
     init: true
     env_file:

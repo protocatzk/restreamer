@@ -30,7 +30,7 @@ def test_index_page(settings, streamers_file) -> None:
     with TestClient(app) as client:
         response = client.get("/")
         assert response.status_code == 200
-        assert "py_restream" in response.text
+        assert "Restreamer" in response.text
         assert 'id="streamer-dialog"' in response.text
         assert 'id="settings-dialog"' in response.text
         assert 'id="playlist-dialog"' in response.text

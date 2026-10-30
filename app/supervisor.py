@@ -612,7 +612,7 @@ class Supervisor:
                 continue
             if not self._channel_can_output(cfg, playlist):
                 self._record(
-                    f"[py_restream] Sender {cfg.name} übersprungen: "
+                    f"[Restreamer] Sender {cfg.name} übersprungen: "
                     "kein YouTube-Key konfiguriert"
                 )
                 continue
@@ -661,12 +661,12 @@ class Supervisor:
             )
         except KeyNotConfigured as exc:
             self._record(
-                f"[py_restream] Sender {target.name} nicht startbar: {exc}"
+                f"[Restreamer] Sender {target.name} nicht startbar: {exc}"
             )
             return None
 
         self._record(
-            f"[py_restream] Senderwechsel: {streamer.name} → {target.name} "
+            f"[Restreamer] Senderwechsel: {streamer.name} → {target.name} "
             f"({reason})"
         )
         self._switch_count += 1
@@ -687,14 +687,14 @@ class Supervisor:
                 self._prefetched = None
                 if prefetched is not None:
                     stream = prefetched
-                    self._record("[py_restream] Nutze vorab aufgelöste URL")
+                    self._record("[Restreamer] Nutze vorab aufgelöste URL")
                 else:
                     try:
                         stream = await self.resolver.resolve(streamer)
                     except ResolveError as exc:
                         message = self._redact(str(exc))
                         self._last_error = message
-                        self._record(f"[py_restream] Auflösung fehlgeschlagen: {message}")
+                        self._record(f"[Restreamer] Auflösung fehlgeschlagen: {message}")
                         self._set_state(StreamState.ERROR)
                         if not await self._sleep(backoff):
                             break
@@ -704,7 +704,7 @@ class Supervisor:
                 if not stream.is_live:
                     self._current_stream = None
                     self._last_error = "Streamer ist offline"
-                    self._record("[py_restream] Streamer ist offline")
+                    self._record("[Restreamer] Streamer ist offline")
                     self._set_state(StreamState.OFFLINE)
                     self._offline_cycle.add(streamer.id)
                     if not watch:
@@ -738,10 +738,10 @@ class Supervisor:
 
                 mode = "reencode" if reencode else "copy"
                 self._record(
-                    "[py_restream] Stream gefunden "
+                    "[Restreamer] Stream gefunden "
                     f"({stream.height or '?'}p, {stream.source_vcodec or '?'}, {mode})"
                 )
-                self._record("[py_restream] ffmpeg: " + self._redact(" ".join(args)))
+                self._record("[Restreamer] ffmpeg: " + self._redact(" ".join(args)))
 
                 await self._stop_pause_for_live()
 
@@ -749,7 +749,7 @@ class Supervisor:
                     process = await self._spawn(args)
                 except OSError as exc:
                     self._last_error = self._redact(str(exc))
-                    self._record(f"[py_restream] ffmpeg Start fehlgeschlagen: {exc}")
+                    self._record(f"[Restreamer] ffmpeg Start fehlgeschlagen: {exc}")
                     self._set_state(StreamState.ERROR)
                     if not await self._sleep(backoff):
                         break
@@ -806,7 +806,7 @@ class Supervisor:
                     self._last_refresh_at = _utc_now_iso()
                     self._last_restart_reason = "auto-refresh"
                     self._record(
-                        "[py_restream] Auto-Refresh: starte mit frischer Verbindung"
+                        "[Restreamer] Auto-Refresh: starte mit frischer Verbindung"
                     )
                     backoff = self.settings.backoff_initial_seconds
                     continue
@@ -815,7 +815,7 @@ class Supervisor:
                     self._stall_count += 1
                     self._last_stall_at = _utc_now_iso()
                     self._last_restart_reason = "stall"
-                    self._record("[py_restream] Stall erkannt – Neustart")
+                    self._record("[Restreamer] Stall erkannt – Neustart")
                     self._set_state(StreamState.BACKOFF)
                     if not await self._sleep(min(backoff, 10)):
                         break
@@ -823,7 +823,7 @@ class Supervisor:
                     continue
 
                 self._last_error = f"ffmpeg beendet (rc={returncode})"
-                self._record(f"[py_restream] ffmpeg beendet (rc={returncode})")
+                self._record(f"[Restreamer] ffmpeg beendet (rc={returncode})")
 
                 if returncode == 0 and watch:
                     self._offline_cycle.add(streamer.id)
@@ -849,7 +849,7 @@ class Supervisor:
                 ):
                     force_reencode = True
                     self._record(
-                        "[py_restream] Codec-Fehler erkannt – nächster Versuch mit Re-Encode"
+                        "[Restreamer] Codec-Fehler erkannt – nächster Versuch mit Re-Encode"
                     )
 
                 if time.monotonic() - started > 60:
@@ -865,7 +865,7 @@ class Supervisor:
         except Exception as exc:  # noqa: BLE001 - keep the supervisor alive
             logger.exception("Unerwarteter Fehler im Restream-Worker")
             self._last_error = self._redact(str(exc))
-            self._record(f"[py_restream] Unerwarteter Fehler: {exc}")
+            self._record(f"[Restreamer] Unerwarteter Fehler: {exc}")
             self._set_state(StreamState.ERROR)
         finally:
             with suppress(asyncio.CancelledError):
@@ -912,7 +912,7 @@ class Supervisor:
         if self._pause_expired():
             if self._pause_running():
                 self._record(
-                    "[py_restream] Maximale Pausenscreen-Dauer erreicht – "
+                    "[Restreamer] Maximale Pausenscreen-Dauer erreicht – "
                     "beende Pausenscreen"
                 )
                 await self._stop_pause()
@@ -924,7 +924,7 @@ class Supervisor:
         if self._pause_proc is not None:
             # Prozess ist inzwischen beendet – aufräumen und neu starten.
             self._record(
-                f"[py_restream] Pausenscreen beendet "
+                f"[Restreamer] Pausenscreen beendet "
                 f"(rc={self._pause_proc.returncode})"
             )
             await self._stop_pause()
@@ -945,16 +945,16 @@ class Supervisor:
             )
             args = build_pause_command(self.settings, key, text_path, subtext_path)
         except (OSError, ValueError) as exc:
-            self._record(f"[py_restream] Pausenscreen nicht erstellbar: {exc}")
+            self._record(f"[Restreamer] Pausenscreen nicht erstellbar: {exc}")
             self._pause_retry_monotonic = now + 30
             return
 
-        self._record("[py_restream] Pausenscreen: " + self._redact(" ".join(args)))
+        self._record("[Restreamer] Pausenscreen: " + self._redact(" ".join(args)))
         try:
             process = await self._spawn(args)
         except OSError as exc:
             self._record(
-                "[py_restream] Pausenscreen-Start fehlgeschlagen: "
+                "[Restreamer] Pausenscreen-Start fehlgeschlagen: "
                 + self._redact(str(exc))
             )
             self._pause_retry_monotonic = now + 30
@@ -964,11 +964,11 @@ class Supervisor:
         self._pause_task = asyncio.create_task(
             self._pump_logs(process, prefix="[pause] ")
         )
-        self._record(f"[py_restream] Pausenscreen aktiv ({reason})")
+        self._record(f"[Restreamer] Pausenscreen aktiv ({reason})")
 
         if find_pause_font(self.settings.pause_screen_font) is None:
             self._record(
-                "[py_restream] Warnung: keine Schrift gefunden – "
+                "[Restreamer] Warnung: keine Schrift gefunden – "
                 "Pausenscreen wird ohne Text angezeigt"
             )
 
@@ -979,7 +979,7 @@ class Supervisor:
             return
 
         if process is not None and process.returncode is None:
-            self._record("[py_restream] Beende Pausenscreen")
+            self._record("[Restreamer] Beende Pausenscreen")
             await self._terminate(process)
 
         if process is not None:
@@ -1032,7 +1032,7 @@ class Supervisor:
                 if await self._prefetch(streamer):
                     self._restart_reason = "auto-refresh"
                     self._record(
-                        "[py_restream] Auto-Refresh fällig – neue URL vorab aufgelöst"
+                        "[Restreamer] Auto-Refresh fällig – neue URL vorab aufgelöst"
                     )
                     await self._terminate(process)
                     return
@@ -1040,14 +1040,14 @@ class Supervisor:
                     self._prefetched = self._current_stream
                     self._restart_reason = "auto-refresh"
                     self._record(
-                        "[py_restream] Auto-Refresh fällig – nutze bestehende URL "
+                        "[Restreamer] Auto-Refresh fällig – nutze bestehende URL "
                         "für neuen RTMP-Aufbau"
                     )
                     await self._terminate(process)
                     return
                 self._next_refresh_monotonic = now + 60
                 self._record(
-                    "[py_restream] Auto-Refresh verschoben – neuer Versuch in 60s"
+                    "[Restreamer] Auto-Refresh verschoben – neuer Versuch in 60s"
                 )
 
             if (
@@ -1057,7 +1057,7 @@ class Supervisor:
             ):
                 self._restart_reason = "stall"
                 self._record(
-                    f"[py_restream] {self.settings.stall_timeout_seconds}s ohne "
+                    f"[Restreamer] {self.settings.stall_timeout_seconds}s ohne "
                     "Fortschritt – Neustart"
                 )
                 await self._terminate(process)
@@ -1068,12 +1068,12 @@ class Supervisor:
             stream = await self.resolver.resolve(streamer)
         except ResolveError as exc:
             self._record(
-                "[py_restream] Auto-Refresh: Auflösung fehlgeschlagen: "
+                "[Restreamer] Auto-Refresh: Auflösung fehlgeschlagen: "
                 + self._redact(str(exc))
             )
             return False
         if not stream.is_live:
-            self._record("[py_restream] Auto-Refresh: Quelle meldet offline")
+            self._record("[Restreamer] Auto-Refresh: Quelle meldet offline")
             return False
         self._prefetched = stream
         return True
@@ -1160,7 +1160,7 @@ class Supervisor:
         if process.returncode is not None:
             return
 
-        self._record("[py_restream] Stoppe ffmpeg (SIGINT)")
+        self._record("[Restreamer] Stoppe ffmpeg (SIGINT)")
         self._kill_group(process, signal.SIGINT)
         try:
             await asyncio.wait_for(process.wait(), timeout=8)
