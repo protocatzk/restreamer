@@ -321,6 +321,16 @@ function renderPlaylist(status) {
     (playlist.youtube_key_env || playlist.shared_key_stored)
   ) {
     hints.push("Achtung: Der gemeinsame YouTube-Key ist nicht verfügbar.");
+  } else if (
+    playlist &&
+    !playlist.shared_key_configured &&
+    !playlist.youtube_key_env &&
+    !playlist.shared_key_stored
+  ) {
+    hints.push(
+      "Ohne gemeinsamen Key endet beim Senderwechsel der aktuelle YouTube-Stream; " +
+        "der neue Sender läuft auf seinem eigenen Video."
+    );
   }
   $("playlist-hint").textContent = hints.join(" ");
 }
@@ -827,7 +837,8 @@ async function openPlaylistDialog(playlistId = null) {
       : source === "env"
         ? `Der gemeinsame Key kommt aus der Umgebungsvariable ${playlist.youtube_key_env}.`
         : playlist
-          ? "Kein gemeinsamer Key – jeder Sender nutzt seinen eigenen YouTube-Key."
+          ? "Kein gemeinsamer Key – jeder Sender nutzt seinen eigenen YouTube-Key. " +
+            "Beim Umschalten endet dadurch der aktuelle YouTube-Stream."
           : "Optional: Ein gemeinsamer Key für alle Sender dieser Liste.";
   $("playlist-key-hint").textContent = hint;
   $("playlist-clear-key-row").hidden = source !== "config";

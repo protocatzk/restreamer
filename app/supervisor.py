@@ -330,6 +330,7 @@ class Supervisor:
         playlist_mode: bool = False,
         playlist_id: str | None = None,
         keep_playlist_end: bool = False,
+        bridge_pause: bool = False,
     ) -> dict:
         self.store.refresh()
         streamer = self.store.get(streamer_id)
@@ -394,6 +395,17 @@ class Supervisor:
             self._reset_progress()
             self._log.clear()
             self._open_log_file(streamer.id)
+
+            if (
+                bridge_pause
+                and playlist is not None
+                and self._shared_output_configured(playlist)
+                and self.settings.pause_screen_enabled
+            ):
+                # Keep the shared YouTube ingest alive while the new source is
+                # being resolved. The worker stops the pause screen right before
+                # starting the live ffmpeg.
+                await self._ensure_pause(key, "Senderwechsel")
 
             if playlist is not None:
                 self._start_playlist_end(
@@ -487,6 +499,7 @@ class Supervisor:
             watch=watch,
             playlist_mode=True,
             playlist_id=playlist.id,
+            bridge_pause=self._playlist_mode and self._playlist_id == playlist.id,
         )
 
     async def playlist_step(
@@ -515,6 +528,7 @@ class Supervisor:
             playlist_mode=True,
             playlist_id=playlist.id,
             keep_playlist_end=True,
+            bridge_pause=self._playlist_mode and self._playlist_id == playlist.id,
         )
 
     async def playlist_tune(
@@ -537,6 +551,7 @@ class Supervisor:
             playlist_mode=True,
             playlist_id=playlist.id,
             keep_playlist_end=True,
+            bridge_pause=self._playlist_mode and self._playlist_id == playlist.id,
         )
 
     def _start_playlist_end(

@@ -871,3 +871,26 @@ async def test_manual_step_keeps_playlist_end_deadline(settings) -> None:
         assert supervisor._playlist_end_at_monotonic == pytest.approx(deadline)
     finally:
         await supervisor.stop()
+
+
+async def test_manual_switch_uses_pause_bridge_for_shared_output(settings) -> None:
+    store = make_store(settings, PLAYLIST_SHARED)
+    spawn = SequenceSpawn()
+    supervisor = Supervisor(
+        settings, store, FakeResolver(LIVE), spawn=spawn
+    )
+
+    try:
+        await supervisor.playlist_play("main")
+        await wait_until(lambda: supervisor.status()["state"] == "live")
+
+        await supervisor.playlist_step("main", 1)
+
+        assert spawn.pause_calls >= 1
+        await wait_until(
+            lambda: supervisor.status()["active"] == "bob"
+            and supervisor.status()["state"] == "live",
+            timeout_s=10,
+        )
+    finally:
+        await supervisor.stop()
