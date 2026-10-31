@@ -163,6 +163,7 @@ def test_update_settings(tmp_path, settings, streamers_file) -> None:
                 "auto_start": True,
                 "tiktok_session_id": "session-abc",
                 "ytdlp_extra_args": ["--foo"],
+                "output_orientation": "landscape",
             },
         )
         assert response.status_code == 200
@@ -171,8 +172,10 @@ def test_update_settings(tmp_path, settings, streamers_file) -> None:
         assert payload["offline_poll_seconds"] == 30
         assert payload["auto_start"] is True
         assert payload["tiktok_session_id_set"] is True
+        assert payload["output_orientation"] == "landscape"
         assert "session-abc" not in response.text
         assert settings.offline_poll_seconds == 30
+        assert settings.output_orientation == "landscape"
         assert runtime_file.exists()
         assert (runtime_file.stat().st_mode & 0o777) == 0o600
         assert "session-abc" in cookies_file.read_text(encoding="utf-8")

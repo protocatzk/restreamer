@@ -236,6 +236,40 @@ async def test_stall_triggers_restart(settings, store, monkeypatch) -> None:
         await supervisor.stop()
 
 
+async def test_reload_output_keeps_source_running(
+    settings, store, monkeypatch
+) -> None:
+    monkeypatch.setenv("ALICE_YT_KEY", "alice-key")
+    supervisor = Supervisor(
+        settings, store, FakeResolver(LIVE), spawn=spawn_sleep
+    )
+
+    try:
+        await supervisor.start("alice")
+        await wait_until(lambda: supervisor.status()["state"] == "live")
+        before = supervisor.status()
+        assert before["source_pid"] is not None
+        assert before["output_pid"] is not None
+
+        landscape = replace(settings, output_orientation="landscape")
+        settings.apply_from(landscape)
+        await supervisor.reload_output()
+
+        await wait_until(
+            lambda: supervisor.status()["output_pid"] not in {
+                None,
+                before["output_pid"],
+            }
+        )
+        after = supervisor.status()
+        assert after["state"] == "live"
+        assert after["source_pid"] == before["source_pid"]
+        assert after["output_size"] == "1280x720"
+        assert after["sessions"] == 2
+    finally:
+        await supervisor.stop()
+
+
 async def test_auto_refresh_restarts_only_source(settings, store, monkeypatch) -> None:
     monkeypatch.setenv("ALICE_YT_KEY", "alice-key")
     quick = replace(
@@ -332,7 +366,7 @@ async def test_pause_screen_starts_after_stream_ends(
         status = supervisor.status()
         assert status["pause_since"] is not None
         assert spawn.pause_calls == 1
-        assert "color=c=0x101418:s=1280x720:r=30" in spawn.calls[-1]
+        assert "color=c=0x101418:s=720x1280:r=30" in spawn.calls[-1]
     finally:
         await supervisor.stop()
 

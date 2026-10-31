@@ -12,7 +12,7 @@ Restream einzelner TikTok-Live-Streamer auf YouTube – aufgelöst mit **yt-dlp*
 - Ein aktiver Stream, Wechsel per Klick (alter Prozess wird sauber beendet)
 - **Dauerhafte YouTube-RTMP-Verbindung**: automatische Quellenwechsel, Auto-Refresh, Stall und Pausenscreen bauen RTMP nicht neu auf
 - **Interner MPEG-TS-Relay** (Loopback-UDP): Live- und Pause-Quelle werden nur noch als Quelle ausgetauscht
-- **Feste Ausgabe-Normalisierung** (Default 1280×720, 30 fps): monotone Timestamps, keine Auflösungs-/Codec-Sprünge; behebt Player-Freezes durch kaputte TikTok-DTS
+- **Feste Ausgabe-Normalisierung** (Default 720×1280 Hochformat, 30 fps, umschaltbar auf 1280×720): monotone Timestamps, keine Auflösungs-/Codec-Sprünge; behebt Player-Freezes durch kaputte TikTok-DTS
 - Automatische H.264-Bevorzugung; Re-Encode-Fallback für Quellcodecs, die nicht in MPEG-TS passen
 - yt-dlp löst die TikTok-URL bei jedem Quellen-Neustart neu auf (TikTok-URLs laufen ab)
 - **Auto-Refresh** alle 20 Minuten (einstellbar) mit vorab aufgelöster URL – startet nur die Quelle neu, der YouTube-Stream bleibt verbunden
@@ -146,8 +146,7 @@ TIKTOK_SESSION_ID=...        # sessionid-Cookie von tiktok.com
 ALICE_YT_KEY=xxxx-xxxx-...   # optional, falls youtube_key_env genutzt wird
 DASHBOARD_PASSWORD=...       # optional
 YOUTUBE_BACKUP=false
-OUTPUT_WIDTH=1280            # 720x1280 für reines Hochformat
-OUTPUT_HEIGHT=720
+OUTPUT_ORIENTATION=portrait  # portrait (720x1280) | landscape (1280x720)
 OUTPUT_FPS=30
 ```
 
@@ -164,8 +163,9 @@ Alle Optionen sind in [`.env.example`](.env.example) dokumentiert.
 - Offline-Poll, Backoff, **Auto-Refresh-Intervall**, **Stall-Timeout**, **Watchdog-Intervall**
 - Auto-Start, Reencode-Fallback
 - **Pausenscreen**: Ein/Aus, Texte, Hintergrundfarbe, Schriftdatei und Maximaldauer
+- **Ausgabeformat**: 720p Hochformat (720×1280) oder Querformat (1280×720). Beim Umschalten im laufenden Betrieb wird nur der YouTube-Output kurz neu aufgebaut; die TikTok-Quelle läuft weiter.
 - ffmpeg Log-Level, Audio-/Video-Bitrate
-- Ausgabeformat (`OUTPUT_WIDTH`, `OUTPUT_HEIGHT`, `OUTPUT_FPS`) und Relay-Port sind per `.env` konfigurierbar
+- Ausgabeformat (`OUTPUT_ORIENTATION`, `OUTPUT_FPS`) und Relay-Port sind per `.env` konfigurierbar; das Format kann zusätzlich im Dashboard umgeschaltet werden
 - Dashboard-Passwort
 - Binärpfade, Timeouts, Log-Puffer, yt-dlp-Extra-Argumente
 
@@ -246,7 +246,7 @@ TikTok liefert bei manchen Lives **nur FLV-Formate**. yt-dlp ruft dann zusätzli
 
 ### Warum neu encodiert wird
 
-TikTok liefert bei langen Sessions immer wieder rückwärts springende DTS-Werte. Bei `-c:v copy` klemmt ffmpeg diese auf denselben Zeitstempel; YouTube erhält dann kaputte Timestamps und der Player friert ein oder wirft Fehler. Der dauerhafte Output decodiert deshalb Video und Audio und encodiert sie mit einer festen Canvas/Framerate neu. Das erzeugt eine monotone Timeline, gleicht Auflösungswechsel aus und hält den Player stabil. Gemessen auf diesem Server: ca. **0,6 CPU-Kerne** für 720p30 mit `libx264 veryfast`.
+TikTok liefert bei langen Sessions immer wieder rückwärts springende DTS-Werte. Bei `-c:v copy` klemmt ffmpeg diese auf denselben Zeitstempel; YouTube erhält dann kaputte Timestamps und der Player friert ein oder wirft Fehler. Der dauerhafte Output decodiert deshalb Video und Audio und encodiert sie mit einer festen Canvas/Framerate neu. Das erzeugt eine monotone Timeline, gleicht Auflösungswechsel aus und hält den Player stabil. Gemessen auf diesem Server: ca. **1,05 CPU-Kerne** im Schnitt für 720p30 mit `libx264 veryfast`.
 
 ### HEVC und Codec-Fallback
 
@@ -280,6 +280,7 @@ Tests laufen ohne ffmpeg/yt-dlp (gemockt). Der Docker-Build installiert beides.
 | Beim Umschalten wechselt der YouTube-Stream | Kein gemeinsamer Playlist-Key gesetzt – dann nutzt jeder Sender seinen eigenen Key |
 | Pausenscreen ohne Text | Keine Schriftdatei gefunden → `PAUSE_SCREEN_FONT` auf eine vorhandene TTF setzen (im Docker-Image ist DejaVu enthalten) |
 | Kurze Lücke beim Wechsel Pause → Live | Die Quelle wird intern umgeschaltet; die RTMP-Verbindung bleibt bestehen. Eine kurze Lücke von unter einer Sekunde ist normal. |
+| Kurze Unterbrechung beim Umschalten Hoch-/Querformat | Die Canvas-Größe ist Teil des Encoders; der YouTube-Output wird einmal neu aufgebaut. Die TikTok-Quelle läuft weiter. |
 | Dashboard nicht erreichbar | Port ist an `127.0.0.1` gebunden → SSH-Tunnel nutzen |
 
 Logs: `logs/<streamer>-<zeitstempel>.log` auf dem Host, zusätzlich im Dashboard.

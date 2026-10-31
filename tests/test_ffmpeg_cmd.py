@@ -79,20 +79,20 @@ def test_output_normalises_video_and_pushes_youtube(
     assert args[-1] == "rtmp://a.rtmp.youtube.com/live2/key-123"
 
     video_filter = args[args.index("-vf") + 1]
-    assert "scale=1280:720" in video_filter
+    assert "scale=720:1280" in video_filter
     assert "fps=30" in video_filter
-    assert "pad=1280:720" in video_filter
+    assert "pad=720:1280" in video_filter
     assert args[args.index("-fps_mode") + 1] == "cfr"
 
 
-def test_output_custom_canvas(settings: Settings) -> None:
-    portrait = replace(
-        settings, output_width=720, output_height=1280, output_fps=25
+def test_output_landscape_canvas(settings: Settings) -> None:
+    landscape = replace(
+        settings, output_orientation="landscape", output_fps=25
     )
-    args = build_output_command(portrait, "key-123")
+    args = build_output_command(landscape, "key-123")
 
     video_filter = args[args.index("-vf") + 1]
-    assert "scale=720:1280" in video_filter
+    assert "scale=1280:720" in video_filter
     assert "fps=25" in video_filter
 
 

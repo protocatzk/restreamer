@@ -26,7 +26,7 @@ def test_pause_command_streams_generated_screen(
 
     args, text_path, subtext_path = _build(settings)
 
-    assert "color=c=0x101418:s=1280x720:r=30" in args
+    assert "color=c=0x101418:s=720x1280:r=30" in args
     assert "anullsrc=channel_layout=stereo:sample_rate=44100" in args
     assert args[args.index("-c:v") + 1] == "libx264"
     assert args[args.index("-c:a") + 1] == "aac"
@@ -42,17 +42,17 @@ def test_pause_command_streams_generated_screen(
     assert subtext_path.read_text(encoding="utf-8") == "Gleich geht's weiter"
 
 
-def test_pause_command_uses_configured_canvas(
+def test_pause_command_landscape_canvas(
     settings: Settings, monkeypatch
 ) -> None:
     monkeypatch.setattr(pause, "find_pause_font", lambda explicit="": None)
-    portrait = replace(
-        settings, output_width=720, output_height=1280, output_fps=25
+    landscape = replace(
+        settings, output_orientation="landscape", output_fps=25
     )
 
-    args, _, _ = _build(portrait)
+    args, _, _ = _build(landscape)
 
-    assert "color=c=0x101418:s=720x1280:r=25" in args
+    assert "color=c=0x101418:s=1280x720:r=25" in args
 
 
 def test_pause_command_applies_timestamp_offset(

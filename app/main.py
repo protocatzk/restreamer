@@ -181,6 +181,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+        output_orientation_changed = (
+            candidate.output_orientation != settings.output_orientation
+        )
+
         try:
             candidate.save_runtime()
         except OSError as exc:
@@ -189,6 +193,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             ) from exc
 
         settings.apply_from(candidate)
+
+        if output_orientation_changed:
+            await supervisor.reload_output()
 
         if clear_session and settings.cookies_file.exists():
             try:

@@ -222,6 +222,10 @@ class Supervisor:
             "source_sessions": self._sessions,
             "youtube_sessions": self._output_sessions,
             "output_error": self._output_error,
+            "output_orientation": self.settings.output_orientation,
+            "output_size": (
+                f"{self.settings.output_width}x{self.settings.output_height}"
+            ),
             "relay_port": self.settings.relay_port,
             "title": self._title,
             "last_error": self._last_error,
@@ -939,6 +943,36 @@ class Supervisor:
                 )
                 await self._terminate(process)
                 return
+
+    async def reload_output(self) -> None:
+        """Apply a changed output format without touching the TikTok source.
+
+        The canvas size is part of the encoder configuration, so the YouTube
+        connection has to be rebuilt once.  The source keeps writing to the
+        local relay and reconnects immediately after the new output starts.
+        """
+        async with self._lock:
+            if self._task is None or self._output_task is None:
+                return
+            streamer = (
+                self.store.get(self._active_id)
+                if self._active_id is not None
+                else None
+            )
+            if streamer is None:
+                return
+            self._record(
+                "[Restreamer] Ausgabeformat geändert – YouTube-Ausgang wird "
+                "für kurze Zeit neu aufgebaut"
+            )
+            pause_was_running = self._pause_running()
+            if pause_was_running:
+                await self._stop_pause()
+            await self._restart_output(self._output_key_value, streamer)
+            if pause_was_running and not self._stop_event.is_set():
+                await self._ensure_pause(
+                    self._output_key_value, "Formatwechsel"
+                )
 
     # ------------------------------------------------------------------- runner
 

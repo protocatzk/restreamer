@@ -73,6 +73,19 @@ def test_new_defaults_are_present(tmp_path: Path) -> None:
     assert data["pause_screen_max_minutes"] == 0
 
 
+def test_output_orientation_can_be_switched(tmp_path: Path) -> None:
+    settings = Settings(runtime_file=tmp_path / "settings.yml")
+
+    assert settings.output_orientation == "portrait"
+    assert (settings.output_width, settings.output_height) == (720, 1280)
+
+    landscape = settings.updated({"output_orientation": "landscape"})
+    assert (landscape.output_width, landscape.output_height) == (1280, 720)
+
+    with pytest.raises(ValueError, match="output_orientation"):
+        settings.updated({"output_orientation": "square"})
+
+
 def test_pause_screen_values_are_validated(tmp_path: Path) -> None:
     settings = Settings(runtime_file=tmp_path / "settings.yml")
 
