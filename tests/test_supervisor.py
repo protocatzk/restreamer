@@ -236,7 +236,7 @@ async def test_stall_triggers_restart(settings, store, monkeypatch) -> None:
         await supervisor.stop()
 
 
-async def test_auto_refresh_reconnects(settings, store, monkeypatch) -> None:
+async def test_auto_refresh_restarts_only_source(settings, store, monkeypatch) -> None:
     monkeypatch.setenv("ALICE_YT_KEY", "alice-key")
     quick = replace(
         settings,
@@ -251,10 +251,13 @@ async def test_auto_refresh_reconnects(settings, store, monkeypatch) -> None:
         await supervisor.start("alice")
         await wait_until(
             lambda: supervisor.status()["refresh_count"] >= 1
-            and supervisor.status()["sessions"] >= 2,
+            and supervisor.status()["source_sessions"] >= 2,
             timeout_s=30,
         )
-        assert supervisor.status()["last_restart_reason"] == "auto-refresh"
+        status = supervisor.status()
+        assert status["last_restart_reason"] == "auto-refresh"
+        # Auto-Refresh darf die YouTube-RTMP-Session nicht neu aufbauen.
+        assert status["sessions"] == 1
     finally:
         await supervisor.stop()
 
@@ -281,13 +284,20 @@ class RecordingSpawn:
         self.calls: list[list[str]] = []
         self.live_calls = 0
         self.pause_calls = 0
+        self.output_calls = 0
         self.pause_processes: list[asyncio.subprocess.Process] = []
 
     async def __call__(self, args: list[str]) -> asyncio.subprocess.Process:
         self.calls.append(list(args))
         pause_call = "lavfi" in args
+        output_call = any(
+            arg.startswith(("rtmp://", "rtmps://")) for arg in args
+        )
         if pause_call:
             self.pause_calls += 1
+            seconds = "60"
+        elif output_call:
+            self.output_calls += 1
             seconds = "60"
         else:
             self.live_calls += 1
@@ -322,7 +332,7 @@ async def test_pause_screen_starts_after_stream_ends(
         status = supervisor.status()
         assert status["pause_since"] is not None
         assert spawn.pause_calls == 1
-        assert "color=c=0x101418:s=1920x1080:r=30" in spawn.calls[-1]
+        assert "color=c=0x101418:s=1280x720:r=30" in spawn.calls[-1]
     finally:
         await supervisor.stop()
 
@@ -461,18 +471,22 @@ class MapResolver:
 
 
 class SequenceSpawn:
-    """Live ffmpeg calls use queued durations; pause calls stay alive."""
+    """Source ffmpeg calls use queued durations; pause/output stay alive."""
 
     def __init__(self, live_seconds: list[str] | None = None) -> None:
         self._live_seconds = list(live_seconds or [])
         self.calls: list[list[str]] = []
         self.live_calls = 0
         self.pause_calls = 0
+        self.output_calls = 0
 
     async def __call__(self, args: list[str]) -> asyncio.subprocess.Process:
         self.calls.append(list(args))
         if "lavfi" in args:
             self.pause_calls += 1
+            seconds = "60"
+        elif any(arg.startswith(("rtmp://", "rtmps://")) for arg in args):
+            self.output_calls += 1
             seconds = "60"
         else:
             self.live_calls += 1
@@ -487,7 +501,22 @@ class SequenceSpawn:
         )
 
     def live_arguments(self) -> list[list[str]]:
-        return [args for args in self.calls if "lavfi" not in args]
+        """Arguments that start a TikTok source (not pause, not output)."""
+        return [
+            args
+            for args in self.calls
+            if "lavfi" not in args
+            and not any(
+                arg.startswith(("rtmp://", "rtmps://")) for arg in args
+            )
+        ]
+
+    def output_arguments(self) -> list[list[str]]:
+        return [
+            args
+            for args in self.calls
+            if any(arg.startswith(("rtmp://", "rtmps://")) for arg in args)
+        ]
 
 
 def make_store(settings, body: str) -> StreamerStore:
@@ -522,8 +551,10 @@ async def test_playlist_advances_on_offline_with_shared_key(
         assert playlist_view(status)["switch_count"] == 1
         assert playlist_view(status)["last_switch_reason"] == "offline"
         assert spawn.pause_calls >= 1
+        # Shared key: the YouTube output must not be rebuilt.
+        assert spawn.output_calls == 1
 
-        bob_args = spawn.live_arguments()[-1]
+        bob_args = spawn.output_arguments()[-1]
         assert bob_args[-1].endswith("/shared-key")
         assert "alice-key" not in " ".join(bob_args)
         assert "bob-key" not in " ".join(bob_args)
@@ -548,7 +579,12 @@ async def test_playlist_advances_after_clean_stream_end(settings) -> None:
         status = supervisor.status()
         assert playlist_view(status)["switch_count"] == 1
         assert playlist_view(status)["last_switch_reason"] == "Stream beendet"
-        assert spawn.live_arguments()[-1][-1].endswith("/bob-key")
+        await wait_until(
+            lambda: spawn.output_arguments()[-1][-1].endswith("/bob-key"),
+            timeout_s=5,
+        )
+        # Different channel key: a new YouTube session is expected.
+        assert spawn.output_calls == 2
     finally:
         await supervisor.stop()
 

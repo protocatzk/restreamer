@@ -2,12 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from app.ffmpeg_cmd import build_youtube_urls
+from app.ffmpeg_cmd import build_relay_source_url
 from app.settings import Settings
 
-PAUSE_WIDTH = 1920
-PAUSE_HEIGHT = 1080
-PAUSE_FRAMERATE = 30
 PAUSE_TEXT_FILENAME = "pause-screen-text.txt"
 PAUSE_SUBTEXT_FILENAME = "pause-screen-subtext.txt"
 
@@ -68,11 +65,17 @@ def write_pause_texts(
 
 def build_pause_command(
     settings: Settings,
-    key: str,
     text_path: Path,
     subtext_path: Path,
+    timestamp_offset: float = 0.0,
 ) -> list[str]:
-    """Build the ffmpeg command that streams the generated pause screen."""
+    """Build the ffmpeg command that feeds the generated pause screen to the relay."""
+    width = settings.output_width
+    height = settings.output_height
+    framerate = settings.output_fps
+    font_size = max(24, round(height * 0.089))
+    subtext_size = max(16, round(height * 0.039))
+
     args = [
         settings.ffmpeg_bin,
         "-hide_banner",
@@ -85,7 +88,7 @@ def build_pause_command(
         "lavfi",
         "-i",
         f"color=c={_normalize_color(settings.pause_screen_background)}"
-        f":s={PAUSE_WIDTH}x{PAUSE_HEIGHT}:r={PAUSE_FRAMERATE}",
+        f":s={width}x{height}:r={framerate}",
         "-re",
         "-f",
         "lavfi",
@@ -102,7 +105,7 @@ def build_pause_command(
                 "drawtext="
                 f"fontfile={fontfile}"
                 f":textfile={_filter_quote(str(text_path))}"
-                ":fontcolor=white:fontsize=96"
+                f":fontcolor=white:fontsize={font_size}"
                 ":x=(w-text_w)/2:y=(h-text_h)/2-70"
                 ":shadowcolor=black@0.6:shadowx=3:shadowy=3"
             )
@@ -111,7 +114,7 @@ def build_pause_command(
                 "drawtext="
                 f"fontfile={fontfile}"
                 f":textfile={_filter_quote(str(subtext_path))}"
-                ":fontcolor=0xB8C0CC:fontsize=42"
+                f":fontcolor=0xB8C0CC:fontsize={subtext_size}"
                 ":x=(w-text_w)/2:y=(h-text_h)/2+70"
                 ":shadowcolor=black@0.6:shadowx=2:shadowy=2"
             )
@@ -148,11 +151,15 @@ def build_pause_command(
         "-ac",
         "2",
         "-f",
-        "flv",
-        "-flvflags",
-        "no_duration_filesize",
-        "-max_muxing_queue_size",
-        "1024",
+        "mpegts",
+        "-mpegts_flags",
+        "+resend_headers",
+        "-flush_packets",
+        "1",
+        "-muxdelay",
+        "0",
     ]
-    args += build_youtube_urls(settings, key)
+    if timestamp_offset > 0:
+        args += ["-output_ts_offset", f"{timestamp_offset:.3f}"]
+    args.append(build_relay_source_url(settings))
     return args

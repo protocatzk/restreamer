@@ -97,6 +97,8 @@ function renderStatus(status) {
 
   if (status.config_error) {
     setBanner(`Konfigurationsfehler: ${status.config_error}`, "error");
+  } else if (status.output_error) {
+    setBanner(`YouTube-Ausgang: ${status.output_error}`, "warn");
   } else if (status.last_error) {
     setBanner(status.last_error, "warn");
   } else {
@@ -385,7 +387,9 @@ function renderStreamers(status) {
     if (streamer.active && status.active_playlist) {
       badges.append(badge("Auto-Weiter", "warn"));
     }
-    badges.append(badge(`Modus: ${streamer.video_mode}`));
+    if (streamer.video_mode === "reencode") {
+      badges.append(badge("Legacy: reencode", "warn"));
+    }
     if (streamer.auto_start) badges.append(badge("Auto-Start"));
     if (!streamer.enabled) badges.append(badge("deaktiviert", "warn"));
     if (streamer.key_source === "config") badges.append(badge("Key gespeichert", "ok"));

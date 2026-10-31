@@ -10,7 +10,10 @@ from contextlib import suppress
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from app.ffmpeg_cmd import build_ffmpeg_command, command_uses_reencode
+from app.ffmpeg_cmd import (
+    build_output_command,
+    build_source_command,
+)
 from app.logs import RingLog, redact
 from app.models import (
     PlaylistConfig,
@@ -35,6 +38,10 @@ CODEC_ERROR_MARKERS = (
     "encoder not found",
     "invalid codec",
 )
+
+# Extra Abstand zwischen zwei MPEG-TS-Quellen. Der Wert deckt die Zeit ab, die
+# eine neue TikTok-Verbindung braucht, bevor sie das erste Paket liefert.
+PIPE_SWITCH_GUARD_SECONDS = 1.0
 
 
 class StreamerNotFound(LookupError):
@@ -109,6 +116,17 @@ class Supervisor:
         self._proc: asyncio.subprocess.Process | None = None
         self._stop_event = asyncio.Event()
 
+        # Long-lived YouTube output process.  It reads MPEG-TS from the local
+        # relay and is deliberately not restarted when only the source changes.
+        self._output_proc: asyncio.subprocess.Process | None = None
+        self._output_task: asyncio.Task | None = None
+        self._output_key_value = ""
+        self._output_args: tuple[str, ...] = ()
+        self._output_sessions = 0
+        self._output_error = ""
+        self._output_log_task: asyncio.Task | None = None
+        self._output_progress_task: asyncio.Task | None = None
+
         self._active_id: str | None = None
         self._state = StreamState.IDLE
         self._state_since = _utc_now_iso()
@@ -123,6 +141,9 @@ class Supervisor:
         self._log_path: Path | None = None
 
         self._last_progress_monotonic: float | None = None
+        self._source_progress_monotonic: float | None = None
+        self._source_out_time_us = -1
+        self._source_total_size = -1
         self._last_out_time_us = -1
         self._last_total_size = -1
         self._progress_out_time_us = 0
@@ -153,6 +174,10 @@ class Supervisor:
         self._playlist_end_at_monotonic: float | None = None
         self._playlist_end_task: asyncio.Task | None = None
         self._session_token = 0
+        self._stream_epoch_monotonic = time.monotonic()
+        self._last_pipe_offset_end = 0.0
+        self._pipe_offset_started: float | None = None
+        self._pipe_offset_value: float | None = None
 
     # ------------------------------------------------------------------ status
 
@@ -169,19 +194,37 @@ class Supervisor:
             if self._next_refresh_monotonic is not None
             else None
         )
+        source_pid = (
+            self._proc.pid
+            if self._proc is not None and self._proc.returncode is None
+            else None
+        )
+        output_pid = (
+            self._output_proc.pid
+            if self._output_proc is not None
+            and self._output_proc.returncode is None
+            else None
+        )
+        source_progress_age = (
+            round(now - self._source_progress_monotonic, 1)
+            if self._source_progress_monotonic is not None
+            else None
+        )
         return {
             "active": self._active_id,
             "state": self._state.value,
             "state_since": self._state_since,
             "started_at": self._started_at,
-            "pid": (
-                self._proc.pid
-                if self._proc is not None and self._proc.returncode is None
-                else None
-            ),
+            "pid": output_pid or source_pid,
+            "source_pid": source_pid,
+            "output_pid": output_pid,
+            "sessions": self._output_sessions,
+            "source_sessions": self._sessions,
+            "youtube_sessions": self._output_sessions,
+            "output_error": self._output_error,
+            "relay_port": self.settings.relay_port,
             "title": self._title,
             "last_error": self._last_error,
-            "sessions": self._sessions,
             "log_file": str(self._log_path) if self._log_path else None,
             "config_error": self.store.error,
             "cookies_configured": self.settings.cookies_file.exists(),
@@ -195,6 +238,7 @@ class Supervisor:
             "pause_active": self._pause_running(),
             "pause_since": self._pause_since,
             "progress_age_seconds": progress_age,
+            "source_progress_age_seconds": source_progress_age,
             "progress_out_time_seconds": (
                 round(self._progress_out_time_us / 1_000_000, 1)
                 if self._progress_out_time_us
@@ -383,6 +427,14 @@ class Supervisor:
             self._title = ""
             self._last_error = ""
             self._sessions = 0
+            self._output_sessions = 0
+            self._output_error = ""
+            self._output_key_value = key
+            self._output_args = tuple(streamer.ffmpeg_args)
+            self._stream_epoch_monotonic = time.monotonic()
+            self._last_pipe_offset_end = 0.0
+            self._pipe_offset_started = None
+            self._pipe_offset_value = None
             self._secrets = [key]
             self._prefetched = None
             self._current_stream = None
@@ -395,6 +447,10 @@ class Supervisor:
             self._reset_progress()
             self._log.clear()
             self._open_log_file(streamer.id)
+
+            self._output_task = asyncio.create_task(
+                self._output_loop(key), name=f"youtube-output-{streamer.id}"
+            )
 
             if (
                 bridge_pause
@@ -633,6 +689,7 @@ class Supervisor:
         task = self._task
         if task is None:
             await self._stop_pause()
+            await self._stop_output()
             self._reset_session()
             return
 
@@ -661,6 +718,7 @@ class Supervisor:
         self._task = None
         self._proc = None
         await self._stop_pause()
+        await self._stop_output()
         self._reset_session()
 
     def _reset_session(self) -> None:
@@ -682,6 +740,18 @@ class Supervisor:
         self._session_token += 1
         self._reset_progress()
         self._reset_pause()
+        self._output_proc = None
+        self._output_task = None
+        self._output_key_value = ""
+        self._output_args = ()
+        self._output_log_task = None
+        self._output_progress_task = None
+        self._output_sessions = 0
+        self._output_error = ""
+        self._sessions = 0
+        self._last_pipe_offset_end = 0.0
+        self._pipe_offset_started = None
+        self._pipe_offset_value = None
         self._close_log_file()
         self._set_state(StreamState.IDLE)
 
@@ -708,12 +778,167 @@ class Supervisor:
 
     def _reset_progress(self) -> None:
         self._last_progress_monotonic = None
+        self._source_progress_monotonic = None
+        self._source_out_time_us = -1
+        self._source_total_size = -1
         self._last_out_time_us = -1
         self._last_total_size = -1
         self._progress_out_time_us = 0
         self._progress_speed = ""
         self._live_started_monotonic = None
         self._next_refresh_monotonic = None
+
+    # ------------------------------------------------------------ output process
+
+    def _source_running(self) -> bool:
+        return self._proc is not None and self._proc.returncode is None
+
+    async def _output_loop(self, key: str) -> None:
+        """Keep one YouTube RTMP connection alive across source changes."""
+        backoff = self.settings.backoff_initial_seconds
+        while not self._stop_event.is_set():
+            try:
+                args = build_output_command(
+                    self.settings, key, self._output_args
+                )
+            except ValueError as exc:
+                self._output_error = self._redact(str(exc))
+                self._record(
+                    f"[Restreamer] YouTube-Ausgang nicht startbar: {exc}"
+                )
+                return
+
+            self._record(
+                "[Restreamer] YouTube-Ausgang: "
+                + self._redact(" ".join(args))
+            )
+            try:
+                process = await self._spawn(args)
+            except OSError as exc:
+                self._output_error = self._redact(str(exc))
+                self._record(
+                    f"[Restreamer] YouTube-Ausgang Start fehlgeschlagen: {exc}"
+                )
+                if not await self._sleep(backoff):
+                    break
+                backoff = min(
+                    backoff * 2, self.settings.backoff_max_seconds
+                )
+                continue
+
+            self._output_proc = process
+            self._output_sessions += 1
+            self._output_error = ""
+            started = time.monotonic()
+            self._last_progress_monotonic = started
+            self._last_out_time_us = -1
+            self._last_total_size = -1
+            self._progress_out_time_us = 0
+            self._progress_speed = ""
+
+            log_task = asyncio.create_task(
+                self._pump_logs(process, prefix="[out] ")
+            )
+            progress_task = asyncio.create_task(self._pump_progress(process))
+            watchdog = asyncio.create_task(self._watch_output(process))
+            self._output_log_task = log_task
+            self._output_progress_task = progress_task
+
+            try:
+                returncode = await process.wait()
+            except asyncio.CancelledError:
+                await self._terminate(process)
+                raise
+            finally:
+                for task in (watchdog, log_task, progress_task):
+                    task.cancel()
+                    with suppress(asyncio.CancelledError):
+                        await task
+                self._output_proc = None
+                self._output_log_task = None
+                self._output_progress_task = None
+                self._last_progress_monotonic = None
+
+            if self._stop_event.is_set():
+                break
+
+            if time.monotonic() - started > 60:
+                backoff = self.settings.backoff_initial_seconds
+            self._output_error = f"YouTube-Ausgang beendet (rc={returncode})"
+            self._record(
+                f"[Restreamer] YouTube-Ausgang beendet (rc={returncode}) – "
+                "neuer RTMP-Aufbau"
+            )
+            if not await self._sleep(backoff):
+                break
+            backoff = min(backoff * 2, self.settings.backoff_max_seconds)
+
+    async def _sync_output(
+        self, key: str, streamer: StreamerConfig
+    ) -> None:
+        """Restart the output only when the YouTube target really changes."""
+        if (
+            key != self._output_key_value
+            or tuple(streamer.ffmpeg_args) != self._output_args
+        ):
+            await self._restart_output(key, streamer)
+
+    async def _restart_output(
+        self, key: str, streamer: StreamerConfig
+    ) -> None:
+        await self._stop_output()
+        if self._stop_event.is_set():
+            return
+        self._output_key_value = key
+        self._output_args = tuple(streamer.ffmpeg_args)
+        if key and key not in self._secrets:
+            self._secrets.append(key)
+        self._output_task = asyncio.create_task(
+            self._output_loop(key), name=f"youtube-output-{streamer.id}"
+        )
+
+    async def _stop_output(self) -> None:
+        task = self._output_task
+        self._output_task = None
+        process = self._output_proc
+        if task is not None and task is not asyncio.current_task():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+            except Exception:  # noqa: BLE001 - stopping must not fail
+                logger.exception("Fehler beim Beenden des YouTube-Ausgangs")
+        if process is not None and process.returncode is None:
+            await self._terminate(process)
+        self._output_proc = None
+        self._output_log_task = None
+        self._output_progress_task = None
+
+    async def _watch_output(
+        self, process: asyncio.subprocess.Process
+    ) -> None:
+        interval = max(2, self.settings.watchdog_interval_seconds)
+        while True:
+            await asyncio.sleep(interval)
+            if self._stop_event.is_set() or process.returncode is not None:
+                return
+            if self._last_progress_monotonic is None:
+                continue
+            if not (self._source_running() or self._pause_running()):
+                continue
+            age = time.monotonic() - self._last_progress_monotonic
+            if age >= self.settings.stall_timeout_seconds:
+                self._output_error = (
+                    f"{self.settings.stall_timeout_seconds}s ohne Fortschritt"
+                )
+                self._record(
+                    "[Restreamer] YouTube-Ausgang "
+                    f"{self.settings.stall_timeout_seconds}s ohne Fortschritt – "
+                    "Neustart"
+                )
+                await self._terminate(process)
+                return
 
     # ------------------------------------------------------------------- runner
 
@@ -845,6 +1070,10 @@ class Supervisor:
                         self._last_error = message
                         self._record(f"[Restreamer] Auflösung fehlgeschlagen: {message}")
                         self._set_state(StreamState.ERROR)
+                        if watch:
+                            await self._ensure_pause(
+                                key, "Auflösung fehlgeschlagen"
+                            )
                         if not await self._sleep(backoff):
                             break
                         backoff = min(backoff * 2, self.settings.backoff_max_seconds)
@@ -867,6 +1096,7 @@ class Supervisor:
                     if advanced is not None:
                         streamer, key = advanced
                         force_reencode = False
+                        await self._sync_output(key, streamer)
                         backoff = self.settings.backoff_initial_seconds
                         continue
 
@@ -880,9 +1110,13 @@ class Supervisor:
                 self._current_stream = stream
                 # Ein erfolgreicher Sender beendet den Offline-Zyklus.
                 self._offline_cycle.clear()
-                reencode = command_uses_reencode(streamer, stream, force_reencode)
-                args = build_ffmpeg_command(
-                    streamer, stream, key, self.settings, force_reencode=force_reencode
+                reencode = force_reencode
+                await self._stop_pause_for_live()
+                source_offset = self._relay_timestamp_offset()
+                args = build_source_command(
+                    streamer, stream, self.settings,
+                    force_reencode=force_reencode,
+                    timestamp_offset=source_offset,
                 )
 
                 mode = "reencode" if reencode else "copy"
@@ -890,16 +1124,18 @@ class Supervisor:
                     "[Restreamer] Stream gefunden "
                     f"({stream.height or '?'}p, {stream.source_vcodec or '?'}, {mode})"
                 )
-                self._record("[Restreamer] ffmpeg: " + self._redact(" ".join(args)))
-
-                await self._stop_pause_for_live()
+                self._record(
+                    "[Restreamer] Quelle: " + self._redact(" ".join(args))
+                )
 
                 try:
                     process = await self._spawn(args)
                 except OSError as exc:
                     self._last_error = self._redact(str(exc))
-                    self._record(f"[Restreamer] ffmpeg Start fehlgeschlagen: {exc}")
+                    self._record(f"[Restreamer] Quellen-Start fehlgeschlagen: {exc}")
                     self._set_state(StreamState.ERROR)
+                    if watch:
+                        await self._ensure_pause(key, "Quellen-Start fehlgeschlagen")
                     if not await self._sleep(backoff):
                         break
                     backoff = min(backoff * 2, self.settings.backoff_max_seconds)
@@ -907,13 +1143,12 @@ class Supervisor:
 
                 self._proc = process
                 self._sessions += 1
+                self._mark_pipe_start(source_offset)
                 started = time.monotonic()
                 self._live_started_monotonic = started
-                self._last_progress_monotonic = started
-                self._last_out_time_us = -1
-                self._last_total_size = -1
-                self._progress_out_time_us = 0
-                self._progress_speed = ""
+                self._source_progress_monotonic = started
+                self._source_out_time_us = -1
+                self._source_total_size = -1
                 self._restart_reason = None
                 self._next_refresh_monotonic = (
                     started + self.settings.auto_refresh_minutes * 60
@@ -922,11 +1157,17 @@ class Supervisor:
                 )
                 self._set_state(StreamState.LIVE)
 
-                log_reader = asyncio.create_task(self._pump_logs(process))
-                progress_reader = asyncio.create_task(self._pump_progress(process))
+                log_reader = asyncio.create_task(
+                    self._pump_logs(process, prefix="[source] ")
+                )
+                progress_reader = asyncio.create_task(
+                    self._pump_source_progress(process)
+                )
                 watchdog = asyncio.create_task(self._watch(process, streamer))
 
                 returncode = await process.wait()
+
+                self._mark_pipe_end()
 
                 watchdog.cancel()
                 with suppress(asyncio.CancelledError):
@@ -945,7 +1186,9 @@ class Supervisor:
                 self._restart_reason = None
                 self._live_started_monotonic = None
                 self._next_refresh_monotonic = None
-                self._last_progress_monotonic = None
+                self._source_progress_monotonic = None
+                self._source_out_time_us = -1
+                self._source_total_size = -1
 
                 if self._stop_event.is_set():
                     break
@@ -964,7 +1207,11 @@ class Supervisor:
                     self._stall_count += 1
                     self._last_stall_at = _utc_now_iso()
                     self._last_restart_reason = "stall"
-                    self._record("[Restreamer] Stall erkannt – Neustart")
+                    self._record(
+                        "[Restreamer] Stall erkannt – TikTok-Quelle wird neu "
+                        "eingelesen, YouTube-Verbindung bleibt"
+                    )
+                    await self._ensure_pause(key, "Stall")
                     self._set_state(StreamState.BACKOFF)
                     if not await self._sleep(min(backoff, 10)):
                         break
@@ -984,6 +1231,7 @@ class Supervisor:
                     if advanced is not None:
                         streamer, key = advanced
                         force_reencode = False
+                        await self._sync_output(key, streamer)
                         backoff = self.settings.backoff_initial_seconds
                         continue
 
@@ -1019,6 +1267,8 @@ class Supervisor:
         finally:
             with suppress(asyncio.CancelledError):
                 await self._stop_pause()
+            with suppress(asyncio.CancelledError):
+                await self._stop_output()
             await self._cancel_playlist_end()
             self._proc = None
             self._pause_task = None
@@ -1097,7 +1347,13 @@ class Supervisor:
                 self.settings.pause_screen_text,
                 self.settings.pause_screen_subtext,
             )
-            args = build_pause_command(self.settings, key, text_path, subtext_path)
+            pause_offset = self._relay_timestamp_offset()
+            args = build_pause_command(
+                self.settings,
+                text_path,
+                subtext_path,
+                timestamp_offset=pause_offset,
+            )
         except (OSError, ValueError) as exc:
             self._record(f"[Restreamer] Pausenscreen nicht erstellbar: {exc}")
             self._pause_retry_monotonic = now + 30
@@ -1115,6 +1371,7 @@ class Supervisor:
             return
 
         self._pause_proc = process
+        self._mark_pipe_start(pause_offset)
         self._pause_task = asyncio.create_task(
             self._pump_logs(process, prefix="[pause] ")
         )
@@ -1140,6 +1397,7 @@ class Supervisor:
             with suppress(Exception):
                 await process.wait()
 
+        self._mark_pipe_end()
         self._pause_proc = None
         self._pause_task = None
 
@@ -1195,7 +1453,7 @@ class Supervisor:
                     self._restart_reason = "auto-refresh"
                     self._record(
                         "[Restreamer] Auto-Refresh fällig – nutze bestehende URL "
-                        "für neuen RTMP-Aufbau"
+                        "für neuen Quellen-Start"
                     )
                     await self._terminate(process)
                     return
@@ -1205,8 +1463,8 @@ class Supervisor:
                 )
 
             if (
-                self._last_progress_monotonic is not None
-                and now - self._last_progress_monotonic
+                self._source_progress_monotonic is not None
+                and now - self._source_progress_monotonic
                 >= self.settings.stall_timeout_seconds
             ):
                 self._restart_reason = "stall"
@@ -1279,6 +1537,49 @@ class Supervisor:
                 self._handle_progress_line(buffer.strip())
         except Exception:  # noqa: BLE001 - stream can close at any time
             pass
+
+    async def _pump_source_progress(
+        self, process: asyncio.subprocess.Process
+    ) -> None:
+        if process.stdout is None:
+            return
+        buffer = ""
+        try:
+            while True:
+                chunk = await process.stdout.read(4096)
+                if not chunk:
+                    break
+                buffer += chunk.decode("utf-8", errors="replace")
+                while "\n" in buffer:
+                    line, buffer = buffer.split("\n", 1)
+                    self._handle_source_progress_line(line.strip())
+            if buffer.strip():
+                self._handle_source_progress_line(buffer.strip())
+        except Exception:  # noqa: BLE001 - stream can close at any time
+            pass
+
+    def _handle_source_progress_line(self, line: str) -> None:
+        if not line or "=" not in line:
+            return
+        key, _, value = line.partition("=")
+        key = key.strip()
+        value = value.strip()
+        if key == "out_time_us":
+            try:
+                microseconds = int(value)
+            except ValueError:
+                return
+            if microseconds > self._source_out_time_us:
+                self._source_out_time_us = microseconds
+                self._source_progress_monotonic = time.monotonic()
+        elif key == "total_size":
+            try:
+                total_size = int(value)
+            except ValueError:
+                return
+            if total_size > self._source_total_size:
+                self._source_total_size = total_size
+                self._source_progress_monotonic = time.monotonic()
 
     def _handle_progress_line(self, line: str) -> None:
         if not line or "=" not in line:
@@ -1386,6 +1687,36 @@ class Supervisor:
                 )
             return key
         return self._youtube_key(streamer)
+
+    def _relay_timestamp_offset(self) -> float:
+        """Monotonic MPEG-TS offset shared by all source/pause processes.
+
+        Without this, every new TikTok source starts its MPEG-TS timestamps at
+        zero again.  The long-lived output would then see a backwards jump and
+        produce non-monotonic audio DTS on each switch.
+        """
+        wall = time.monotonic() - self._stream_epoch_monotonic + 0.5
+        return round(
+            max(wall, self._last_pipe_offset_end + PIPE_SWITCH_GUARD_SECONDS),
+            3,
+        )
+
+    def _mark_pipe_start(self, offset: float) -> None:
+        self._pipe_offset_started = time.monotonic()
+        self._pipe_offset_value = offset
+
+    def _mark_pipe_end(self) -> None:
+        if (
+            self._pipe_offset_started is not None
+            and self._pipe_offset_value is not None
+        ):
+            self._last_pipe_offset_end = (
+                self._pipe_offset_value
+                + time.monotonic()
+                - self._pipe_offset_started
+            )
+        self._pipe_offset_started = None
+        self._pipe_offset_value = None
 
     def _redact(self, text: str) -> str:
         return redact(text, self._secrets)

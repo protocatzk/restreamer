@@ -144,6 +144,13 @@ class Settings:
     reencode_video_bitrate: str = "2500k"
     audio_bitrate: str = "160k"
 
+    # Persistent output: live/pause sources are muxed to a local MPEG-TS UDP
+    # relay and a single long-lived ffmpeg keeps the YouTube RTMP connection.
+    relay_port: int = 19350
+    output_width: int = 1280
+    output_height: int = 720
+    output_fps: int = 30
+
     pause_screen_enabled: bool = True
     pause_screen_text: str = "Stream pausiert"
     pause_screen_subtext: str = "Gleich geht's weiter"
@@ -191,6 +198,10 @@ class Settings:
             ytdlp_extra_args=tuple(shlex.split(os.getenv("YTDLP_EXTRA_ARGS", ""))),
             reencode_video_bitrate=os.getenv("REENCODE_VIDEO_BITRATE", "2500k"),
             audio_bitrate=os.getenv("AUDIO_BITRATE", "160k"),
+            relay_port=_env_int("RELAY_PORT", 19350),
+            output_width=_env_int("OUTPUT_WIDTH", 1280),
+            output_height=_env_int("OUTPUT_HEIGHT", 720),
+            output_fps=_env_int("OUTPUT_FPS", 30),
             pause_screen_enabled=_env_bool("PAUSE_SCREEN_ENABLED", True),
             pause_screen_text=os.getenv("PAUSE_SCREEN_TEXT", "Stream pausiert"),
             pause_screen_subtext=os.getenv(
@@ -306,6 +317,18 @@ class Settings:
             )
         if self.pause_screen_max_minutes < 0:
             raise ValueError("pause_screen_max_minutes darf nicht negativ sein")
+        if not 1 <= self.relay_port <= 65535:
+            raise ValueError("relay_port muss zwischen 1 und 65535 liegen")
+        if not 160 <= self.output_width <= 3840 or self.output_width % 2:
+            raise ValueError(
+                "output_width muss eine gerade Zahl zwischen 160 und 3840 sein"
+            )
+        if not 120 <= self.output_height <= 2160 or self.output_height % 2:
+            raise ValueError(
+                "output_height muss eine gerade Zahl zwischen 120 und 2160 sein"
+            )
+        if not 15 <= self.output_fps <= 60:
+            raise ValueError("output_fps muss zwischen 15 und 60 liegen")
 
     def save_runtime(self) -> None:
         payload: dict[str, object] = {}

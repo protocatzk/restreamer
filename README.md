@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/protocatzk/restreamer/actions/workflows/ci.yml/badge.svg?branch=stream)](https://github.com/protocatzk/restreamer/actions/workflows/ci.yml)
 
-Restream einzelner TikTok-Live-Streamer auf YouTube – aufgelöst mit **yt-dlp**, übertragen mit **ffmpeg** (Video-Stream-Copy, Audio nach AAC). Läuft als Docker-Container mit Web-Dashboard, Senderliste und ist für **einen gleichzeitigen Stream** ausgelegt.
+Restream einzelner TikTok-Live-Streamer auf YouTube – aufgelöst mit **yt-dlp**, übertragen mit **ffmpeg**. Ein dauerhafter Ausgabe-ffmpeg hält die YouTube-RTMP-Verbindung, während TikTok-Quellen und Pausenscreen intern über einen MPEG-TS-Relay ausgetauscht werden. Läuft als Docker-Container mit Web-Dashboard, Senderliste und ist für **einen gleichzeitigen Stream** ausgelegt.
 
 > **Hinweis:** Restreaming fremder Inhalte kann gegen die Nutzungsbedingungen von TikTok/YouTube und gegen Urheberrechte verstoßen. Verwende das Projekt nur für Inhalte, für die du die erforderlichen Rechte hast.
 
@@ -10,13 +10,15 @@ Restream einzelner TikTok-Live-Streamer auf YouTube – aufgelöst mit **yt-dlp*
 
 - Feste YouTube-Stream-Keys pro Streamer (im Dashboard, in `config/streamers.yml` oder per `.env`)
 - Ein aktiver Stream, Wechsel per Klick (alter Prozess wird sauber beendet)
-- Video-Copy → kaum CPU-Last; Audio wird für YouTube nach AAC gewandelt
-- Automatische H.264-Bevorzugung; Re-Encode-Fallback für HEVC-Quellen
-- yt-dlp löst die HLS-/FLV-URL bei jedem Reconnect neu auf (TikTok-URLs laufen ab)
-- **Auto-Refresh** alle 20 Minuten (einstellbar) mit vorab aufgelöster URL – verhindert Artefakte durch langlebige RTMP-Sessions
-- **Stall-Watchdog**: 30 s ohne Fortschritt → automatischer Neustart
+- **Dauerhafte YouTube-RTMP-Verbindung**: automatische Quellenwechsel, Auto-Refresh, Stall und Pausenscreen bauen RTMP nicht neu auf
+- **Interner MPEG-TS-Relay** (Loopback-UDP): Live- und Pause-Quelle werden nur noch als Quelle ausgetauscht
+- **Feste Ausgabe-Normalisierung** (Default 1280×720, 30 fps): monotone Timestamps, keine Auflösungs-/Codec-Sprünge; behebt Player-Freezes durch kaputte TikTok-DTS
+- Automatische H.264-Bevorzugung; Re-Encode-Fallback für Quellcodecs, die nicht in MPEG-TS passen
+- yt-dlp löst die TikTok-URL bei jedem Quellen-Neustart neu auf (TikTok-URLs laufen ab)
+- **Auto-Refresh** alle 20 Minuten (einstellbar) mit vorab aufgelöster URL – startet nur die Quelle neu, der YouTube-Stream bleibt verbunden
+- **Stall-Watchdog**: 30 s ohne Fortschritt → Quelle wird neu gestartet, Pausenscreen überbrückt, RTMP bleibt bestehen
 - Offline-Polling, Reconnect-Backoff 5 s → 5 min, Watch-Modus
-- **Pausenscreen**: Bei Stream-Ende/Offline wird automatisch ein generierter Pausenscreen (Text + stille Audiospur) auf YouTube eingespielt, bis der Streamer zurück ist
+- **Pausenscreen**: Bei Stream-Ende/Offline wird automatisch ein generierter Pausenscreen (Text + stille Audiospur) in denselben YouTube-Stream eingespielt, bis der Streamer zurück ist
 - **Mehrere Senderlisten (Playlists)**: Streamer in festen Reihenfolgen wie TV-Sender durchschalten – automatisch bei Stream-Ende/Offline oder manuell per Vor/Zurück
 - **Automatisches Playlist-Ende**: Senderliste nach einer Dauer oder täglich zu einer festen Uhrzeit beenden
 - **Gemeinsame oder eigene YouTube-Ausgabe**: optional ein Key pro Senderliste, sonst behält jeder Streamer seinen eigenen
@@ -69,7 +71,7 @@ streamers:
     name: Alice
     tiktok: alice                 # Handle oder https://www.tiktok.com/@alice/live
     youtube_key: xxxx-xxxx-xxxx   # ODER youtube_key_env: ALICE_YT_KEY
-    video_mode: copy              # copy | reencode
+    video_mode: copy              # veraltet; Ausgabe wird immer normalisiert
     auto_start: false             # beim Containerstart automatisch starten
     enabled: true
 ```
@@ -81,11 +83,11 @@ streamers:
 | `tiktok` | ja | TikTok-Handle oder Live-URL |
 | `youtube_key` | ja* | Fester YouTube-Key, wird im Dashboard verwaltet |
 | `youtube_key_env` | ja* | Alternative: Name der Env-Variable mit dem Key |
-| `video_mode` | nein | `copy` (Default) oder `reencode` |
+| `video_mode` | nein | Veraltet/ignoriert. Die Ausgabe wird immer auf H.264/AAC normalisiert. |
 | `auto_start` | nein | Beim Start des Containers automatisch starten |
 | `enabled` | nein | Streamer im Dashboard deaktivieren |
 | `ytdlp_args` | nein | Zusätzliche yt-dlp-Argumente (Liste) |
-| `ffmpeg_args` | nein | Zusätzliche ffmpeg-Argumente (Liste) |
+| `ffmpeg_args` | nein | Zusätzliche ffmpeg-Argumente für den Ausgabe-Prozess (Liste) |
 
 \* Mindestens `youtube_key` oder `youtube_key_env` muss gesetzt sein.
 
@@ -133,9 +135,9 @@ playlists:
 
 Die frühere einzelne `playlist:`-Schreibweise wird weiterhin gelesen und als Senderliste mit der ID `main` behandelt. Beim nächsten Speichern über das Dashboard wird sie automatisch in das neue `playlists:`-Format überführt. `playlist:` und `playlists:` dürfen nicht gleichzeitig in einer Datei stehen.
 
-**Ausgabe-Verhalten:** Ist in einer Senderliste ein gemeinsamer Key gesetzt, senden alle Sender dieser Liste auf denselben YouTube-Stream; beim Umschalten wechselt nur die TikTok-Quelle. Ohne gemeinsamen Key nutzt jeder Sender seinen eigenen YouTube-Key – Zuschauer wechseln dann mit dem Sender auf ein anderes YouTube-Video.
+**Ausgabe-Verhalten:** Ist in einer Senderliste ein gemeinsamer Key gesetzt, senden alle Sender dieser Liste auf denselben YouTube-Stream. Beim automatischen Weiterschalten (Stream-Ende/offline) wird nur die TikTok-Quelle ausgetauscht; die RTMP-Verbindung bleibt bestehen. Ohne gemeinsamen Key nutzt jeder Sender seinen eigenen YouTube-Key – Zuschauer wechseln dann mit dem Sender auf ein anderes YouTube-Video.
 
-Automatisch weitergeschaltet wird immer innerhalb der aktiven Senderliste, bei einem sauberen Stream-Ende oder wenn TikTok „offline“ meldet. Auto-Refresh und Stall-Watchdog starten dagegen weiterhin denselben Sender neu. Ist kein Sender der aktiven Liste erreichbar, greift der Pausenscreen und nach `offline_poll_seconds` wird die Liste erneut versucht. Ein manuelles „Starten“ auf einer Streamer-Karte bleibt im Einzelmodus und schaltet nicht automatisch weiter; die Senderleiste startet den Playlist-Modus. Bei einem manuellen Wechsel innerhalb einer Playlist mit gemeinsamem Key überbrückt der Pausenscreen die Umschaltzeit, damit der YouTube-Stream nicht abreißt.
+Automatisch weitergeschaltet wird immer innerhalb der aktiven Senderliste, bei einem sauberen Stream-Ende oder wenn TikTok „offline“ meldet. Auto-Refresh und Stall-Watchdog starten dagegen weiterhin denselben Sender neu, ohne die RTMP-Verbindung zu trennen. Ist kein Sender der aktiven Liste erreichbar, greift der Pausenscreen und nach `offline_poll_seconds` wird die Liste erneut versucht. Ein manuelles „Starten“ auf einer Streamer-Karte bleibt im Einzelmodus und schaltet nicht automatisch weiter; die Senderleiste startet den Playlist-Modus. Beim manuellen Wechsel innerhalb einer Playlist baut der Bot die YouTube-Session bewusst neu auf; der Pausenscreen überbrückt die Umschaltzeit.
 
 ### `.env`
 
@@ -144,6 +146,9 @@ TIKTOK_SESSION_ID=...        # sessionid-Cookie von tiktok.com
 ALICE_YT_KEY=xxxx-xxxx-...   # optional, falls youtube_key_env genutzt wird
 DASHBOARD_PASSWORD=...       # optional
 YOUTUBE_BACKUP=false
+OUTPUT_WIDTH=1280            # 720x1280 für reines Hochformat
+OUTPUT_HEIGHT=720
+OUTPUT_FPS=30
 ```
 
 Alle Optionen sind in [`.env.example`](.env.example) dokumentiert.
@@ -160,6 +165,7 @@ Alle Optionen sind in [`.env.example`](.env.example) dokumentiert.
 - Auto-Start, Reencode-Fallback
 - **Pausenscreen**: Ein/Aus, Texte, Hintergrundfarbe, Schriftdatei und Maximaldauer
 - ffmpeg Log-Level, Audio-/Video-Bitrate
+- Ausgabeformat (`OUTPUT_WIDTH`, `OUTPUT_HEIGHT`, `OUTPUT_FPS`) und Relay-Port sind per `.env` konfigurierbar
 - Dashboard-Passwort
 - Binärpfade, Timeouts, Log-Puffer, yt-dlp-Extra-Argumente
 
@@ -183,10 +189,10 @@ Eine eigene `data/cookies.txt` (Netscape-Format, z. B. per Browser-Export) funkt
 - **Starten**: löst den Stream auf und startet ffmpeg. Ist der Streamer offline, wird im Watch-Modus weiter gepollt.
 - **Senderleiste**: Über die Tabs wird die gewünschte Senderliste ausgewählt. „Playlist starten“ startet den ersten bzw. aktuellen Sender dieser Liste. „Vorheriger“/„Nächster“ wechseln sofort, ein Klick auf eine Senderkachel schaltet direkt um. Endet ein Stream oder ist der Sender offline, wird automatisch der nächste erreichbare Sender derselben Liste gestartet.
 - **Senderliste bearbeiten**: ID, Name, Reihenfolge, Auto-Weiter, Wrap-around, Verzögerung, automatisches Ende (Dauer oder Uhrzeit) und optional ein gemeinsamer YouTube-Key. Über „+ Senderliste“ lassen sich weitere Listen anlegen; Löschen entfernt nur die Liste, nicht die Streamer.
-- **Auto-Refresh**: Alle `auto_refresh_minutes` (Default 20, `0` = aus) wird die TikTok-URL im Hintergrund neu aufgelöst und ffmpeg mit frischer Verbindung neu gestartet. Das behebt YouTube-Artefakte, die sich bei langen RTMP-Sessions einschleichen. Der Stream buffert dabei kurz, geht aber nicht offline.
-- **Stall-Watchdog**: 30 s ohne Fortschritt bei `out_time`/`total_size` → Neustart. Einstellbar über `stall_timeout_seconds`.
-- **Pausenscreen**: Endet der TikTok-Stream oder meldet der Resolver „offline“, startet der Bot einen zweiten ffmpeg, der einen aus Hintergrundfarbe und Text generierten Screen samt stiller Audiospur an denselben YouTube-Key sendet. Kommt der Streamer zurück, wird der Pause-ffmpeg beendet und der Restream neu aufgebaut. Kein Pausenscreen bei manuellem Stopp/Wechsel, Auto-Refresh, Stall-Neustart oder `watch=false`. Texte, Farbe, Schrift und Maximaldauer sind im Dashboard unter **Einstellungen → Pausenscreen** konfigurierbar (`PAUSE_SCREEN_*` in `.env`).
-- **Stoppen**: SIGINT an ffmpeg, danach SIGTERM/SIGKILL als Fallback.
+- **Auto-Refresh**: Alle `auto_refresh_minutes` (Default 20, `0` = aus) wird die TikTok-URL im Hintergrund neu aufgelöst und nur die Quelle neu gestartet. Die YouTube-RTMP-Verbindung bleibt bestehen; der Stream buffert höchstens kurz.
+- **Stall-Watchdog**: 30 s ohne Fortschritt bei `out_time`/`total_size` der Quelle → Quelle wird neu gestartet, der Pausenscreen überbrückt. Einstellbar über `stall_timeout_seconds`.
+- **Pausenscreen**: Endet der TikTok-Stream oder meldet der Resolver „offline“, startet der Bot einen zweiten ffmpeg, der einen aus Hintergrundfarbe und Text generierten Screen samt stiller Audiospur über denselben internen Relay sendet. Kommt der Streamer zurück, wird der Pause-ffmpeg beendet und die Live-Quelle gestartet – ohne die YouTube-RTMP-Verbindung neu aufzubauen. Kein Pausenscreen bei manuellem Stopp/Wechsel, Auto-Refresh, Stall-Neustart oder `watch=false`. Texte, Farbe, Schrift und Maximaldauer sind im Dashboard unter **Einstellungen → Pausenscreen** konfigurierbar (`PAUSE_SCREEN_*` in `.env`).
+- **Stoppen**: SIGINT an Quelle/Pause und Output, danach SIGTERM/SIGKILL als Fallback.
 - **Wechseln**: beendet den aktiven Stream und startet den ausgewählten Streamer.
 - **Log**: letzte 400 Zeilen, aktualisiert alle 1,5 s.
 
@@ -219,31 +225,32 @@ Eine eigene `data/cookies.txt` (Netscape-Format, z. B. per Browser-Export) funkt
 ## Technik
 
 ```
-TikTok Live ──yt-dlp──▶ HLS-URL (H.264 bevorzugt)
+TikTok Live ──yt-dlp──▶ Quell-URL
                               │
                               ▼
-                 ffmpeg -c:v copy -c:a aac
-                              │
-                              ▼
-               YouTube RTMP (Primary, optional Backup)
+                 source-ffmpeg (copy) ── MPEG-TS/UDP ──┐
+                                                        ├──▶ output-ffmpeg ──RTMP──▶ YouTube
+                 pause-ffmpeg ──────── MPEG-TS/UDP ────┘     (H.264/AAC, 720p30)
 ```
+
+Der `output-ffmpeg` lebt für die gesamte Session (bzw. solange der YouTube-Key gleich bleibt). `source-ffmpeg` und `pause-ffmpeg` schreiben ihre MPEG-TS-Pakete auf `127.0.0.1:RELAY_PORT`; der Supervisor tauscht nur die aktive Quelle. Dadurch bleiben RTMP-Verbindung und YouTube-Player bei TikTok-Aussetzern, Auto-Refresh, Stall und automatischen Senderwechseln stabil.
 
 - `app/resolver.py` – yt-dlp-Aufruf, Formatwahl, Offline-Erkennung
 - `app/ytdlp_wrapper.py` – Workaround für TikToks deprecated Live-Detail-API (FLV-only-Streams)
-- `app/ffmpeg_cmd.py` – deterministischer ffmpeg-Command-Builder
-- `app/supervisor.py` – Single-Session-Lock, Reconnect, Backoff, Logs
+- `app/ffmpeg_cmd.py` – Command-Builder für Quelle, Pause und dauerhaften Output
+- `app/supervisor.py` – Single-Session-Lock, getrennte Quellen-/Output-Prozesse, Reconnect, Backoff, Logs
 - `app/store.py` – YAML-Validierung mit Hot-Reload
 - `app/main.py` – FastAPI, Auth, Dashboard
 
 TikTok liefert bei manchen Lives **nur FLV-Formate**. yt-dlp ruft dann zusätzlich die inzwischen abgeschaltete `api/live/detail`-API auf und meldet fälschlich „not live“. Das Image startet yt-dlp deshalb über `yt-dlp-live` (`YTDLP_BIN`), das genau diesen Fehler ignoriert und die bereits gefundenen FLV-Formate behält.
 
-### Warum Audio neu encodiert wird
+### Warum neu encodiert wird
 
-YouTube akzeptiert im RTMP-Ingest zuverlässig H.264 + AAC. TikTok liefert je nach Stream H.264 oder HEVC und unterschiedliche Audiocodecs. Video-Copy spart CPU; Audio wird deshalb immer nach AAC 160 kbit/s gewandelt.
+TikTok liefert bei langen Sessions immer wieder rückwärts springende DTS-Werte. Bei `-c:v copy` klemmt ffmpeg diese auf denselben Zeitstempel; YouTube erhält dann kaputte Timestamps und der Player friert ein oder wirft Fehler. Der dauerhafte Output decodiert deshalb Video und Audio und encodiert sie mit einer festen Canvas/Framerate neu. Das erzeugt eine monotone Timeline, gleicht Auflösungswechsel aus und hält den Player stabil. Gemessen auf diesem Server: ca. **0,6 CPU-Kerne** für 720p30 mit `libx264 veryfast`.
 
-### HEVC-Fallback
+### HEVC und Codec-Fallback
 
-Liefert TikTok nur HEVC, markiert der Resolver den Stream als `needs_reencode` und ffmpeg nutzt `libx264 -preset veryfast`. Zusätzlich erkennt der Supervisor Codec-Fehler im ffmpeg-Log und wiederholt den Versuch automatisch mit Re-Encode (`AUTO_REENCODE_FALLBACK=true`).
+Der Output kann H.264 und HEVC dekodieren und gibt immer H.264/AAC aus. Die Quelle wird normalerweise per Copy in MPEG-TS gemuxt. Kann ein Quellcodec nicht in MPEG-TS verpackt werden, erkennt der Supervisor den Codec-Fehler im Log und startet die Quelle mit Re-Encode (`AUTO_REENCODE_FALLBACK=true`).
 
 ## Entwicklung
 
@@ -263,15 +270,16 @@ Tests laufen ohne ffmpeg/yt-dlp (gemockt). Der Docker-Build installiert beides.
 | Problem | Ursache / Lösung |
 | :--- | :--- |
 | Streamer „offline“, obwohl live | yt-dlp-Fallback auf die deprecated `api/live/detail`-API. Der Container nutzt dafür `YTDLP_BIN=yt-dlp-live` (Wrapper in `app/ytdlp_wrapper.py`). Prüfen: `docker exec restreamer which yt-dlp-live`. |
-| YouTube-Artefakte nach längerer Laufzeit | Auto-Refresh baut die RTMP-Session regelmäßig neu auf (`auto_refresh_minutes`, Default 20). Bei Bedarf auf 15 senken. |
+| YouTube-Artefakte nach längerer Laufzeit | Auto-Refresh startet nur die TikTok-Quelle neu (`auto_refresh_minutes`, Default 20). Die RTMP-Verbindung bleibt bestehen. |
+| YouTube-Player friert ein / „Playback error“ | Prüfen, ob im Log `Non-monotonic DTS` auftaucht. Der dauerhafte Output encodiert Video/Audio neu und sollte das verhindern; andernfalls Log mit `[out]`-Zeilen prüfen. |
 | `yt-dlp Fehler (rc=1): ... 403` | Cookies fehlen/abgelaufen → TikTok-Cookie im Dashboard erneuern |
-| ffmpeg bricht mit Codec-Fehler ab | HEVC-Quelle → `video_mode: reencode` oder Fallback aktiv lassen |
-| YouTube meldet „No data“ | Key falsch, oder Video-Codec nicht unterstützt → Log prüfen |
+| ffmpeg bricht mit Codec-Fehler ab | Quellcodec passt nicht in MPEG-TS → `AUTO_REENCODE_FALLBACK=true` aktiv lassen oder Quelle neu starten |
+| YouTube meldet „No data“ | Key falsch, oder Output-ffmpeg kann UDP nicht binden → `RELAY_PORT`/Log prüfen |
 | Kein Ton auf YouTube | Quelle ohne Audiospur; ggf. `ffmpeg_args` erweitern |
 | Senderliste schaltet nicht weiter | `auto_advance` aktiv? Sender aktiviert und mit Key versehen? Bei gemeinsamem Key prüfen, ob `youtube_key` bzw. die Env-Variable gesetzt ist |
 | Beim Umschalten wechselt der YouTube-Stream | Kein gemeinsamer Playlist-Key gesetzt – dann nutzt jeder Sender seinen eigenen Key |
 | Pausenscreen ohne Text | Keine Schriftdatei gefunden → `PAUSE_SCREEN_FONT` auf eine vorhandene TTF setzen (im Docker-Image ist DejaVu enthalten) |
-| Kurze Lücke beim Wechsel Pause → Live | Der YouTube-RTMP-Ingest muss für den Wechsel neu aufgebaut werden; das ist normal und die Übertragung bleibt in der Regel live |
+| Kurze Lücke beim Wechsel Pause → Live | Die Quelle wird intern umgeschaltet; die RTMP-Verbindung bleibt bestehen. Eine kurze Lücke von unter einer Sekunde ist normal. |
 | Dashboard nicht erreichbar | Port ist an `127.0.0.1` gebunden → SSH-Tunnel nutzen |
 
 Logs: `logs/<streamer>-<zeitstempel>.log` auf dem Host, zusätzlich im Dashboard.
