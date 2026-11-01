@@ -1,10 +1,17 @@
 from __future__ import annotations
 
+import socket
 from pathlib import Path
 
 import pytest
 
 from app.settings import Settings
+
+
+def free_tcp_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
 
 
 @pytest.fixture
@@ -19,6 +26,8 @@ def settings(tmp_path: Path) -> Settings:
         backoff_initial_seconds=1,
         backoff_max_seconds=2,
         terminate_timeout_seconds=2,
+        relay_port=free_tcp_port(),
+        relay_delay_seconds=1,
     )
 
 

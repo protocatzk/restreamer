@@ -21,6 +21,9 @@ TIKTOK_HANDLE_PATTERN = re.compile(r"^[A-Za-z0-9._]{2,64}$")
 URL_HANDLE_PATTERN = re.compile(r"@([A-Za-z0-9._]+)")
 ENV_NAME_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 VIDEO_MODES = {"copy", "reencode"}
+QUICK_ADD_MAX_ITEMS = 100
+QUICK_ADD_SPLIT_PATTERN = re.compile(r"[\n,;]+")
+STREAMER_ID_FALLBACK = "streamer"
 
 
 class ConfigError(ValueError):
@@ -38,6 +41,115 @@ def normalize_tiktok(value: str) -> str:
     if not TIKTOK_HANDLE_PATTERN.match(raw):
         raise ConfigError(f"Ungültiger TikTok-Handle: {value!r}")
     return raw
+
+
+def split_quick_tiktoks(value: object) -> list[str]:
+    """Split a pasted quick-add payload into individual handle/URL strings."""
+    if value is None:
+        return []
+    if isinstance(value, str):
+        parts = QUICK_ADD_SPLIT_PATTERN.split(value)
+    elif isinstance(value, (list, tuple)) and all(
+        isinstance(item, str) for item in value
+    ):
+        parts = []
+        for item in value:
+            parts.extend(QUICK_ADD_SPLIT_PATTERN.split(item))
+    else:
+        raise ConfigError("tiktoks muss eine Liste oder Text sein")
+
+    return [part.strip() for part in parts if part.strip()]
+
+
+def slugify_streamer_id(value: str) -> str:
+    """Derive a valid streamer ID from a TikTok handle."""
+    text = str(value).strip().lower().lstrip("@")
+    text = re.sub(r"[^a-z0-9_-]+", "_", text).strip("_-")
+    if not text:
+        text = STREAMER_ID_FALLBACK
+    if not text[0].isalnum():
+        text = f"s{text}"
+    return text[:64].strip("_-") or STREAMER_ID_FALLBACK
+
+
+def _unique_streamer_id(base: str, taken: set[str]) -> str:
+    candidate = base
+    index = 2
+    while candidate in taken:
+        suffix = f"-{index}"
+        candidate = f"{base[: 64 - len(suffix)]}{suffix}"
+        index += 1
+    taken.add(candidate)
+    return candidate
+
+
+def resolve_quick_key(
+    explicit_key: str, playlist: PlaylistConfig | None
+) -> tuple[str, str]:
+    """Return ``(youtube_key, youtube_key_env)`` for quick-added streamers."""
+    key = str(explicit_key or "").strip()
+    if key:
+        return key, ""
+    if playlist is not None:
+        if playlist.youtube_key.strip():
+            return playlist.youtube_key.strip(), ""
+        if playlist.youtube_key_env.strip():
+            return "", playlist.youtube_key_env.strip()
+    raise ConfigError(
+        "Für neue Streamer ist ein YouTube-Key erforderlich: entweder direkt "
+        "angeben oder einen gemeinsamen Key in der Senderliste hinterlegen"
+    )
+
+
+def build_quick_streamers(
+    tiktoks: list[str],
+    *,
+    youtube_key: str = "",
+    youtube_key_env: str = "",
+    existing: list[StreamerConfig] | None = None,
+) -> tuple[list[StreamerConfig], list[dict[str, str]]]:
+    """Create streamer configs from handles, skipping duplicates.
+
+    Returns the created configs and a list of skipped inputs with reasons.
+    """
+    if not youtube_key.strip() and not youtube_key_env.strip():
+        raise ConfigError(
+            "Für neue Streamer ist ein YouTube-Key erforderlich: entweder direkt "
+            "angeben oder einen gemeinsamen Key in der Senderliste hinterlegen"
+        )
+
+    current = list(existing or [])
+    taken_ids = {item.id for item in current}
+    known_handles = {item.tiktok.lower() for item in current}
+    created: list[StreamerConfig] = []
+    skipped: list[dict[str, str]] = []
+
+    for raw in tiktoks:
+        try:
+            handle = normalize_tiktok(raw)
+        except ConfigError as exc:
+            skipped.append({"input": raw, "reason": str(exc)})
+            continue
+        if handle.lower() in known_handles:
+            skipped.append(
+                {"input": raw, "reason": f"@{handle} ist bereits vorhanden"}
+            )
+            continue
+
+        streamer = StreamerConfig(
+            id=_unique_streamer_id(slugify_streamer_id(handle), taken_ids),
+            name=handle,
+            tiktok=handle,
+            youtube_key=youtube_key.strip(),
+            youtube_key_env=youtube_key_env.strip(),
+            video_mode="copy",
+            auto_start=False,
+            enabled=True,
+        )
+        created.append(streamer)
+        known_handles.add(handle.lower())
+
+    return created, skipped
 
 
 def _parse_bool(value: object, default: bool = False) -> bool:

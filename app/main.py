@@ -4,6 +4,7 @@ import base64
 import logging
 import secrets
 from contextlib import asynccontextmanager
+from dataclasses import replace
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query, Request
@@ -13,13 +14,18 @@ from fastapi.templating import Jinja2Templates
 
 from app import __version__
 from app.cookies import write_tiktok_cookies
+from app.delay_buffer import DelayBuffer
 from app.resolver import Resolver
 from app.settings import SECRET_FIELDS, Settings
 from app.store import (
+    QUICK_ADD_MAX_ITEMS,
     ConfigError,
     StreamerStore,
     build_playlist,
+    build_quick_streamers,
     build_streamer,
+    resolve_quick_key,
+    split_quick_tiktoks,
 )
 from app.supervisor import (
     KeyNotConfigured,
@@ -71,7 +77,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or Settings.from_env()
     store = StreamerStore(settings.streamers_file)
     resolver = Resolver(settings)
-    supervisor = Supervisor(settings, store, resolver)
+    delay_buffer = DelayBuffer(settings)
+    supervisor = Supervisor(
+        settings, store, resolver, delay_buffer=delay_buffer
+    )
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -90,6 +99,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         ):
             logger.info("cookies.txt aus den Einstellungen geschrieben")
 
+        await delay_buffer.start()
+
         if settings.auto_start:
             for candidate in store.streamers:
                 if candidate.enabled and candidate.auto_start:
@@ -103,6 +114,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         yield
 
         await supervisor.shutdown()
+        await delay_buffer.stop()
         logger.info("Restreamer beendet")
 
     app = FastAPI(
@@ -115,6 +127,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings = settings
     app.state.store = store
     app.state.supervisor = supervisor
+    app.state.delay_buffer = delay_buffer
 
     @app.middleware("http")
     async def basic_auth_middleware(request: Request, call_next):
@@ -181,8 +194,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-        output_orientation_changed = (
+        output_needs_reload = (
             candidate.output_orientation != settings.output_orientation
+            or candidate.reencode_video_bitrate != settings.reencode_video_bitrate
+            or candidate.audio_bitrate != settings.audio_bitrate
+            or candidate.output_fps != settings.output_fps
+            or candidate.output_stretch_percent
+            != settings.output_stretch_percent
         )
 
         try:
@@ -194,7 +212,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         settings.apply_from(candidate)
 
-        if output_orientation_changed:
+        if output_needs_reload:
             await supervisor.reload_output()
 
         if clear_session and settings.cookies_file.exists():
@@ -381,6 +399,84 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             ) from exc
 
         return {"ok": True, "streamers": [cfg.id for cfg in store.streamers]}
+
+    @app.post("/api/streamers/quick")
+    async def api_quick_add_streamers(request: Request):
+        payload = await _json_object(request)
+        raw = payload.get("tiktoks", payload.get("tiktok", []))
+        try:
+            tiktoks = split_quick_tiktoks(raw)
+        except ConfigError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        if not tiktoks:
+            raise HTTPException(
+                status_code=400,
+                detail="Mindestens ein TikTok-Handle oder eine Live-URL erforderlich",
+            )
+        if len(tiktoks) > QUICK_ADD_MAX_ITEMS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Maximal {QUICK_ADD_MAX_ITEMS} Streamer pro Anfrage",
+            )
+
+        playlist_id = str(payload.get("playlist_id") or "").strip().lower()
+        playlist = None
+        if playlist_id:
+            playlist = store.playlist(playlist_id)
+            if playlist is None:
+                raise HTTPException(
+                    status_code=404, detail="Senderliste nicht gefunden"
+                )
+
+        try:
+            youtube_key, youtube_key_env = resolve_quick_key(
+                str(payload.get("youtube_key") or ""), playlist
+            )
+            created, skipped = build_quick_streamers(
+                tiktoks,
+                youtube_key=youtube_key,
+                youtube_key_env=youtube_key_env,
+                existing=store.streamers,
+            )
+        except ConfigError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        if created:
+            new_ids = [streamer.id for streamer in created]
+            playlists = store.playlists
+            if playlist is not None:
+                playlists = [
+                    replace(
+                        item,
+                        channels=(*item.channels, *new_ids),
+                    )
+                    if item.id == playlist.id
+                    else item
+                    for item in playlists
+                ]
+
+            try:
+                store.save([*store.streamers, *created], playlists)
+            except ConfigError as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+            except OSError as exc:
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Konfiguration nicht speicherbar: {exc}",
+                ) from exc
+
+        return {
+            "ok": True,
+            "created": [
+                {"id": streamer.id, "name": streamer.name, "tiktok": streamer.tiktok}
+                for streamer in created
+            ],
+            "skipped": skipped,
+            "playlist_id": playlist.id if playlist is not None else None,
+            "streamers": [cfg.id for cfg in store.streamers],
+            "playlists": supervisor.playlists_view()["playlists"],
+        }
 
     @app.put("/api/streamers/{streamer_id}")
     async def api_update_streamer(streamer_id: str, request: Request):

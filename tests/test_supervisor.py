@@ -14,6 +14,7 @@ from app.supervisor import (
     KeyNotConfigured,
     StreamerNotFound,
     Supervisor,
+    _parse_progress_bitrate,
     playlist_end_deadline,
 )
 
@@ -202,7 +203,7 @@ async def test_pump_progress_updates_progress_state(settings, store) -> None:
     )
     process = FakeOutputProcess([])
     process.stdout = FakeStdout(
-        [b"out_time_us=1000000\ntotal_size=5000\nspeed=1.01x\n"]
+        [b"out_time_us=1000000\ntotal_size=5000\nspeed=1.01x\nbitrate=3999.5kbits/s\n"]
     )
 
     await supervisor._pump_progress(process)
@@ -211,7 +212,40 @@ async def test_pump_progress_updates_progress_state(settings, store) -> None:
     assert supervisor._last_total_size == 5000
     assert supervisor._progress_out_time_us == 1_000_000
     assert supervisor._progress_speed == "1.01x"
+    assert supervisor._progress_bitrate_kbps == 3999.5
     assert supervisor._last_progress_monotonic is not None
+
+    status = supervisor.status()
+    assert status["output_bitrate_kbps"] == 3999.5
+    assert status["target_bitrate_kbps"] == 5000
+    assert status["source_rate"] is None
+    assert status["source_min_rate_percent"] == 85
+    assert status["source_slow_count"] == 0
+
+
+async def test_slow_source_rate_is_detected(settings, store) -> None:
+    supervisor = Supervisor(
+        settings, store, FakeResolver(OFFLINE), spawn=spawn_sleep
+    )
+
+    result = None
+    for step in range(8):
+        now = 1000.0 + step * 5
+        supervisor._source_progress_monotonic = now - 1
+        supervisor._source_out_time_us = int(step * 5 * 0.5 * 1_000_000)
+        result = supervisor._check_source_rate(now)
+
+    assert result == 0.5
+    assert supervisor._source_rate == 0.5
+    assert supervisor._source_slow_count == 0
+
+
+def test_parse_progress_bitrate() -> None:
+    assert _parse_progress_bitrate("3999.5kbits/s") == 3999.5
+    assert _parse_progress_bitrate("4.0Mbits/s") == 4000
+    assert _parse_progress_bitrate("4000000bits/s") == 4000
+    assert _parse_progress_bitrate("N/A") is None
+    assert _parse_progress_bitrate("") is None
 
 
 async def test_stall_triggers_restart(settings, store, monkeypatch) -> None:
@@ -366,7 +400,7 @@ async def test_pause_screen_starts_after_stream_ends(
         status = supervisor.status()
         assert status["pause_since"] is not None
         assert spawn.pause_calls == 1
-        assert "color=c=0x101418:s=720x1280:r=30" in spawn.calls[-1]
+        assert "color=c=0x101418:s=720x1280:r=25" in spawn.calls[-1]
     finally:
         await supervisor.stop()
 

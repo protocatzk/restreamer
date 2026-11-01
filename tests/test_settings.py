@@ -71,6 +71,12 @@ def test_new_defaults_are_present(tmp_path: Path) -> None:
     assert data["pause_screen_background"] == "101418"
     assert data["pause_screen_font"] == ""
     assert data["pause_screen_max_minutes"] == 0
+    assert data["reencode_video_bitrate"] == "5000k"
+    assert data["audio_bitrate"] == "192k"
+    assert data["output_fps"] == 25
+    assert data["output_stretch_percent"] == 10
+    assert data["relay_delay_seconds"] == 30
+    assert data["source_min_rate_percent"] == 85
 
 
 def test_output_orientation_can_be_switched(tmp_path: Path) -> None:
@@ -108,6 +114,20 @@ def test_pause_screen_values_are_validated(tmp_path: Path) -> None:
     assert updated.pause_screen_enabled is False
     assert updated.pause_screen_background == "#00ff00"
     assert updated.pause_screen_max_minutes == 30
+
+
+def test_relay_delay_is_validated(tmp_path: Path) -> None:
+    settings = Settings(runtime_file=tmp_path / "settings.yml")
+
+    assert settings.updated({"relay_delay_seconds": 0}).relay_delay_seconds == 0
+    assert settings.updated({"relay_delay_seconds": 15}).relay_delay_seconds == 15
+
+    with pytest.raises(ValueError, match="relay_delay_seconds"):
+        settings.updated({"relay_delay_seconds": 61})
+    with pytest.raises(ValueError, match="source_min_rate_percent"):
+        settings.updated({"source_min_rate_percent": 101})
+    with pytest.raises(ValueError, match="output_stretch_percent"):
+        settings.updated({"output_stretch_percent": 51})
 
 
 def test_updated_does_not_mutate_original(tmp_path: Path) -> None:

@@ -51,6 +51,14 @@
         <strong id="progress-age">–</strong>
       </div>
       <div>
+        <span class="label">Bitrate</span>
+        <strong id="output-bitrate">–</strong>
+      </div>
+      <div>
+        <span class="label">Delay-Puffer</span>
+        <strong id="relay-buffer">–</strong>
+      </div>
+      <div>
         <span class="label">Nächster Refresh</span>
         <strong id="next-refresh">–</strong>
       </div>
@@ -96,6 +104,30 @@
           <button id="reload-btn" class="btn ghost" type="button">Config neu laden</button>
         </div>
       </div>
+      <form id="quick-add-form" class="quick-add" novalidate>
+        <div class="quick-add-main">
+          <label class="field quick-add-input">
+            <span>Streamer schnell hinzufügen</span>
+            <textarea id="quick-tiktok" name="tiktoks" rows="2" spellcheck="false"
+                      placeholder="TikTok-Handle oder Live-URL – mehrere per Zeile oder Komma"></textarea>
+            <small class="hint">ID und Name werden automatisch vom Handle abgeleitet · Strg/Cmd+Enter zum Anlegen</small>
+          </label>
+          <div class="quick-add-options">
+            <label class="field">
+              <span>Auch in Senderliste</span>
+              <select id="quick-playlist" name="playlist_id"></select>
+            </label>
+            <label class="field" id="quick-key-row" hidden>
+              <span>YouTube-Stream-Key</span>
+              <input id="quick-key" name="youtube_key" type="password"
+                     autocomplete="new-password"
+                     placeholder="erforderlich, kein gemeinsamer Listen-Key">
+            </label>
+            <button type="submit" class="btn primary" id="quick-add-btn">+ Hinzufügen</button>
+          </div>
+        </div>
+        <p id="quick-add-error" class="form-error" hidden></p>
+      </form>
       <div id="streamers" class="grid"></div>
     </section>
 
@@ -361,6 +393,14 @@
               <span>Watchdog-Intervall (Sekunden)</span>
               <input name="watchdog_interval_seconds" type="number" min="2" step="1">
             </label>
+            <label class="field">
+              <span>Delay-Puffer (Sekunden, 0 = aus)</span>
+              <input name="relay_delay_seconds" type="number" min="0" max="60" step="1">
+            </label>
+            <label class="field">
+              <span>Mindest-Quellrate (%, 0 = aus)</span>
+              <input name="source_min_rate_percent" type="number" min="0" max="100" step="1">
+            </label>
           </div>
           <div class="check-row">
             <label class="check"><input type="checkbox" name="auto_start"> Auto-Start beim Containerstart</label>
@@ -373,11 +413,11 @@
           <div class="form-grid">
             <label class="field">
               <span>Audio-Bitrate</span>
-              <input name="audio_bitrate" placeholder="160k">
+              <input name="audio_bitrate" placeholder="192k">
             </label>
             <label class="field">
-              <span>Video-Bitrate (nur Re-Encode)</span>
-              <input name="reencode_video_bitrate" placeholder="2500k">
+              <span>Video-Bitrate (Ausgabe / Re-Encode)</span>
+              <input name="reencode_video_bitrate" placeholder="5000k">
             </label>
             <label class="field">
               <span>Ausgabeformat</span>
@@ -385,6 +425,14 @@
                 <option value="portrait">720p Hochformat (720×1280)</option>
                 <option value="landscape">720p Querformat (1280×720)</option>
               </select>
+            </label>
+            <label class="field">
+              <span>Ausgabe-FPS</span>
+              <input name="output_fps" type="number" min="15" max="60" step="1">
+            </label>
+            <label class="field">
+              <span>Horizontale Streckung (%, 0 = aus)</span>
+              <input name="output_stretch_percent" type="number" min="0" max="50" step="1">
             </label>
           </div>
         </fieldset>

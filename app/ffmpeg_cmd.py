@@ -1,9 +1,43 @@
 from __future__ import annotations
 
+import re
+
 from app.models import ResolvedStream, StreamerConfig
 from app.settings import Settings
 
 RELAY_HOST = "127.0.0.1"
+BITRATE_VALUE_PATTERN = re.compile(r"^(\d+(?:\.\d+)?)([kKmM]?)$")
+SOURCE_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36"
+)
+SOURCE_HEADERS = "Referer: https://www.tiktok.com/\r\nAccept: */*\r\n"
+
+
+def multiply_bitrate(bitrate: str, factor: float) -> str:
+    """Return a bitrate string scaled by ``factor`` (e.g. 4000k -> 8000k)."""
+    match = BITRATE_VALUE_PATTERN.match(str(bitrate).strip())
+    if not match:
+        return bitrate
+    value = float(match.group(1)) * factor
+    suffix = match.group(2)
+    if suffix:
+        return f"{value:g}{suffix}"
+    return str(int(value)) if value.is_integer() else f"{value:g}"
+
+
+def bitrate_to_kbps(bitrate: str) -> float | None:
+    """Convert a settings bitrate string to kbit/s (e.g. 4M -> 4000)."""
+    match = BITRATE_VALUE_PATTERN.match(str(bitrate).strip())
+    if not match:
+        return None
+    value = float(match.group(1))
+    suffix = match.group(2).lower()
+    if suffix == "m":
+        return value * 1000
+    if suffix == "":
+        return value / 1000
+    return value
 
 
 def build_youtube_urls(settings: Settings, key: str) -> list[str]:
@@ -24,16 +58,17 @@ def build_youtube_urls(settings: Settings, key: str) -> list[str]:
 
 
 def build_relay_source_url(settings: Settings) -> str:
-    """UDP endpoint that source/pause ffmpeg write MPEG-TS packets to."""
-    return f"udp://{RELAY_HOST}:{settings.relay_port}?pkt_size=1316"
+    """TCP endpoint that source/pause ffmpeg write MPEG-TS bytes to."""
+    return f"tcp://{RELAY_HOST}:{settings.relay_port}?tcp_nodelay=1"
 
 
 def build_relay_input_url(settings: Settings) -> str:
-    """UDP endpoint the long-lived output ffmpeg reads MPEG-TS packets from."""
-    return (
-        f"udp://{RELAY_HOST}:{settings.relay_port}"
-        "?fifo_size=2000000&overrun_nonfatal=1&reuse=1"
-    )
+    """TCP endpoint the long-lived output ffmpeg reads MPEG-TS bytes from.
+
+    The delay buffer listens on ``relay_port`` and forwards data to
+    ``relay_port + 1`` after the configured delay.
+    """
+    return f"tcp://{RELAY_HOST}:{settings.relay_port + 1}?tcp_nodelay=1"
 
 
 def build_source_command(
@@ -74,6 +109,10 @@ def build_source_command(
         "1",
         "-reconnect_delay_max",
         "5",
+        "-user_agent",
+        SOURCE_USER_AGENT,
+        "-headers",
+        SOURCE_HEADERS,
         "-i",
         stream.url,
         "-map",
@@ -98,7 +137,7 @@ def build_source_command(
             "-maxrate",
             bitrate,
             "-bufsize",
-            "5000k",
+            multiply_bitrate(bitrate, 2),
             "-g",
             "60",
             "-keyint_min",
@@ -110,7 +149,7 @@ def build_source_command(
             "-b:a",
             settings.audio_bitrate,
             "-ar",
-            "44100",
+            "48000",
             "-ac",
             "2",
         ]
@@ -172,13 +211,17 @@ def build_output_command(
 
     width = settings.output_width
     height = settings.output_height
+    stretch = 1 + settings.output_stretch_percent / 100
     video_filter = (
         f"scale={width}:{height}:force_original_aspect_ratio=decrease,"
+        f"scale=w='trunc(min({width}\\,iw*{stretch:.3f})/2)*2':h=ih,"
+        "setsar=1,"
         f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:color=black,"
         f"fps={settings.output_fps},format=yuv420p"
     )
 
     bitrate = settings.reencode_video_bitrate
+    gop = max(1, settings.output_fps * 2)
     output_options = [
         "-map",
         "0:v:0?",
@@ -194,6 +237,10 @@ def build_output_command(
         "veryfast",
         "-tune",
         "zerolatency",
+        "-profile:v",
+        "high",
+        "-level",
+        "4.0",
         "-pix_fmt",
         "yuv420p",
         "-b:v",
@@ -201,21 +248,23 @@ def build_output_command(
         "-maxrate",
         bitrate,
         "-bufsize",
-        "5000k",
+        multiply_bitrate(bitrate, 2),
+        "-x264-params",
+        "nal-hrd=cbr:filler=1",
         "-g",
-        "60",
+        str(gop),
         "-keyint_min",
-        "60",
+        str(gop),
         "-sc_threshold",
         "0",
         "-af",
-        "aresample=async=1:osr=44100:osf=fltp:ochl=stereo",
+        "aresample=async=1:osr=48000:osf=fltp:ochl=stereo",
         "-c:a",
         "aac",
         "-b:a",
         settings.audio_bitrate,
         "-ar",
-        "44100",
+        "48000",
         "-ac",
         "2",
         "-f",

@@ -5,7 +5,7 @@ from dataclasses import replace
 from fastapi.testclient import TestClient
 
 from app.main import create_app
-from app.store import load_streamers
+from app.store import load_config, load_streamers
 
 
 def test_health_and_status(settings, streamers_file) -> None:
@@ -40,6 +40,8 @@ def test_index_page(settings, streamers_file) -> None:
         assert 'name="end_after_minutes"' in response.text
         assert 'name="end_time"' in response.text
         assert 'id="channel-strip"' in response.text
+        assert 'id="quick-add-form"' in response.text
+        assert 'id="quick-playlist"' in response.text
 
 
 def test_basic_auth(settings, streamers_file) -> None:
@@ -393,3 +395,109 @@ def test_playlist_tune_requires_membership(settings, streamers_file) -> None:
 
         unknown = client.post("/api/playlists/nobody/tune/alice")
         assert unknown.status_code == 404
+
+
+def test_quick_add_streamers_inherits_playlist_key(settings, streamers_file) -> None:
+    app = create_app(replace(settings, streamers_file=streamers_file))
+
+    with TestClient(app) as client:
+        playlist = client.post(
+            "/api/playlists",
+            json={
+                "id": "abend",
+                "name": "Abend",
+                "channels": ["alice"],
+                "youtube_key": "shared-key",
+            },
+        )
+        assert playlist.status_code == 201
+
+        response = client.post(
+            "/api/streamers/quick",
+            json={
+                "tiktoks": "https://www.tiktok.com/@carol/live",
+                "playlist_id": "abend",
+            },
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert [item["id"] for item in payload["created"]] == ["carol"]
+        assert payload["skipped"] == []
+        assert payload["playlist_id"] == "abend"
+        assert "shared-key" not in response.text
+
+        streamers = {item.id: item for item in load_streamers(streamers_file)}
+        assert streamers["carol"].tiktok == "carol"
+        assert streamers["carol"].youtube_key == "shared-key"
+
+        _, playlists = load_config(streamers_file)
+        assert playlists[0].channels == ("alice", "carol")
+
+        status = client.get("/api/status").json()
+        assert "shared-key" not in str(status)
+
+
+def test_quick_add_streamers_bulk_skips_duplicates(settings, streamers_file) -> None:
+    app = create_app(replace(settings, streamers_file=streamers_file))
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/streamers/quick",
+            json={
+                "tiktoks": "alice\ndave\n@dave\n!bad",
+                "youtube_key": "direct-key",
+            },
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert [item["id"] for item in payload["created"]] == ["dave"]
+        assert len(payload["skipped"]) == 3
+
+        streamers = {item.id: item for item in load_streamers(streamers_file)}
+        assert streamers["dave"].youtube_key == "direct-key"
+
+
+def test_quick_add_streamers_without_key_rejected(settings, streamers_file) -> None:
+    app = create_app(replace(settings, streamers_file=streamers_file))
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/streamers/quick", json={"tiktoks": "carol"}
+        )
+        assert response.status_code == 400
+        assert "YouTube-Key" in response.text
+
+        created = client.post(
+            "/api/playlists", json={"id": "leer", "channels": ["alice"]}
+        )
+        assert created.status_code == 201
+        without_key = client.post(
+            "/api/streamers/quick",
+            json={"tiktoks": "carol", "playlist_id": "leer"},
+        )
+        assert without_key.status_code == 400
+        assert "YouTube-Key" in without_key.text
+
+
+def test_quick_add_streamers_validates_input(settings, streamers_file) -> None:
+    app = create_app(replace(settings, streamers_file=streamers_file))
+
+    with TestClient(app) as client:
+        empty = client.post("/api/streamers/quick", json={"tiktoks": " , "})
+        assert empty.status_code == 400
+
+        unknown = client.post(
+            "/api/streamers/quick",
+            json={"tiktoks": "carol", "playlist_id": "nobody"},
+        )
+        assert unknown.status_code == 404
+
+        too_many = client.post(
+            "/api/streamers/quick",
+            json={
+                "tiktoks": [f"user{index}" for index in range(101)],
+                "youtube_key": "key",
+            },
+        )
+        assert too_many.status_code == 400
+        assert "Maximal" in too_many.text

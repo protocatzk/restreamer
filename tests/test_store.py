@@ -9,10 +9,13 @@ from app.store import (
     ConfigError,
     StreamerStore,
     build_playlist,
+    build_quick_streamers,
     build_streamer,
     load_config,
     load_streamers,
     normalize_tiktok,
+    slugify_streamer_id,
+    split_quick_tiktoks,
 )
 
 GOOD = """
@@ -645,3 +648,80 @@ def test_playlist_end_roundtrip_in_yaml(tmp_path: Path) -> None:
 
     _, loaded = load_config(path)
     assert loaded == [playlist]
+
+
+def test_split_quick_tiktoks() -> None:
+    assert split_quick_tiktoks("alice\nbob, carol;dave") == [
+        "alice",
+        "bob",
+        "carol",
+        "dave",
+    ]
+    assert split_quick_tiktoks(["alice", "bob\ncarol"]) == [
+        "alice",
+        "bob",
+        "carol",
+    ]
+    assert split_quick_tiktoks("  \n , ") == []
+    with pytest.raises(ConfigError, match="tiktoks"):
+        split_quick_tiktoks(42)
+
+
+def test_slugify_streamer_id() -> None:
+    assert slugify_streamer_id("@alice") == "alice"
+    assert slugify_streamer_id("Michael.Kpper78") == "michael_kpper78"
+    assert slugify_streamer_id("...") == "streamer"
+    assert slugify_streamer_id("__") == "streamer"
+    assert len(slugify_streamer_id("a" * 80)) == 64
+
+
+def test_build_quick_streamers_skips_duplicates() -> None:
+    existing = [
+        StreamerConfig(
+            id="alice", name="Alice", tiktok="alice", youtube_key="key"
+        )
+    ]
+
+    created, skipped = build_quick_streamers(
+        [
+            "https://www.tiktok.com/@bob/live",
+            "@alice",
+            "bob",
+        ],
+        youtube_key="key",
+        existing=existing,
+    )
+
+    assert [streamer.id for streamer in created] == ["bob"]
+    assert created[0].name == "bob"
+    assert created[0].tiktok == "bob"
+    assert len(skipped) == 2
+    assert "bereits vorhanden" in skipped[0]["reason"]
+
+
+def test_build_quick_streamers_resolves_id_collisions() -> None:
+    existing = [
+        StreamerConfig(
+            id="bob", name="Bob", tiktok="someone_else", youtube_key="key"
+        )
+    ]
+
+    created, _ = build_quick_streamers(
+        ["bob"], youtube_key="key", existing=existing
+    )
+
+    assert [streamer.id for streamer in created] == ["bob-2"]
+
+
+def test_build_quick_streamers_supports_env_key() -> None:
+    created, _ = build_quick_streamers(
+        ["alice"], youtube_key_env="SHARED_YT_KEY"
+    )
+
+    assert created[0].youtube_key == ""
+    assert created[0].youtube_key_env == "SHARED_YT_KEY"
+
+
+def test_build_quick_streamers_requires_key() -> None:
+    with pytest.raises(ConfigError, match="YouTube-Key"):
+        build_quick_streamers(["alice"])

@@ -21,12 +21,17 @@ const app = {
   playlistDraft: [],
   playlistEditingId: null,
   selectedPlaylist: null,
+  quickPlaylist: null,
+  quickPlaylistSignature: null,
+  lowBitrateCount: 0,
   logStreamer: null,
   logTimer: null,
   statusTimer: null,
 };
 
 const $ = (id) => document.getElementById(id);
+const quickAddForm = $("quick-add-form");
+const quickPlaylistSelect = $("quick-playlist");
 
 async function api(path, options = {}) {
   const response = await fetch(path, {
@@ -84,6 +89,35 @@ function renderStatus(status) {
     progressAge == null
       ? "–"
       : `${Math.round(progressAge)} s${speed ? ` · ${speed}` : ""}`;
+
+  const outputBitrate = status.output_bitrate_kbps;
+  const targetBitrate = status.target_bitrate_kbps;
+  const bitrateElement = $("output-bitrate");
+  if (outputBitrate == null) {
+    bitrateElement.textContent = "–";
+    bitrateElement.className = "";
+    bitrateElement.title = "";
+  } else {
+    bitrateElement.textContent = `${(outputBitrate / 1000).toFixed(1)} Mbit/s`;
+    const low =
+      Boolean(status.active) &&
+      Boolean(targetBitrate) &&
+      outputBitrate < targetBitrate * 0.8;
+    app.lowBitrateCount = low ? app.lowBitrateCount + 1 : 0;
+    bitrateElement.className = app.lowBitrateCount >= 3 ? "warn-text" : "";
+    bitrateElement.title = targetBitrate
+      ? `Ziel: ${(targetBitrate / 1000).toFixed(1)} Mbit/s`
+      : "";
+  }
+
+  const relayDelay = status.relay_delay_seconds;
+  const relayBuffer = status.relay_buffer_seconds;
+  $("relay-buffer").textContent =
+    relayDelay == null
+      ? "–"
+      : `${relayDelay} s${
+          relayBuffer == null ? "" : ` (${relayBuffer.toFixed(1)} s gefüllt)`
+        }`;
   if (status.auto_refresh_minutes === 0) {
     $("next-refresh").textContent = "aus";
   } else if (status.next_refresh_in_seconds == null) {
@@ -106,6 +140,7 @@ function renderStatus(status) {
   }
 
   renderPlaylist(status);
+  renderQuickAdd(status);
   renderStreamers(status);
 }
 
@@ -337,6 +372,66 @@ function renderPlaylist(status) {
   $("playlist-hint").textContent = hints.join(" ");
 }
 
+function playlistQuickSignature(playlists) {
+  return playlists
+    .map((playlist) => `${playlist.id}:${playlist.name}:${playlist.shared_key_configured}`)
+    .join("|");
+}
+
+function selectedQuickPlaylist() {
+  const playlists = app.status?.playlists || [];
+  return (
+    playlists.find((playlist) => playlist.id === quickPlaylistSelect.value) ||
+    null
+  );
+}
+
+function updateQuickKeyVisibility() {
+  const playlist = selectedQuickPlaylist();
+  const needsKey = !playlist || !playlist.shared_key_configured;
+  $("quick-key-row").hidden = !needsKey;
+  $("quick-key").required = needsKey;
+}
+
+function renderQuickAdd(status) {
+  const playlists = status.playlists || [];
+  const signature = playlistQuickSignature(playlists);
+
+  if (signature !== app.quickPlaylistSignature) {
+    const previous = app.quickPlaylist;
+    quickPlaylistSelect.replaceChildren();
+
+    const none = document.createElement("option");
+    none.value = "";
+    none.textContent = "nur anlegen";
+    quickPlaylistSelect.append(none);
+
+    for (const playlist of playlists) {
+      const option = document.createElement("option");
+      option.value = playlist.id;
+      option.textContent = playlist.name;
+      quickPlaylistSelect.append(option);
+    }
+
+    const active = playlists.find((playlist) => playlist.mode_active);
+    const preferred = [
+      previous,
+      app.selectedPlaylist,
+      active?.id,
+      playlists[0]?.id,
+    ].find(
+      (id) =>
+        id === "" ||
+        (id && playlists.some((playlist) => playlist.id === id))
+    );
+    quickPlaylistSelect.value = preferred || "";
+    app.quickPlaylistSignature = signature;
+  }
+
+  app.quickPlaylist = quickPlaylistSelect.value;
+  updateQuickKeyVisibility();
+}
+
 function renderStreamers(status) {
   const container = $("streamers");
   container.replaceChildren();
@@ -353,7 +448,7 @@ function renderStreamers(status) {
     const empty = document.createElement("p");
     empty.className = "muted";
     empty.textContent =
-      "Noch keine Streamer angelegt. Oben rechts auf „+ Streamer“ klicken.";
+      "Noch keine Streamer angelegt. Oben einen Handle einfügen oder „+ Streamer“ für alle Optionen nutzen.";
     container.append(empty);
     return;
   }
@@ -403,6 +498,18 @@ function renderStreamers(status) {
     }
     if (streamer.active && status.pause_active) {
       badges.append(badge("Pausenscreen", "warn"));
+    }
+    if (streamer.active && status.source_rate != null) {
+      const sourcePercent = Math.round(status.source_rate * 100);
+      const threshold = Number(status.source_min_rate_percent || 0);
+      const slow =
+        threshold > 0 && status.source_rate < threshold / 100;
+      badges.append(badge(`Quelle ${sourcePercent} %`, slow ? "warn" : "ok"));
+    }
+    if (streamer.active && status.source_slow_count) {
+      badges.append(
+        badge(`Quell-Neustarts: ${status.source_slow_count}`, "warn")
+      );
     }
     card.append(badges);
 
@@ -627,6 +734,72 @@ streamerForm.addEventListener("submit", async (event) => {
     errorBox.hidden = false;
   } finally {
     saveButton.disabled = false;
+  }
+});
+
+quickAddForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+
+  const input = $("quick-tiktok");
+  const errorBox = $("quick-add-error");
+  errorBox.hidden = true;
+  errorBox.textContent = "";
+
+  const raw = input.value.trim();
+  if (!raw) {
+    errorBox.textContent =
+      "Bitte mindestens einen TikTok-Handle oder eine Live-URL eingeben.";
+    errorBox.hidden = false;
+    input.focus();
+    return;
+  }
+
+  const data = {
+    tiktoks: raw,
+    playlist_id: quickPlaylistSelect.value,
+  };
+  const key = $("quick-key").value.trim();
+  if (key) data.youtube_key = key;
+
+  const button = $("quick-add-btn");
+  button.disabled = true;
+  try {
+    const result = await api("/api/streamers/quick", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+    input.value = "";
+    $("quick-key").value = "";
+    await refreshStatus();
+
+    const created = result.created?.length || 0;
+    const skipped = result.skipped || [];
+    const parts = [`${created} Streamer angelegt`];
+    if (skipped.length) {
+      const reasons = [...new Set(skipped.map((item) => item.reason))].slice(
+        0,
+        2
+      );
+      parts.push(`${skipped.length} übersprungen: ${reasons.join("; ")}`);
+    }
+    setBanner(parts.join(" · "), created ? "ok" : "warn");
+  } catch (error) {
+    errorBox.textContent = error.message;
+    errorBox.hidden = false;
+  } finally {
+    button.disabled = false;
+  }
+});
+
+quickPlaylistSelect.addEventListener("change", () => {
+  app.quickPlaylist = quickPlaylistSelect.value;
+  updateQuickKeyVisibility();
+});
+
+$("quick-tiktok").addEventListener("keydown", (event) => {
+  if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+    event.preventDefault();
+    quickAddForm.requestSubmit();
   }
 });
 

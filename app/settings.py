@@ -22,6 +22,10 @@ INT_FIELDS = {
     "terminate_timeout_seconds",
     "log_buffer_lines",
     "pause_screen_max_minutes",
+    "relay_delay_seconds",
+    "source_min_rate_percent",
+    "output_fps",
+    "output_stretch_percent",
 }
 BOOL_FIELDS = {
     "youtube_backup",
@@ -142,14 +146,17 @@ class Settings:
     auto_reencode_fallback: bool = True
     ffmpeg_loglevel: str = "info"
     ytdlp_extra_args: tuple[str, ...] = ()
-    reencode_video_bitrate: str = "2500k"
-    audio_bitrate: str = "160k"
+    reencode_video_bitrate: str = "5000k"
+    audio_bitrate: str = "192k"
 
     # Persistent output: live/pause sources are muxed to a local MPEG-TS UDP
     # relay and a single long-lived ffmpeg keeps the YouTube RTMP connection.
     relay_port: int = 19350
+    relay_delay_seconds: int = 30
+    source_min_rate_percent: int = 85
     output_orientation: str = "portrait"
-    output_fps: int = 30
+    output_fps: int = 25
+    output_stretch_percent: int = 10
 
     @property
     def output_width(self) -> int:
@@ -204,13 +211,16 @@ class Settings:
             auto_reencode_fallback=_env_bool("AUTO_REENCODE_FALLBACK", True),
             ffmpeg_loglevel=os.getenv("FFMPEG_LOGLEVEL", "info"),
             ytdlp_extra_args=tuple(shlex.split(os.getenv("YTDLP_EXTRA_ARGS", ""))),
-            reencode_video_bitrate=os.getenv("REENCODE_VIDEO_BITRATE", "2500k"),
-            audio_bitrate=os.getenv("AUDIO_BITRATE", "160k"),
+            reencode_video_bitrate=os.getenv("REENCODE_VIDEO_BITRATE", "5000k"),
+            audio_bitrate=os.getenv("AUDIO_BITRATE", "192k"),
             relay_port=_env_int("RELAY_PORT", 19350),
+            relay_delay_seconds=_env_int("RELAY_DELAY_SECONDS", 30),
+            source_min_rate_percent=_env_int("SOURCE_MIN_RATE_PERCENT", 85),
             output_orientation=os.getenv(
                 "OUTPUT_ORIENTATION", "portrait"
             ).strip().lower(),
-            output_fps=_env_int("OUTPUT_FPS", 30),
+            output_fps=_env_int("OUTPUT_FPS", 25),
+            output_stretch_percent=_env_int("OUTPUT_STRETCH_PERCENT", 10),
             pause_screen_enabled=_env_bool("PAUSE_SCREEN_ENABLED", True),
             pause_screen_text=os.getenv("PAUSE_SCREEN_TEXT", "Stream pausiert"),
             pause_screen_subtext=os.getenv(
@@ -306,9 +316,9 @@ class Settings:
                 + " sein"
             )
         if not BITRATE_PATTERN.match(self.audio_bitrate):
-            raise ValueError("audio_bitrate muss z.B. 160k sein")
+            raise ValueError("audio_bitrate muss z.B. 192k sein")
         if not BITRATE_PATTERN.match(self.reencode_video_bitrate):
-            raise ValueError("reencode_video_bitrate muss z.B. 2500k sein")
+            raise ValueError("reencode_video_bitrate muss z.B. 5000k sein")
         if not COLOR_PATTERN.match(self.pause_screen_background.strip()):
             raise ValueError(
                 "pause_screen_background muss ein 6-stelliger Hex-Wert sein "
@@ -326,14 +336,29 @@ class Settings:
             )
         if self.pause_screen_max_minutes < 0:
             raise ValueError("pause_screen_max_minutes darf nicht negativ sein")
-        if not 1 <= self.relay_port <= 65535:
-            raise ValueError("relay_port muss zwischen 1 und 65535 liegen")
+        if not 1 <= self.relay_port <= 65534:
+            raise ValueError(
+                "relay_port muss zwischen 1 und 65534 liegen "
+                "(der Folgeport wird für den Delay-Puffer benötigt)"
+            )
+        if not 0 <= self.relay_delay_seconds <= 60:
+            raise ValueError(
+                "relay_delay_seconds muss zwischen 0 und 60 liegen"
+            )
+        if not 0 <= self.source_min_rate_percent <= 100:
+            raise ValueError(
+                "source_min_rate_percent muss zwischen 0 und 100 liegen"
+            )
         if self.output_orientation not in {"portrait", "landscape"}:
             raise ValueError(
                 "output_orientation muss 'portrait' oder 'landscape' sein"
             )
         if not 15 <= self.output_fps <= 60:
             raise ValueError("output_fps muss zwischen 15 und 60 liegen")
+        if not 0 <= self.output_stretch_percent <= 50:
+            raise ValueError(
+                "output_stretch_percent muss zwischen 0 und 50 liegen"
+            )
 
     def save_runtime(self) -> None:
         payload: dict[str, object] = {}

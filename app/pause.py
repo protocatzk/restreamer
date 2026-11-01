@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from app.ffmpeg_cmd import build_relay_source_url
+from app.ffmpeg_cmd import build_relay_source_url, multiply_bitrate
 from app.settings import Settings
 
 PAUSE_TEXT_FILENAME = "pause-screen-text.txt"
@@ -93,8 +93,9 @@ def build_pause_command(
         "-f",
         "lavfi",
         "-i",
-        "anullsrc=channel_layout=stereo:sample_rate=44100",
+        "anullsrc=channel_layout=stereo:sample_rate=48000",
     ]
+    gop = max(1, framerate * 2)
 
     font = find_pause_font(settings.pause_screen_font)
     if font is not None:
@@ -135,11 +136,11 @@ def build_pause_command(
         "-maxrate",
         settings.reencode_video_bitrate,
         "-bufsize",
-        "5000k",
+        multiply_bitrate(settings.reencode_video_bitrate, 2),
         "-g",
-        "60",
+        str(gop),
         "-keyint_min",
-        "60",
+        str(gop),
         "-sc_threshold",
         "0",
         "-c:a",
@@ -147,7 +148,7 @@ def build_pause_command(
         "-b:a",
         settings.audio_bitrate,
         "-ar",
-        "44100",
+        "48000",
         "-ac",
         "2",
         "-f",

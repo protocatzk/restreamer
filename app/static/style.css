@@ -139,6 +139,7 @@ main {
 
 h2 { margin: 0; font-size: 15px; font-weight: 600; letter-spacing: 0.3px; }
 .muted { color: var(--muted); font-weight: 400; }
+.warn-text { color: #ffd79a; }
 
 .channel-mixer {
   background: linear-gradient(180deg, var(--panel), var(--panel-2));
@@ -375,6 +376,43 @@ h2 { margin: 0; font-size: 15px; font-weight: 600; letter-spacing: 0.3px; }
   font-size: 14px;
 }
 
+.quick-add {
+  margin-bottom: 14px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: linear-gradient(180deg, var(--panel), var(--panel-2));
+}
+
+.quick-add-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 14px;
+}
+
+.quick-add-input {
+  flex: 1 1 320px;
+  min-width: 240px;
+}
+
+.quick-add-input textarea {
+  min-height: 46px;
+  font-family: inherit;
+  font-size: 14px;
+}
+
+.quick-add-options {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+}
+
+.quick-add-options .field { min-width: 160px; }
+.quick-add-options .btn { white-space: nowrap; }
+.quick-add .form-error { margin-top: 10px; }
+
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
@@ -469,6 +507,9 @@ footer {
   .now-info { flex-basis: 60%; }
   .playlist-row { align-items: flex-start; flex-wrap: wrap; }
   .playlist-row-actions { width: 100%; justify-content: flex-end; }
+  .quick-add-options { width: 100%; }
+  .quick-add-options .field { flex: 1 1 160px; }
+  .quick-add-options .btn { width: 100%; }
 }
 
 /* ---------------------------------------------------------------- Dialoge */

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 import signal
 import time
 from collections.abc import Awaitable, Callable
@@ -10,7 +11,9 @@ from contextlib import suppress
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from app.delay_buffer import DelayBuffer
 from app.ffmpeg_cmd import (
+    bitrate_to_kbps,
     build_output_command,
     build_source_command,
 )
@@ -24,6 +27,7 @@ from app.models import (
 from app.pause import build_pause_command, find_pause_font, write_pause_texts
 from app.resolver import ResolveError, Resolver
 from app.settings import Settings
+from app.source_rate import DEFAULT_WINDOW_SECONDS, SourceRateMonitor
 from app.store import StreamerStore
 
 logger = logging.getLogger(__name__)
@@ -42,6 +46,28 @@ CODEC_ERROR_MARKERS = (
 # Extra Abstand zwischen zwei MPEG-TS-Quellen. Der Wert deckt die Zeit ab, die
 # eine neue TikTok-Verbindung braucht, bevor sie das erste Paket liefert.
 PIPE_SWITCH_GUARD_SECONDS = 1.0
+SOURCE_RATE_LOW_CHECKS = 2
+SOURCE_RATE_COOLDOWN_SECONDS = 60.0
+
+PROGRESS_BITRATE_PATTERN = re.compile(
+    r"^([0-9]+(?:\.[0-9]+)?)\s*([kmg]?)bits/s$", re.IGNORECASE
+)
+
+
+def _parse_progress_bitrate(value: str) -> float | None:
+    """Parse ffmpeg's ``bitrate=3999.5kbits/s`` progress value into kbit/s."""
+    match = PROGRESS_BITRATE_PATTERN.match(value.strip())
+    if not match:
+        return None
+    number = float(match.group(1))
+    unit = match.group(2).lower()
+    if unit == "m":
+        return number * 1000
+    if unit == "g":
+        return number * 1_000_000
+    if unit == "":
+        return number / 1000
+    return number
 
 
 class StreamerNotFound(LookupError):
@@ -105,11 +131,13 @@ class Supervisor:
         store: StreamerStore,
         resolver: Resolver,
         spawn: Spawn | None = None,
+        delay_buffer: DelayBuffer | None = None,
     ) -> None:
         self.settings = settings
         self.store = store
         self.resolver = resolver
         self._spawn = spawn or _default_spawn
+        self._delay_buffer = delay_buffer
 
         self._lock = asyncio.Lock()
         self._task: asyncio.Task | None = None
@@ -144,10 +172,16 @@ class Supervisor:
         self._source_progress_monotonic: float | None = None
         self._source_out_time_us = -1
         self._source_total_size = -1
+        self._source_rate_monitor = SourceRateMonitor(DEFAULT_WINDOW_SECONDS)
+        self._source_rate: float | None = None
+        self._source_rate_low_checks = 0
+        self._source_slow_count = 0
+        self._last_source_slow_restart = 0.0
         self._last_out_time_us = -1
         self._last_total_size = -1
         self._progress_out_time_us = 0
         self._progress_speed = ""
+        self._progress_bitrate_kbps: float | None = None
         self._live_started_monotonic: float | None = None
         self._next_refresh_monotonic: float | None = None
         self._last_refresh_at: str | None = None
@@ -227,6 +261,19 @@ class Supervisor:
                 f"{self.settings.output_width}x{self.settings.output_height}"
             ),
             "relay_port": self.settings.relay_port,
+            "relay_delay_seconds": self.settings.relay_delay_seconds,
+            "relay_buffer_seconds": (
+                round(self._delay_buffer.buffer_seconds(), 1)
+                if self._delay_buffer is not None
+                else None
+            ),
+            "source_rate": (
+                round(self._source_rate, 2)
+                if self._source_rate is not None
+                else None
+            ),
+            "source_min_rate_percent": self.settings.source_min_rate_percent,
+            "source_slow_count": self._source_slow_count,
             "title": self._title,
             "last_error": self._last_error,
             "log_file": str(self._log_path) if self._log_path else None,
@@ -249,6 +296,14 @@ class Supervisor:
                 else None
             ),
             "progress_speed": self._progress_speed or None,
+            "output_bitrate_kbps": (
+                round(self._progress_bitrate_kbps, 1)
+                if self._progress_bitrate_kbps is not None
+                else None
+            ),
+            "target_bitrate_kbps": bitrate_to_kbps(
+                self.settings.reencode_video_bitrate
+            ),
             "playlists": self.playlists_view()["playlists"],
             "active_playlist": self.active_playlist_id(),
             "streamers": [self._streamer_view(cfg) for cfg in self.store.streamers],
@@ -415,7 +470,15 @@ class Supervisor:
                 keep_end_at = self._playlist_end_at
                 keep_end_monotonic = self._playlist_end_at_monotonic
 
+            preserve_delay = (
+                self._delay_buffer is not None
+                and bool(self._output_key_value)
+                and key == self._output_key_value
+                and self._output_task is not None
+            )
             await self._stop_locked()
+            if not preserve_delay:
+                self._reset_delay_buffer(True)
 
             self._stop_event = asyncio.Event()
             self._session_token += 1
@@ -483,7 +546,7 @@ class Supervisor:
 
     async def stop(self) -> dict:
         async with self._lock:
-            await self._stop_locked()
+            await self._stop_locked(reset_delay=True)
         return self.status()
 
     async def switch(self, streamer_id: str, watch: bool = True) -> dict:
@@ -675,7 +738,7 @@ class Supervisor:
                 + (f" ({ends_at})" if ends_at else "")
                 + " – stoppe Stream"
             )
-            await self._stop_locked()
+            await self._stop_locked(reset_delay=True)
 
     async def _cancel_playlist_end(self) -> None:
         task = self._playlist_end_task
@@ -688,13 +751,14 @@ class Supervisor:
     async def shutdown(self) -> None:
         await self.stop()
 
-    async def _stop_locked(self) -> None:
+    async def _stop_locked(self, *, reset_delay: bool = False) -> None:
         await self._cancel_playlist_end()
         task = self._task
         if task is None:
             await self._stop_pause()
             await self._stop_output()
             self._reset_session()
+            self._reset_delay_buffer(reset_delay)
             return
 
         self._stop_event.set()
@@ -724,6 +788,11 @@ class Supervisor:
         await self._stop_pause()
         await self._stop_output()
         self._reset_session()
+        self._reset_delay_buffer(reset_delay)
+
+    def _reset_delay_buffer(self, enabled: bool) -> None:
+        if enabled and self._delay_buffer is not None:
+            self._delay_buffer.reset()
 
     def _reset_session(self) -> None:
         self._active_id = None
@@ -785,17 +854,45 @@ class Supervisor:
         self._source_progress_monotonic = None
         self._source_out_time_us = -1
         self._source_total_size = -1
+        self._reset_source_rate()
+        self._source_slow_count = 0
+        self._last_source_slow_restart = 0.0
         self._last_out_time_us = -1
         self._last_total_size = -1
         self._progress_out_time_us = 0
         self._progress_speed = ""
+        self._progress_bitrate_kbps = None
         self._live_started_monotonic = None
         self._next_refresh_monotonic = None
+
+    def _reset_source_rate(self) -> None:
+        self._source_rate_monitor.reset()
+        self._source_rate = None
+        self._source_rate_low_checks = 0
 
     # ------------------------------------------------------------ output process
 
     def _source_running(self) -> bool:
         return self._proc is not None and self._proc.returncode is None
+
+    async def _wait_for_delay_buffer(self) -> None:
+        """Do not connect YouTube before the delay line can feed it."""
+        if self._delay_buffer is None:
+            return
+        delay = self.settings.relay_delay_seconds
+        if delay <= 0:
+            return
+        deadline = time.monotonic() + delay + 15
+        while not self._stop_event.is_set():
+            if self._delay_buffer.buffer_seconds() >= delay:
+                return
+            if time.monotonic() >= deadline:
+                self._record(
+                    "[Restreamer] Delay-Puffer nicht voll – starte "
+                    "YouTube-Ausgang trotzdem"
+                )
+                return
+            await asyncio.sleep(0.5)
 
     async def _output_loop(self, key: str) -> None:
         """Keep one YouTube RTMP connection alive across source changes."""
@@ -816,6 +913,7 @@ class Supervisor:
                 "[Restreamer] YouTube-Ausgang: "
                 + self._redact(" ".join(args))
             )
+            await self._wait_for_delay_buffer()
             try:
                 process = await self._spawn(args)
             except OSError as exc:
@@ -839,6 +937,7 @@ class Supervisor:
             self._last_total_size = -1
             self._progress_out_time_us = 0
             self._progress_speed = ""
+            self._progress_bitrate_kbps = None
 
             log_task = asyncio.create_task(
                 self._pump_logs(process, prefix="[out] ")
@@ -890,7 +989,10 @@ class Supervisor:
     async def _restart_output(
         self, key: str, streamer: StreamerConfig
     ) -> None:
+        key_changed = key != self._output_key_value
         await self._stop_output()
+        if key_changed:
+            self._reset_delay_buffer(True)
         if self._stop_event.is_set():
             return
         self._output_key_value = key
@@ -932,24 +1034,27 @@ class Supervisor:
             if not (self._source_running() or self._pause_running()):
                 continue
             age = time.monotonic() - self._last_progress_monotonic
-            if age >= self.settings.stall_timeout_seconds:
-                self._output_error = (
-                    f"{self.settings.stall_timeout_seconds}s ohne Fortschritt"
-                )
+            # The output receives its first packets only after the delay
+            # buffer has filled, so allow that extra time before restarting.
+            output_stall = (
+                self.settings.stall_timeout_seconds
+                + self.settings.relay_delay_seconds
+            )
+            if age >= output_stall:
+                self._output_error = f"{output_stall}s ohne Fortschritt"
                 self._record(
                     "[Restreamer] YouTube-Ausgang "
-                    f"{self.settings.stall_timeout_seconds}s ohne Fortschritt – "
-                    "Neustart"
+                    f"{output_stall}s ohne Fortschritt – Neustart"
                 )
                 await self._terminate(process)
                 return
 
     async def reload_output(self) -> None:
-        """Apply a changed output format without touching the TikTok source.
+        """Apply changed encoder settings without touching the TikTok source.
 
-        The canvas size is part of the encoder configuration, so the YouTube
-        connection has to be rebuilt once.  The source keeps writing to the
-        local relay and reconnects immediately after the new output starts.
+        Canvas size and bitrates are part of the encoder configuration, so the
+        YouTube connection has to be rebuilt once.  The source keeps writing to
+        the local relay and reconnects immediately after the new output starts.
         """
         async with self._lock:
             if self._task is None or self._output_task is None:
@@ -962,8 +1067,8 @@ class Supervisor:
             if streamer is None:
                 return
             self._record(
-                "[Restreamer] Ausgabeformat geändert – YouTube-Ausgang wird "
-                "für kurze Zeit neu aufgebaut"
+                "[Restreamer] Ausgabeformat oder Bitrate geändert – "
+                "YouTube-Ausgang wird für kurze Zeit neu aufgebaut"
             )
             pause_was_running = self._pause_running()
             if pause_was_running:
@@ -1181,8 +1286,12 @@ class Supervisor:
                 started = time.monotonic()
                 self._live_started_monotonic = started
                 self._source_progress_monotonic = started
+                # A new source needs the configured delay before the output
+                # receives its first packets; do not trip the output watchdog.
+                self._last_progress_monotonic = started
                 self._source_out_time_us = -1
                 self._source_total_size = -1
+                self._reset_source_rate()
                 self._restart_reason = None
                 self._next_refresh_monotonic = (
                     started + self.settings.auto_refresh_minutes * 60
@@ -1223,6 +1332,7 @@ class Supervisor:
                 self._source_progress_monotonic = None
                 self._source_out_time_us = -1
                 self._source_total_size = -1
+                self._reset_source_rate()
 
                 if self._stop_event.is_set():
                     break
@@ -1246,6 +1356,20 @@ class Supervisor:
                         "eingelesen, YouTube-Verbindung bleibt"
                     )
                     await self._ensure_pause(key, "Stall")
+                    self._set_state(StreamState.BACKOFF)
+                    if not await self._sleep(min(backoff, 10)):
+                        break
+                    backoff = min(backoff * 2, self.settings.backoff_max_seconds)
+                    continue
+
+                if reason == "source-slow":
+                    self._source_slow_count += 1
+                    self._last_restart_reason = "source-slow"
+                    self._record(
+                        "[Restreamer] Quelle dauerhaft zu langsam – neue "
+                        "TikTok-Verbindung wird aufgebaut"
+                    )
+                    await self._ensure_pause(key, "Quelle zu langsam")
                     self._set_state(StreamState.BACKOFF)
                     if not await self._sleep(min(backoff, 10)):
                         break
@@ -1458,6 +1582,45 @@ class Supervisor:
         self._pause_since = None
         self._pause_retry_monotonic = 0.0
 
+    def _check_source_rate(self, now: float) -> float | None:
+        if self.settings.source_min_rate_percent <= 0:
+            self._source_rate = None
+            self._source_rate_low_checks = 0
+            return None
+        if self._source_out_time_us <= 0:
+            return None
+        if (
+            self._source_progress_monotonic is not None
+            and now - self._source_progress_monotonic
+            >= self.settings.stall_timeout_seconds
+        ):
+            return None
+
+        rate = self._source_rate_monitor.update(
+            now, self._source_out_time_us
+        )
+        if rate is None:
+            return None
+        self._source_rate = rate
+
+        threshold = self.settings.source_min_rate_percent / 100
+        if rate >= threshold:
+            self._source_rate_low_checks = 0
+            return None
+
+        self._source_rate_low_checks += 1
+        if self._source_rate_low_checks < SOURCE_RATE_LOW_CHECKS:
+            return None
+        if (
+            now - self._last_source_slow_restart
+            < SOURCE_RATE_COOLDOWN_SECONDS
+        ):
+            return None
+
+        self._last_source_slow_restart = now
+        self._source_rate_low_checks = 0
+        return rate
+
     async def _watch(
         self,
         process: asyncio.subprocess.Process,
@@ -1505,6 +1668,16 @@ class Supervisor:
                 self._record(
                     f"[Restreamer] {self.settings.stall_timeout_seconds}s ohne "
                     "Fortschritt – Neustart"
+                )
+                await self._terminate(process)
+                return
+
+            slow_rate = self._check_source_rate(now)
+            if slow_rate is not None:
+                self._restart_reason = "source-slow"
+                self._record(
+                    f"[Restreamer] Quelle liefert nur {slow_rate:.2f}x "
+                    "Echtzeit – TikTok-URL wird neu aufgelöst"
                 )
                 await self._terminate(process)
                 return
@@ -1641,6 +1814,10 @@ class Supervisor:
                 self._touch_progress()
         elif key == "speed":
             self._progress_speed = "" if value in {"", "N/A"} else value
+        elif key == "bitrate":
+            kbps = _parse_progress_bitrate(value)
+            if kbps is not None:
+                self._progress_bitrate_kbps = kbps
 
     def _touch_progress(self) -> None:
         self._last_progress_monotonic = time.monotonic()

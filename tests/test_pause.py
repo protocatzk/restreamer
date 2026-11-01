@@ -26,11 +26,11 @@ def test_pause_command_streams_generated_screen(
 
     args, text_path, subtext_path = _build(settings)
 
-    assert "color=c=0x101418:s=720x1280:r=30" in args
-    assert "anullsrc=channel_layout=stereo:sample_rate=44100" in args
+    assert "color=c=0x101418:s=720x1280:r=25" in args
+    assert "anullsrc=channel_layout=stereo:sample_rate=48000" in args
     assert args[args.index("-c:v") + 1] == "libx264"
     assert args[args.index("-c:a") + 1] == "aac"
-    assert args[args.index("-ar") + 1] == "44100"
+    assert args[args.index("-ar") + 1] == "48000"
     assert args[args.index("mpegts") - 1] == "-f"
     assert args[-1] == build_relay_source_url(settings)
     assert not any("rtmp://" in arg for arg in args)
@@ -79,7 +79,7 @@ def test_pause_command_without_font_has_no_drawtext(
     args, _, _ = _build(settings)
 
     assert "-vf" not in args
-    assert "anullsrc=channel_layout=stereo:sample_rate=44100" in args
+    assert "anullsrc=channel_layout=stereo:sample_rate=48000" in args
 
 
 def test_empty_texts_skip_drawtext(settings: Settings, monkeypatch) -> None:
