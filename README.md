@@ -232,7 +232,7 @@ CLOCK_FONT=                 # optional, sonst DejaVu
 
 Bei der Querformat-Ausgabe liegt `top-left` im linken schwarzen Balken, oberhalb des Chats. Die Uhrzeit wird bei jeder Änderung von Position/Größe/Sekunden einmalig mit dem Output neu aufgebaut; der laufende Minutenwechsel selbst braucht keinen Neustart.
 
-Zusätzlich wird oben rechts standardmäßig die App-Version als `v0.5.0` eingeblendet. Abschalten:
+Zusätzlich wird oben rechts standardmäßig die App-Version als `v0.5.1` eingeblendet. Abschalten:
 
 ```dotenv
 VERSION_OVERLAY_ENABLED=false
