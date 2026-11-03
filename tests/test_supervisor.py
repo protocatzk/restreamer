@@ -499,6 +499,26 @@ streamers:
     youtube_key: bob-key
 """
 
+PLAYLIST_OWN_STREAM = """
+playlist:
+  name: Abendprogramm
+  auto_advance: true
+  wrap: true
+  advance_delay_seconds: 0
+  youtube_key: shared-key
+  channels: [alice, bob]
+streamers:
+  - id: alice
+    name: Alice
+    tiktok: alice
+    youtube_key: alice-key
+    own_stream: true
+  - id: bob
+    name: Bob
+    tiktok: bob
+    youtube_key: bob-key
+"""
+
 PLAYLIST_WITH_DISABLED = """
 playlist:
   name: Abendprogramm
@@ -596,6 +616,55 @@ def playlist_view(status: dict, playlist_id: str = "main") -> dict:
     return next(
         item for item in status["playlists"] if item["id"] == playlist_id
     )
+
+
+def test_own_stream_uses_own_key_in_shared_playlist(settings) -> None:
+    store = make_store(settings, PLAYLIST_OWN_STREAM)
+    supervisor = Supervisor(settings, store, FakeResolver(LIVE))
+    playlist = store.playlist("main")
+
+    assert playlist is not None
+    alice = store.get("alice")
+    bob = store.get("bob")
+    assert alice is not None and bob is not None
+
+    alice_key = supervisor._output_key(
+        alice, playlist_mode=True, playlist=playlist
+    )
+    bob_key = supervisor._output_key(bob, playlist_mode=True, playlist=playlist)
+
+    assert alice_key == "alice-key"
+    assert bob_key == "shared-key"
+
+    status = supervisor.status()
+    channels = {
+        channel["id"]: channel for channel in playlist_view(status)["channels"]
+    }
+    assert channels["alice"]["own_stream"] is True
+    assert channels["bob"]["own_stream"] is False
+    assert channels["alice"]["own_stream_conflicts"] is False
+
+    store.save_playlists([replace(playlist, youtube_key="alice-key")])
+    status = supervisor.status()
+    channels = {
+        channel["id"]: channel for channel in playlist_view(status)["channels"]
+    }
+    assert channels["alice"]["own_stream_conflicts"] is True
+
+
+def test_youtube_title_uses_active_streamer_and_template(settings, store) -> None:
+    supervisor = Supervisor(
+        settings,
+        store,
+        FakeResolver(LIVE),
+    )
+    supervisor._active_id = "alice"
+    supervisor._title = "Karaoke Abend"
+
+    status = supervisor.status()
+
+    assert status["title"] == "Karaoke Abend"
+    assert status["youtube_title"] == "Alice live: Karaoke Abend"
 
 
 async def test_playlist_advances_on_offline_with_shared_key(

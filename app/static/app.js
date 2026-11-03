@@ -70,6 +70,21 @@ function badge(text, kind = "") {
   return span;
 }
 
+async function copyText(text) {
+  if (navigator.clipboard && window.isSecureContext) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  const area = document.createElement("textarea");
+  area.value = text;
+  area.style.position = "fixed";
+  area.style.opacity = "0";
+  document.body.append(area);
+  area.select();
+  document.execCommand("copy");
+  area.remove();
+}
+
 function renderStatus(status) {
   app.status = status;
 
@@ -295,6 +310,12 @@ function renderPlaylist(status) {
   }
   $("now-meta").textContent = meta.join(" · ");
 
+  const youtubeTitle = status.youtube_title || "";
+  $("now-title-row").hidden = !youtubeTitle;
+  $("now-title").textContent = youtubeTitle;
+  $("now-title").title = status.title ? `TikTok-Titel: ${status.title}` : "";
+  $("copy-title-btn").dataset.title = youtubeTitle;
+
   const state = status.state || "idle";
   const badgeElement = $("now-badge");
   badgeElement.className = `badge ${active ? state : "offline"}`;
@@ -344,9 +365,12 @@ function renderPlaylist(status) {
         .filter(Boolean)
         .join(" ");
       tile.disabled = !channel.enabled;
+      const ownStreamHint = channel.own_stream
+        ? ` · eigener YouTube-Stream${channel.own_stream_conflicts ? " (Key = Playlist-Key!)" : ""}`
+        : "";
       tile.title = channel.active
-        ? `Aktiver Sender: ${channel.name}`
-        : `Auf ${channel.name} umschalten · ${onlineLabel}`;
+        ? `Aktiver Sender: ${channel.name}${ownStreamHint}`
+        : `Auf ${channel.name} umschalten · ${onlineLabel}${ownStreamHint}`;
 
       const number = document.createElement("span");
       number.className = "channel-num";
@@ -357,7 +381,9 @@ function renderPlaylist(status) {
       const name = document.createElement("strong");
       name.textContent = channel.name;
       const handle = document.createElement("small");
-      handle.textContent = `@${channel.tiktok}`;
+      handle.textContent = `@${channel.tiktok}${
+        channel.own_stream ? " · eigener Stream" : ""
+      }${channel.own_stream_conflicts ? " · Key = Playlist" : ""}`;
       text.append(name, handle);
 
       const dot = document.createElement("span");
@@ -380,6 +406,11 @@ function renderPlaylist(status) {
     );
   } else {
     hints.push("Automatisches Weiterschalten ist aus.");
+  }
+  if (channels.some((channel) => channel.own_stream)) {
+    hints.push(
+      "Sender mit „eigener Stream“ wechseln beim Umschalten auf ihren eigenen YouTube-Key und öffnen dort einen neuen Stream."
+    );
   }
   if (playlist?.mode_active && playlist?.end_in_seconds != null) {
     hints.push(
@@ -563,6 +594,7 @@ function renderStreamers(status) {
       badges.append(badge("Legacy: reencode", "warn"));
     }
     if (streamer.auto_start) badges.append(badge("Auto-Start"));
+    if (streamer.own_stream) badges.append(badge("Eigener Stream", "ok"));
     if (!streamer.enabled) badges.append(badge("deaktiviert", "warn"));
     if (streamer.key_source === "config") badges.append(badge("Key gespeichert", "ok"));
     else if (streamer.key_source === "env") badges.append(badge("Key aus ENV", "ok"));
@@ -741,6 +773,7 @@ function openStreamerDialog(streamer = null) {
     streamerForm.elements.video_mode.value = streamer.video_mode;
     streamerForm.elements.auto_start.checked = Boolean(streamer.auto_start);
     streamerForm.elements.enabled.checked = Boolean(streamer.enabled);
+    streamerForm.elements.own_stream.checked = Boolean(streamer.own_stream);
     streamerForm.elements.youtube_key_env.value = streamer.youtube_key_env || "";
     streamerForm.elements.youtube_key.value = "";
 
@@ -784,6 +817,7 @@ streamerForm.addEventListener("submit", async (event) => {
     video_mode: elements.video_mode.value,
     auto_start: elements.auto_start.checked,
     enabled: elements.enabled.checked,
+    own_stream: elements.own_stream.checked,
     youtube_key_env: elements.youtube_key_env.value.trim(),
     ytdlp_args: linesToArray(elements.ytdlp_args.value),
     ffmpeg_args: linesToArray(elements.ffmpeg_args.value),
@@ -958,6 +992,7 @@ function renderPlaylistEditor() {
 
     const badges = document.createElement("div");
     badges.className = "badges";
+    if (info.own_stream) badges.append(badge("Eigener Stream", "ok"));
     if (!info.enabled) badges.append(badge("deaktiviert", "warn"));
     if (info.key_configured === false) badges.append(badge("Key fehlt", "error"));
 
@@ -1380,6 +1415,21 @@ $("reload-btn").addEventListener("click", async () => {
     await refreshStatus();
   } catch (error) {
     setBanner(error.message, "error");
+  }
+});
+
+$("copy-title-btn").addEventListener("click", async () => {
+  const text =
+    $("copy-title-btn").dataset.title ||
+    app.status?.youtube_title ||
+    app.status?.title ||
+    "";
+  if (!text) return;
+  try {
+    await copyText(text);
+    setBanner("Titel kopiert.", "ok");
+  } catch (error) {
+    setBanner(`Titel nicht kopierbar: ${error.message}`, "error");
   }
 });
 

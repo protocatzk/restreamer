@@ -255,6 +255,7 @@ def _parse_streamer(raw: dict, index: int) -> StreamerConfig:
         video_mode=video_mode,
         auto_start=_parse_bool(raw.get("auto_start"), False),
         enabled=_parse_bool(raw.get("enabled"), True),
+        own_stream=_parse_bool(raw.get("own_stream"), False),
         ytdlp_args=_parse_args(raw.get("ytdlp_args")),
         ffmpeg_args=_parse_args(raw.get("ffmpeg_args")),
     )
@@ -562,6 +563,7 @@ def build_streamer(
         video_mode=video_mode,
         auto_start=_parse_bool(pick("auto_start", False), False),
         enabled=_parse_bool(pick("enabled", True), True),
+        own_stream=_parse_bool(pick("own_stream", False), False),
         ytdlp_args=_coerce_args(pick("ytdlp_args", ()), "ytdlp_args"),
         ffmpeg_args=_coerce_args(pick("ffmpeg_args", ()), "ffmpeg_args"),
     )
@@ -678,6 +680,8 @@ def streamers_to_document(
         entry["video_mode"] = streamer.video_mode
         entry["auto_start"] = streamer.auto_start
         entry["enabled"] = streamer.enabled
+        if streamer.own_stream:
+            entry["own_stream"] = True
         if streamer.ytdlp_args:
             entry["ytdlp_args"] = list(streamer.ytdlp_args)
         if streamer.ffmpeg_args:

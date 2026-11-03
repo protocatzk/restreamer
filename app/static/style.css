@@ -111,6 +111,7 @@ main {
 .banner.error { border-color: rgba(255, 77, 79, 0.5); color: #ffb3b4; }
 .banner.warn { border-color: rgba(245, 166, 35, 0.5); color: #ffd79a; }
 .banner.ok { border-color: rgba(46, 204, 113, 0.5); color: #a8e6c1; }
+[hidden] { display: none !important; }
 .hidden { display: none; }
 
 .summary {
@@ -227,6 +228,26 @@ h2 { margin: 0; font-size: 15px; font-weight: 600; letter-spacing: 0.3px; }
 }
 .now-info p {
   margin: 0;
+  font-size: 12px;
+}
+
+.now-title-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.now-title {
+  min-width: 0;
+  color: #ffe0e6;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.btn.small {
+  padding: 4px 9px;
   font-size: 12px;
 }
 

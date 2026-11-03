@@ -86,6 +86,10 @@
           <div class="now-info">
             <strong id="now-name">Kein Sender</strong>
             <p id="now-meta" class="muted">Noch keine Senderliste angelegt.</p>
+            <div id="now-title-row" class="now-title-row" hidden>
+              <span id="now-title" class="now-title"></span>
+              <button id="copy-title-btn" class="btn ghost small" type="button">Titel kopieren</button>
+            </div>
           </div>
           <span id="now-badge" class="badge offline">bereit</span>
         </div>
@@ -199,10 +203,16 @@
       <div class="check-row">
         <label class="check"><input type="checkbox" name="enabled" checked> Aktiv</label>
         <label class="check"><input type="checkbox" name="auto_start"> Beim Containerstart automatisch starten</label>
+        <label class="check"><input type="checkbox" name="own_stream"> Eigener YouTube-Stream (eigener Key)</label>
         <label class="check" id="clear-key-row" hidden>
           <input type="checkbox" name="clear_youtube_key"> Gespeicherten Key entfernen
         </label>
       </div>
+      <p class="hint">
+        „Eigener YouTube-Stream“ verwendet diesen Key auch in Senderlisten mit
+        gemeinsamem Key. Beim Umschalten wird der aktuelle YouTube-Stream beendet
+        und mit dem eigenen Key neu aufgebaut.
+      </p>
 
       <details class="advanced">
         <summary>Erweitert</summary>
@@ -430,6 +440,21 @@
           </div>
           <p class="hint">Alle aktivierten Streamer werden im Hintergrund per yt-dlp geprüft.
             Der gerade laufende Sender wird aus dem Stream-Status bewertet.</p>
+        </fieldset>
+
+        <fieldset>
+          <legend>YouTube-Titel</legend>
+          <div class="form-grid">
+            <label class="field">
+              <span>Titel-Template</span>
+              <input name="youtube_title_template" maxlength="200"
+                     placeholder="{name} live: {title}">
+              <small class="hint">
+                Platzhalter: {name}, {tiktok}, {title}, {date}, {time}.
+                Der Titel wird nur im Dashboard angezeigt und kann dort kopiert werden.
+              </small>
+            </label>
+          </div>
         </fieldset>
 
         <fieldset>

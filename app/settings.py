@@ -70,6 +70,7 @@ STRING_FIELDS = {
     "chat_overlay_font",
     "clock_position",
     "clock_font",
+    "youtube_title_template",
 }
 EDITABLE_FIELDS = INT_FIELDS | BOOL_FIELDS | TUPLE_FIELDS | STRING_FIELDS
 
@@ -88,6 +89,7 @@ BITRATE_PATTERN = re.compile(r"^\d+(?:\.\d+)?[kKmM]?$")
 COLOR_PATTERN = re.compile(r"^(?:#|0x|0X)?[0-9a-fA-F]{6}$")
 PAUSE_SCREEN_TEXT_MAX_LENGTH = 120
 PAUSE_SCREEN_SUBTEXT_MAX_LENGTH = 160
+YOUTUBE_TITLE_TEMPLATE_MAX_LENGTH = 200
 CHAT_OVERLAY_POSITIONS = ("bottom-left", "bottom-right", "top-left", "top-right")
 CLOCK_POSITIONS = ("top-left", "top-right", "bottom-left", "bottom-right")
 
@@ -222,6 +224,11 @@ class Settings:
     online_check_interval_seconds: int = 60
     online_check_timeout_seconds: int = 20
 
+    # Local title preview for YouTube Studio. YouTube's RTMP key cannot set a
+    # broadcast title, so the rendered value is shown in the dashboard and can
+    # be copied with one click.
+    youtube_title_template: str = "{name} live: {title}"
+
     resolve_timeout_seconds: int = 90
     terminate_timeout_seconds: int = 10
     log_buffer_lines: int = 500
@@ -305,6 +312,9 @@ class Settings:
             ),
             online_check_timeout_seconds=_env_int(
                 "ONLINE_CHECK_TIMEOUT_SECONDS", 20
+            ),
+            youtube_title_template=os.getenv(
+                "YOUTUBE_TITLE_TEMPLATE", "{name} live: {title}"
             ),
             resolve_timeout_seconds=_env_int("RESOLVE_TIMEOUT_SECONDS", 90),
             terminate_timeout_seconds=_env_int("TERMINATE_TIMEOUT_SECONDS", 10),
@@ -477,6 +487,11 @@ class Settings:
         if not 5 <= self.online_check_timeout_seconds <= 120:
             raise ValueError(
                 "online_check_timeout_seconds muss zwischen 5 und 120 liegen"
+            )
+        if len(self.youtube_title_template) > YOUTUBE_TITLE_TEMPLATE_MAX_LENGTH:
+            raise ValueError(
+                "youtube_title_template darf höchstens "
+                f"{YOUTUBE_TITLE_TEMPLATE_MAX_LENGTH} Zeichen lang sein"
             )
         if not 0 <= self.clock_font_size <= 200:
             raise ValueError("clock_font_size muss zwischen 0 und 200 liegen")

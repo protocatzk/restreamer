@@ -26,6 +26,7 @@ streamers:
     youtube_key_env: ALICE_YT_KEY
     video_mode: copy
     auto_start: true
+    own_stream: true
 """
 
 
@@ -45,6 +46,7 @@ def test_load_streamers(tmp_path: Path) -> None:
     assert streamers[0].id == "alice"
     assert streamers[0].tiktok == "alice"
     assert streamers[0].auto_start is True
+    assert streamers[0].own_stream is True
     assert streamers[0].live_url == "https://www.tiktok.com/@alice/live"
 
 
@@ -115,6 +117,7 @@ def test_store_save_roundtrip_with_key(tmp_path: Path) -> None:
         youtube_key="secret-key",
         video_mode="reencode",
         auto_start=True,
+        own_stream=True,
     )
 
     store.save([streamer])
@@ -124,6 +127,7 @@ def test_store_save_roundtrip_with_key(tmp_path: Path) -> None:
     assert loaded.youtube_key == "secret-key"
     assert loaded.video_mode == "reencode"
     assert loaded.auto_start is True
+    assert loaded.own_stream is True
 
 
 def test_store_upsert_and_delete(tmp_path: Path) -> None:
@@ -160,6 +164,25 @@ def test_store_upsert_and_delete(tmp_path: Path) -> None:
 def test_build_streamer_requires_key_or_env() -> None:
     with pytest.raises(ConfigError, match="youtube_key"):
         build_streamer({"id": "alice", "name": "Alice", "tiktok": "alice"})
+
+
+def test_build_streamer_sets_own_stream() -> None:
+    streamer = build_streamer(
+        {
+            "id": "alice",
+            "name": "Alice",
+            "tiktok": "alice",
+            "youtube_key": "alice-key",
+            "own_stream": True,
+        }
+    )
+
+    assert streamer.own_stream is True
+
+    cleared = build_streamer(
+        {"own_stream": False}, existing=streamer
+    )
+    assert cleared.own_stream is False
 
 
 def test_build_streamer_keeps_existing_key_on_blank_update() -> None:
