@@ -26,6 +26,8 @@ class StreamerConfig:
     enabled: bool = True
     ytdlp_args: tuple[str, ...] = ()
     ffmpeg_args: tuple[str, ...] = ()
+    # 0 means "match the TikTok source" (detected from the source ffmpeg log).
+    output_fps: int = 0
 
     @property
     def live_url(self) -> str:
@@ -56,6 +58,7 @@ class ResolvedStream:
     needs_reencode: bool = False
     source_vcodec: str = ""
     height: int | None = None
+    source_fps: float | None = None
 
 
 @dataclass(frozen=True)

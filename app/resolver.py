@@ -93,7 +93,15 @@ def is_audio_only(fmt: dict) -> bool:
     return "only_audio=1" in str(fmt.get("url") or "")
 
 
-def select_format(info: dict) -> tuple[str, str, int | None, bool]:
+def format_fps(fmt: dict) -> float | None:
+    value = fmt.get("fps")
+    if value is None:
+        value = fmt.get("framerate")
+    fps = _number(value)
+    return fps if fps > 0 else None
+
+
+def select_format(info: dict) -> tuple[str, str, int | None, bool, float | None]:
     """Pick the best H.264 video format if available, otherwise the best one.
 
     Handles both HLS/DASH formats with height metadata and TikTok FLV formats
@@ -125,6 +133,7 @@ def select_format(info: dict) -> tuple[str, str, int | None, bool]:
             vcodec,
             height,
             bool(vcodec) and not is_h264(vcodec),
+            format_fps(best) or format_fps(info),
         )
 
     url = info.get("url")
@@ -133,7 +142,13 @@ def select_format(info: dict) -> tuple[str, str, int | None, bool]:
 
     vcodec = str(info.get("vcodec") or "")
     height = format_height(info) or None
-    return str(url), vcodec, height, bool(vcodec) and not is_h264(vcodec)
+    return (
+        str(url),
+        vcodec,
+        height,
+        bool(vcodec) and not is_h264(vcodec),
+        format_fps(info),
+    )
 
 
 class Resolver:
@@ -194,7 +209,7 @@ class Resolver:
         if not is_live or live_status in {"not_live", "post_live", "was_live"}:
             return ResolvedStream(url="", is_live=False)
 
-        url, vcodec, height, needs_reencode = select_format(info)
+        url, vcodec, height, needs_reencode, source_fps = select_format(info)
         title = str(info.get("title") or info.get("description") or "")[:200]
 
         return ResolvedStream(
@@ -204,4 +219,5 @@ class Resolver:
             needs_reencode=needs_reencode,
             source_vcodec=vcodec,
             height=height,
+            source_fps=source_fps,
         )

@@ -21,6 +21,8 @@ TIKTOK_HANDLE_PATTERN = re.compile(r"^[A-Za-z0-9._]{2,64}$")
 URL_HANDLE_PATTERN = re.compile(r"@([A-Za-z0-9._]+)")
 ENV_NAME_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 VIDEO_MODES = {"copy", "reencode"}
+MIN_OUTPUT_FPS = 15
+MAX_OUTPUT_FPS = 60
 QUICK_ADD_MAX_ITEMS = 100
 QUICK_ADD_SPLIT_PATTERN = re.compile(r"[\n,;]+")
 STREAMER_ID_FALLBACK = "streamer"
@@ -168,6 +170,24 @@ def _parse_args(value: object) -> tuple[str, ...]:
     return tuple(value)
 
 
+def _parse_output_fps(value: object, streamer_id: str) -> int:
+    """Return 0 (automatic) or a fixed output fps for one streamer."""
+    if value is None or str(value).strip() == "":
+        return 0
+    try:
+        fps = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ConfigError(
+            f"Streamer {streamer_id}: output_fps muss eine Ganzzahl sein"
+        ) from exc
+    if fps != 0 and not MIN_OUTPUT_FPS <= fps <= MAX_OUTPUT_FPS:
+        raise ConfigError(
+            f"Streamer {streamer_id}: output_fps muss 0 (automatisch) oder "
+            f"zwischen {MIN_OUTPUT_FPS} und {MAX_OUTPUT_FPS} liegen"
+        )
+    return fps
+
+
 def normalize_end_time(value: object) -> str:
     """Normalize a daily end time to ``HH:MM`` (empty means disabled)."""
     if isinstance(value, bool):
@@ -257,6 +277,7 @@ def _parse_streamer(raw: dict, index: int) -> StreamerConfig:
         enabled=_parse_bool(raw.get("enabled"), True),
         ytdlp_args=_parse_args(raw.get("ytdlp_args")),
         ffmpeg_args=_parse_args(raw.get("ffmpeg_args")),
+        output_fps=_parse_output_fps(raw.get("output_fps"), streamer_id),
     )
 
 
@@ -444,6 +465,13 @@ def _validate_streamers(streamers: list[StreamerConfig]) -> None:
             raise ConfigError(f"Streamer {streamer.id}: ungültiger TikTok-Handle")
         if streamer.video_mode not in VIDEO_MODES:
             raise ConfigError(f"Streamer {streamer.id}: ungültiger video_mode")
+        if streamer.output_fps != 0 and not (
+            MIN_OUTPUT_FPS <= streamer.output_fps <= MAX_OUTPUT_FPS
+        ):
+            raise ConfigError(
+                f"Streamer {streamer.id}: output_fps muss 0 (automatisch) oder "
+                f"zwischen {MIN_OUTPUT_FPS} und {MAX_OUTPUT_FPS} liegen"
+            )
         if streamer.youtube_key_env and not ENV_NAME_PATTERN.match(
             streamer.youtube_key_env
         ):
@@ -564,6 +592,7 @@ def build_streamer(
         enabled=_parse_bool(pick("enabled", True), True),
         ytdlp_args=_coerce_args(pick("ytdlp_args", ()), "ytdlp_args"),
         ffmpeg_args=_coerce_args(pick("ffmpeg_args", ()), "ffmpeg_args"),
+        output_fps=_parse_output_fps(pick("output_fps", 0), streamer_id),
     )
     _validate_streamers([streamer])
     return streamer
@@ -682,6 +711,8 @@ def streamers_to_document(
             entry["ytdlp_args"] = list(streamer.ytdlp_args)
         if streamer.ffmpeg_args:
             entry["ffmpeg_args"] = list(streamer.ffmpeg_args)
+        if streamer.output_fps:
+            entry["output_fps"] = streamer.output_fps
         entries.append(entry)
 
     document: dict[str, object] = {}

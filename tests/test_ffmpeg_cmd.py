@@ -109,6 +109,15 @@ def test_output_normalises_video_and_pushes_youtube(
     assert args[args.index("-ar") + 1] == "48000"
 
 
+def test_output_accepts_per_stream_output_fps(settings: Settings) -> None:
+    args = build_output_command(settings, "key-123", output_fps=30)
+
+    video_filter = args[args.index("-vf") + 1]
+    assert "fps=30" in video_filter
+    assert args[args.index("-g") + 1] == "60"
+    assert args[args.index("-keyint_min") + 1] == "60"
+
+
 def test_output_landscape_canvas(settings: Settings) -> None:
     landscape = replace(
         settings, output_orientation="landscape", output_fps=25

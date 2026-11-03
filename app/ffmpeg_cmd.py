@@ -177,6 +177,7 @@ def build_output_command(
     key: str,
     ffmpeg_args: tuple[str, ...] = (),
     extra_video_filters: tuple[str, ...] = (),
+    output_fps: int | None = None,
 ) -> list[str]:
     """Build the long-lived ffmpeg that pushes the relay to YouTube.
 
@@ -185,6 +186,7 @@ def build_output_command(
     underlying TikTok source reconnects, changes resolution, or delivers
     non-monotonic DTS values.
     """
+    fps = output_fps or settings.output_fps
     args = [
         settings.ffmpeg_bin,
         "-hide_banner",
@@ -218,14 +220,14 @@ def build_output_command(
         f"scale=w='trunc(min({width}\\,iw*{stretch:.3f})/2)*2':h=ih,"
         "setsar=1,"
         f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:color=black,"
-        f"fps={settings.output_fps},format=yuv420p"
+        f"fps={fps},format=yuv420p"
     )
     extras = [item for item in extra_video_filters if item.strip()]
     if extras:
         video_filter += "," + ",".join(extras)
 
     bitrate = settings.reencode_video_bitrate
-    gop = max(1, settings.output_fps * 2)
+    gop = max(1, fps * 2)
     output_options = [
         "-map",
         "0:v:0?",

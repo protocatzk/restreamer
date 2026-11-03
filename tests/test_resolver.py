@@ -47,12 +47,13 @@ def test_select_format_prefers_h264() -> None:
             {"url": "h264-url", "vcodec": "avc1.64001f", "height": 720},
         ]
     }
-    url, vcodec, height, needs_reencode = select_format(info)
+    url, vcodec, height, needs_reencode, source_fps = select_format(info)
 
     assert url == "h264-url"
     assert vcodec == "avc1.64001f"
     assert height == 720
     assert needs_reencode is False
+    assert source_fps is None
 
 
 def test_select_format_hevc_only_marks_reencode() -> None:
@@ -61,10 +62,26 @@ def test_select_format_hevc_only_marks_reencode() -> None:
             {"url": "hevc-url", "vcodec": "hvc1.1.6", "height": 1080},
         ]
     }
-    url, _vcodec, _height, needs_reencode = select_format(info)
+    url, _vcodec, _height, needs_reencode, _source_fps = select_format(info)
 
     assert url == "hevc-url"
     assert needs_reencode is True
+
+
+def test_select_format_uses_format_fps() -> None:
+    info = {
+        "formats": [
+            {
+                "url": "https://cdn/v.flv",
+                "vcodec": "h264",
+                "height": 720,
+                "fps": 29.97,
+            }
+        ]
+    }
+    _url, _vcodec, _height, _needs_reencode, source_fps = select_format(info)
+
+    assert source_fps == 29.97
 
 
 def test_select_format_flv_skips_audio_only_and_uses_resolution() -> None:
@@ -98,7 +115,7 @@ def test_select_format_flv_skips_audio_only_and_uses_resolution() -> None:
             },
         ]
     }
-    url, vcodec, height, needs_reencode = select_format(info)
+    url, vcodec, height, needs_reencode, _source_fps = select_format(info)
 
     assert url == "https://cdn/hd.flv"
     assert vcodec == "h264"
@@ -113,7 +130,7 @@ def test_select_format_skips_audio_only_without_format_id() -> None:
             {"url": "https://cdn/v.flv", "vcodec": "h264", "height": 720},
         ]
     }
-    url, _vcodec, height, _needs_reencode = select_format(info)
+    url, _vcodec, height, _needs_reencode, _source_fps = select_format(info)
 
     assert url == "https://cdn/v.flv"
     assert height == 720

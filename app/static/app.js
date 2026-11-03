@@ -499,6 +499,11 @@ function renderStreamers(status) {
     if (streamer.active && status.pause_active) {
       badges.append(badge("Pausenscreen", "warn"));
     }
+    if (streamer.active && status.output_fps != null) {
+      const sourceFps =
+        status.source_fps != null ? ` (Quelle ${status.source_fps})` : "";
+      badges.append(badge(`FPS ${status.output_fps}${sourceFps}`));
+    }
     if (streamer.active && status.source_rate != null) {
       const sourcePercent = Math.round(status.source_rate * 100);
       const threshold = Number(status.source_min_rate_percent || 0);
@@ -662,6 +667,7 @@ function openStreamerDialog(streamer = null) {
     streamerForm.elements.name.value = streamer.name;
     streamerForm.elements.tiktok.value = streamer.tiktok;
     streamerForm.elements.video_mode.value = streamer.video_mode;
+    streamerForm.elements.output_fps.value = streamer.output_fps || 0;
     streamerForm.elements.auto_start.checked = Boolean(streamer.auto_start);
     streamerForm.elements.enabled.checked = Boolean(streamer.enabled);
     streamerForm.elements.youtube_key_env.value = streamer.youtube_key_env || "";
@@ -705,6 +711,7 @@ streamerForm.addEventListener("submit", async (event) => {
     name: elements.name.value.trim(),
     tiktok: elements.tiktok.value.trim(),
     video_mode: elements.video_mode.value,
+    output_fps: Number(elements.output_fps.value || 0),
     auto_start: elements.auto_start.checked,
     enabled: elements.enabled.checked,
     youtube_key_env: elements.youtube_key_env.value.trim(),
