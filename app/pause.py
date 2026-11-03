@@ -68,12 +68,11 @@ def build_pause_command(
     text_path: Path,
     subtext_path: Path,
     timestamp_offset: float = 0.0,
-    fps: int | None = None,
 ) -> list[str]:
     """Build the ffmpeg command that feeds the generated pause screen to the relay."""
     width = settings.output_width
     height = settings.output_height
-    framerate = fps or settings.output_fps
+    framerate = settings.output_fps
     font_size = max(24, round(height * 0.089))
     subtext_size = max(16, round(height * 0.039))
 

@@ -115,7 +115,6 @@ def test_store_save_roundtrip_with_key(tmp_path: Path) -> None:
         youtube_key="secret-key",
         video_mode="reencode",
         auto_start=True,
-        output_fps=30,
     )
 
     store.save([streamer])
@@ -125,7 +124,6 @@ def test_store_save_roundtrip_with_key(tmp_path: Path) -> None:
     assert loaded.youtube_key == "secret-key"
     assert loaded.video_mode == "reencode"
     assert loaded.auto_start is True
-    assert loaded.output_fps == 30
 
 
 def test_store_upsert_and_delete(tmp_path: Path) -> None:
@@ -162,42 +160,6 @@ def test_store_upsert_and_delete(tmp_path: Path) -> None:
 def test_build_streamer_requires_key_or_env() -> None:
     with pytest.raises(ConfigError, match="youtube_key"):
         build_streamer({"id": "alice", "name": "Alice", "tiktok": "alice"})
-
-
-def test_build_streamer_output_fps_validation() -> None:
-    streamer = build_streamer(
-        {
-            "id": "alice",
-            "name": "Alice",
-            "tiktok": "alice",
-            "youtube_key": "key",
-            "output_fps": 0,
-        }
-    )
-    assert streamer.output_fps == 0
-
-    fixed = build_streamer(
-        {
-            "id": "alice",
-            "name": "Alice",
-            "tiktok": "alice",
-            "youtube_key": "key",
-            "output_fps": 30,
-        }
-    )
-    assert fixed.output_fps == 30
-
-    for invalid in (1, 14, 61):
-        with pytest.raises(ConfigError, match="output_fps"):
-            build_streamer(
-                {
-                    "id": "alice",
-                    "name": "Alice",
-                    "tiktok": "alice",
-                    "youtube_key": "key",
-                    "output_fps": invalid,
-                }
-            )
 
 
 def test_build_streamer_keeps_existing_key_on_blank_update() -> None:

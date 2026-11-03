@@ -59,14 +59,6 @@ SOURCE_RATE_COOLDOWN_SECONDS = 60.0
 PROGRESS_BITRATE_PATTERN = re.compile(
     r"^([0-9]+(?:\.[0-9]+)?)\s*([kmg]?)bits/s$", re.IGNORECASE
 )
-SOURCE_FPS_PATTERN = re.compile(r"\b([0-9]+(?:\.[0-9]+)?)\s*fps\b", re.IGNORECASE)
-MIN_OUTPUT_FPS = 15
-MAX_OUTPUT_FPS = 60
-
-
-def _fps_from_source(fps: float) -> int:
-    """Round a source frame rate to a valid output frame rate."""
-    return max(MIN_OUTPUT_FPS, min(MAX_OUTPUT_FPS, int(round(fps))))
 
 
 def _parse_progress_bitrate(value: str) -> float | None:
@@ -165,9 +157,6 @@ class Supervisor:
         self._output_task: asyncio.Task | None = None
         self._output_key_value = ""
         self._output_args: tuple[str, ...] = ()
-        self._output_fps = settings.output_fps
-        self._source_fps: float | None = None
-        self._source_fps_checked = False
         self._output_sessions = 0
         self._output_error = ""
         self._output_log_task: asyncio.Task | None = None
@@ -283,12 +272,6 @@ class Supervisor:
             "output_size": (
                 f"{self.settings.output_width}x{self.settings.output_height}"
             ),
-            "source_fps": (
-                round(self._source_fps, 2)
-                if self._source_fps is not None
-                else None
-            ),
-            "output_fps": self._output_fps,
             "relay_port": self.settings.relay_port,
             "relay_delay_seconds": self.settings.relay_delay_seconds,
             "relay_buffer_seconds": (
@@ -446,7 +429,6 @@ class Supervisor:
             "enabled": cfg.enabled,
             "auto_start": cfg.auto_start,
             "video_mode": cfg.video_mode,
-            "output_fps": cfg.output_fps,
             "youtube_key_env": cfg.youtube_key_env,
             "key_configured": key_source != "missing",
             "key_source": key_source,
@@ -541,9 +523,6 @@ class Supervisor:
             self._output_error = ""
             self._output_key_value = key
             self._output_args = tuple(streamer.ffmpeg_args)
-            self._output_fps = streamer.output_fps or self.settings.output_fps
-            self._source_fps = None
-            self._source_fps_checked = False
             self._stream_epoch_monotonic = time.monotonic()
             self._last_pipe_offset_end = 0.0
             self._pipe_offset_started = None
@@ -566,8 +545,7 @@ class Supervisor:
             self._start_chat(streamer)
 
             self._output_task = asyncio.create_task(
-                self._output_loop(key, self._output_fps),
-                name=f"youtube-output-{streamer.id}",
+                self._output_loop(key), name=f"youtube-output-{streamer.id}"
             )
 
             if (
@@ -870,9 +848,6 @@ class Supervisor:
         self._output_task = None
         self._output_key_value = ""
         self._output_args = ()
-        self._output_fps = self.settings.output_fps
-        self._source_fps = None
-        self._source_fps_checked = False
         self._output_log_task = None
         self._output_progress_task = None
         self._output_sessions = 0
@@ -973,7 +948,7 @@ class Supervisor:
                 return
             await asyncio.sleep(0.5)
 
-    async def _output_loop(self, key: str, fps: int) -> None:
+    async def _output_loop(self, key: str) -> None:
         """Keep one YouTube RTMP connection alive across source changes."""
         backoff = self.settings.backoff_initial_seconds
         while not self._stop_event.is_set():
@@ -1013,7 +988,6 @@ class Supervisor:
                     key,
                     self._output_args,
                     extra_video_filters=tuple(video_filters),
-                    output_fps=fps,
                 )
             except ValueError as exc:
                 self._output_error = self._redact(str(exc))
@@ -1089,40 +1063,19 @@ class Supervisor:
                 break
             backoff = min(backoff * 2, self.settings.backoff_max_seconds)
 
-    def _target_output_fps(
-        self, streamer: StreamerConfig, source_fps: float | None = None
-    ) -> int:
-        if streamer.output_fps:
-            return streamer.output_fps
-        detected = source_fps if source_fps is not None else self._source_fps
-        if detected is not None and detected > 0:
-            return _fps_from_source(float(detected))
-        return self._output_fps or self.settings.output_fps
-
     async def _sync_output(
-        self,
-        key: str,
-        streamer: StreamerConfig,
-        source_fps: float | None = None,
+        self, key: str, streamer: StreamerConfig
     ) -> None:
-        """Restart the output only when target, args or frame rate change."""
-        fps = self._target_output_fps(streamer, source_fps)
+        """Restart the output only when the YouTube target really changes."""
         if (
             key != self._output_key_value
             or tuple(streamer.ffmpeg_args) != self._output_args
-            or fps != self._output_fps
         ):
-            await self._restart_output(key, streamer, fps)
+            await self._restart_output(key, streamer)
 
     async def _restart_output(
-        self,
-        key: str,
-        streamer: StreamerConfig,
-        fps: int | None = None,
+        self, key: str, streamer: StreamerConfig
     ) -> None:
-        target_fps = (
-            fps if fps is not None else self._target_output_fps(streamer)
-        )
         key_changed = key != self._output_key_value
         await self._stop_output()
         if key_changed:
@@ -1131,12 +1084,10 @@ class Supervisor:
             return
         self._output_key_value = key
         self._output_args = tuple(streamer.ffmpeg_args)
-        self._output_fps = target_fps
         if key and key not in self._secrets:
             self._secrets.append(key)
         self._output_task = asyncio.create_task(
-            self._output_loop(key, target_fps),
-            name=f"youtube-output-{streamer.id}",
+            self._output_loop(key), name=f"youtube-output-{streamer.id}"
         )
 
     async def _stop_output(self) -> None:
@@ -1334,8 +1285,6 @@ class Supervisor:
         try:
             while not self._stop_event.is_set():
                 self._set_state(StreamState.RESOLVING)
-                self._source_fps = None
-                self._source_fps_checked = False
 
                 prefetched = self._prefetched
                 self._prefetched = None
@@ -1388,13 +1337,10 @@ class Supervisor:
                 self._title = stream.title
                 self._last_error = ""
                 self._current_stream = stream
-                self._source_fps = stream.source_fps
-                self._source_fps_checked = stream.source_fps is not None
                 # Ein erfolgreicher Sender beendet den Offline-Zyklus.
                 self._offline_cycle.clear()
                 reencode = force_reencode
                 await self._stop_pause_for_live()
-                await self._sync_output(key, streamer, stream.source_fps)
                 source_offset = self._relay_timestamp_offset()
                 args = build_source_command(
                     streamer, stream, self.settings,
@@ -1445,11 +1391,7 @@ class Supervisor:
                 self._set_state(StreamState.LIVE)
 
                 log_reader = asyncio.create_task(
-                    self._pump_logs(
-                        process,
-                        prefix="[source] ",
-                        on_line=self._handle_source_log,
-                    )
+                    self._pump_logs(process, prefix="[source] ")
                 )
                 progress_reader = asyncio.create_task(
                     self._pump_source_progress(process)
@@ -1661,7 +1603,6 @@ class Supervisor:
                 text_path,
                 subtext_path,
                 timestamp_offset=pause_offset,
-                fps=self._output_fps,
             )
         except (OSError, ValueError) as exc:
             self._record(f"[Restreamer] Pausenscreen nicht erstellbar: {exc}")
@@ -1850,44 +1791,8 @@ class Supervisor:
         self._prefetched = stream
         return True
 
-    async def _handle_source_log(self, line: str) -> None:
-        """Match the output frame rate to the fps reported by the source."""
-        if self._source_fps_checked or "Video:" not in line:
-            return
-        match = SOURCE_FPS_PATTERN.search(line)
-        if not match:
-            return
-        try:
-            fps = float(match.group(1))
-        except ValueError:
-            return
-        if fps < 1:
-            return
-
-        self._source_fps = fps
-        self._source_fps_checked = True
-        streamer = (
-            self.store.get(self._active_id)
-            if self._active_id is not None
-            else None
-        )
-        if streamer is None or streamer.output_fps:
-            return
-
-        target = _fps_from_source(fps)
-        if target == self._output_fps:
-            return
-        self._record(
-            f"[Restreamer] Quell-FPS {fps:g} erkannt – "
-            f"Ausgabe-FPS wird auf {target} angepasst"
-        )
-        await self._restart_output(self._output_key_value, streamer, target)
-
     async def _pump_logs(
-        self,
-        process: asyncio.subprocess.Process,
-        prefix: str = "",
-        on_line: Callable[[str], Awaitable[None]] | None = None,
+        self, process: asyncio.subprocess.Process, prefix: str = ""
     ) -> None:
         if process.stderr is None:
             return
@@ -1911,11 +1816,6 @@ class Supervisor:
                     buffer = buffer[index + 1 :]
                     if line:
                         self._record(prefix + line)
-                        if on_line is not None:
-                            try:
-                                await on_line(line)
-                            except Exception:  # noqa: BLE001
-                                logger.exception("Quell-Log-Auswertung fehlgeschlagen")
             if buffer.strip():
                 self._record(prefix + buffer.strip())
         except Exception:  # noqa: BLE001 - stream can close at any time

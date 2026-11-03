@@ -71,22 +71,6 @@ def test_pause_command_applies_timestamp_offset(
     assert args[-1] == build_relay_source_url(settings)
 
 
-def test_pause_command_uses_active_output_fps(
-    settings: Settings, monkeypatch
-) -> None:
-    monkeypatch.setattr(pause, "find_pause_font", lambda explicit="": None)
-    text_path, subtext_path = write_pause_texts(
-        settings, settings.pause_screen_text, settings.pause_screen_subtext
-    )
-
-    args = build_pause_command(
-        settings, text_path, subtext_path, fps=30
-    )
-
-    assert "color=c=0x101418:s=720x1280:r=30" in args
-    assert args[args.index("-g") + 1] == "60"
-
-
 def test_pause_command_without_font_has_no_drawtext(
     settings: Settings, monkeypatch
 ) -> None:

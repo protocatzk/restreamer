@@ -15,8 +15,7 @@ Restream einzelner TikTok-Live-Streamer auf YouTube – aufgelöst mit **yt-dlp*
 - **Delay-Puffer** (Default 30 s): hält die MPEG-TS-Pakete zurück, gibt sie gleichmäßig gepaced aus und glättet kurze TikTok-Aussetzer; die Latenz steigt um die eingestellte Zeit
 - **Puffer-Kontinuität**: Bei Output-Neustarts mit gleichem YouTube-Key bleibt der Puffer erhalten; bei neuem Key wird der Output erst verbunden, wenn der Puffer gefüllt ist
 - **Quell-Ratenüberwachung**: Liefert TikTok dauerhaft weniger als die eingestellte Mindestrate (Default 85 % Echtzeit), wird die Quelle automatisch neu aufgelöst/neu gestartet – der YouTube-Output bleibt verbunden
-- **Feste Ausgabe-Normalisierung** (Default 720×1280 Hochformat, 25 fps Fallback, umschaltbar auf 1280×720): monotone Timestamps, keine Auflösungs-/Codec-Sprünge; behebt Player-Freezes durch kaputte TikTok-DTS
-- **FPS-Anpassung pro Streamer**: Die Ausgabe übernimmt automatisch die Framerate der TikTok-Quelle (z. B. 30 fps), optional pro Streamer fest überschreibbar – weniger Ruckeln durch doppelte/verworfene Frames
+- **Feste Ausgabe-Normalisierung** (Default 720×1280 Hochformat, 25 fps, umschaltbar auf 1280×720): monotone Timestamps, keine Auflösungs-/Codec-Sprünge; behebt Player-Freezes durch kaputte TikTok-DTS
 - **Echtes CBR mit Filler**: Der Ausgabe-Encoder hält auch bei statischen Szenen und Pausenscreens die Zielbitrate, damit YouTube nicht „zu wenig Daten“ meldet
 - Automatische H.264-Bevorzugung; Re-Encode-Fallback für Quellcodecs, die nicht in MPEG-TS passen
 - yt-dlp löst die TikTok-URL bei jedem Quellen-Neustart neu auf (TikTok-URLs laufen ab)
@@ -79,7 +78,6 @@ streamers:
     tiktok: alice                 # Handle oder https://www.tiktok.com/@alice/live
     youtube_key: xxxx-xxxx-xxxx   # ODER youtube_key_env: ALICE_YT_KEY
     video_mode: copy              # veraltet; Ausgabe wird immer normalisiert
-    output_fps: 0                 # 0 = wie Quelle, sonst 15–60
     auto_start: false             # beim Containerstart automatisch starten
     enabled: true
 ```
@@ -92,7 +90,6 @@ streamers:
 | `youtube_key` | ja* | Fester YouTube-Key, wird im Dashboard verwaltet |
 | `youtube_key_env` | ja* | Alternative: Name der Env-Variable mit dem Key |
 | `video_mode` | nein | Veraltet/ignoriert. Die Ausgabe wird immer auf H.264/AAC normalisiert. |
-| `output_fps` | nein | `0` = automatisch wie die Quelle (Default), sonst fester Wert 15–60 |
 | `auto_start` | nein | Beim Start des Containers automatisch starten |
 | `enabled` | nein | Streamer im Dashboard deaktivieren |
 | `ytdlp_args` | nein | Zusätzliche yt-dlp-Argumente (Liste) |
@@ -158,7 +155,7 @@ YOUTUBE_BACKUP=false
 RELAY_DELAY_SECONDS=30       # Delay-Puffer in Sekunden, 0 = aus
 SOURCE_MIN_RATE_PERCENT=85   # Auto-Neustart unter dieser Quellrate, 0 = aus
 OUTPUT_ORIENTATION=portrait  # portrait (720x1280) | landscape (1280x720)
-OUTPUT_FPS=25                # Fallback, wenn die Quelle keine FPS meldet
+OUTPUT_FPS=25
 OUTPUT_STRETCH_PERCENT=10  # horizontale Streckung des Bildes in 16:9
 ```
 
@@ -178,8 +175,7 @@ Alle Optionen sind in [`.env.example`](.env.example) dokumentiert.
 - **Chat-Overlay**: Ein/Aus, HTTP-JSON-Quelle, API-Key, Poll-Intervall, Position, Schriftgröße, Chatbreite und maximale Nachrichtenzahl
 - **Uhrzeit-Overlay**: Ein/Aus, Position, Sekunden, Schriftgröße und Schriftdatei; zusätzlich Versionsanzeige oben rechts
 - **Ausgabeformat**: 720p Hochformat (720×1280) oder Querformat (1280×720). Beim Umschalten im laufenden Betrieb wird nur der YouTube-Output kurz neu aufgebaut; die TikTok-Quelle läuft weiter.
-- ffmpeg Log-Level, horizontale Streckung (Default 10 %), Audio-/Video-Bitrate (Default 5000k/192k; Änderungen bauen den Ausgabe-Encoder automatisch neu auf)
-- Ausgabe-FPS: pro Streamer automatisch wie die Quelle (Default) oder fest 15–60; der globale Wert dient nur als Fallback
+- ffmpeg Log-Level, Ausgabe-FPS (Default 25), horizontale Streckung (Default 10 %), Audio-/Video-Bitrate (Default 5000k/192k; Änderungen bauen den Ausgabe-Encoder automatisch neu auf)
 - Delay-Puffer (`RELAY_DELAY_SECONDS`, 0–60 s; 0 = aus)
 - Mindest-Quellrate (`SOURCE_MIN_RATE_PERCENT`, 0–100 %; 0 = Auto-Neustart aus)
 - Ausgabeformat (`OUTPUT_ORIENTATION`, `OUTPUT_FPS`, `OUTPUT_STRETCH_PERCENT`) und Relay-Port sind per `.env` konfigurierbar; das Format kann zusätzlich im Dashboard umgeschaltet werden
