@@ -22,7 +22,7 @@ Restream einzelner TikTok-Live-Streamer auf YouTube – aufgelöst mit **yt-dlp*
 - **Auto-Refresh** alle 20 Minuten (einstellbar) mit vorab aufgelöster URL – startet nur die Quelle neu, der YouTube-Stream bleibt verbunden
 - **Stall-Watchdog**: 30 s ohne Fortschritt → Quelle wird neu gestartet, Pausenscreen überbrückt, RTMP bleibt bestehen
 - Offline-Polling, Reconnect-Backoff 5 s → 5 min, Watch-Modus
-- **Online-Status aller Streamer im Dashboard**: Hintergrundprüfung per yt-dlp, LIVE/offline auch ohne aktiven Stream, einstellbares Intervall und „Status prüfen“-Button
+- **Online-Status aller Streamer im Dashboard**: modulare HTTP-JSON-Quelle (z. B. TokTracker), LIVE/offline auch ohne aktiven Stream, einstellbares Intervall und „Status prüfen“-Button
 - **Pausenscreen**: Bei Stream-Ende/Offline wird automatisch ein generierter Pausenscreen (Text + stille Audiospur) in denselben YouTube-Stream eingespielt, bis der Streamer zurück ist
 - **Optionales Chat-Overlay**: liest eine HTTP-JSON-Chatquelle (z. B. TokTracker `/api/chat-logs`), verzögert die Nachrichten um den Relay-Delay und rendert sie per `drawtext` im laufenden Output – ohne zusätzlichen Encoder
 - **Optionales Uhrzeit-Overlay**: aktuelle Uhrzeit (HH:MM oder HH:MM:SS) an einer frei wählbaren Ecke, direkt von ffmpeg gerendert; optional mit Versionsanzeige oben rechts
@@ -180,7 +180,7 @@ Alle Optionen sind in [`.env.example`](.env.example) dokumentiert.
 - TikTok-Session-ID und Target IDC (Cookie wird sofort neu geschrieben)
 - YouTube-RTMP-URL und Backup-RTMP
 - Offline-Poll, Backoff, **Auto-Refresh-Intervall**, **Stall-Timeout**, **Watchdog-Intervall**
-- **Online-Status**: Ein/Aus, Prüfintervall und Timeout; der Live-Status wird für alle aktivierten Streamer im Hintergrund per yt-dlp geprüft
+- **Online-Status**: Ein/Aus, HTTP-JSON-Quelle, optionaler API-Key, Prüfintervall und Timeout; der Live-Status aller aktivierten Streamer wird im Hintergrund aus einer TokTracker-kompatiblen API gelesen
 - **YouTube-Titel-Template**: lokale Vorschau mit Platzhaltern und Kopierbutton im Dashboard
 - Auto-Start, Reencode-Fallback
 - **Pausenscreen**: Ein/Aus, Texte, Hintergrundfarbe, Schriftdatei und Maximaldauer
@@ -199,15 +199,30 @@ Secrets werden nie im Klartext an den Browser zurückgegeben; die API meldet nur
 
 ### Online-Status
 
-Im Dashboard zeigt jede Streamer-Karte und jede Senderkachel, ob der Streamer gerade live ist. Dafür prüft der Restreamer alle aktivierten Streamer im Hintergrund per `yt-dlp --simulate --print is_live` – ohne den laufenden Stream zu beeinflussen. Der aktive Sender wird nicht zusätzlich geprüft, sondern aus dem Supervisor-Status bewertet. Über **Status prüfen** lässt sich eine Prüfung sofort auslösen.
+Im Dashboard zeigt jede Streamer-Karte und jede Senderkachel, ob der Streamer gerade live ist. Dafür pollt der Restreamer im Hintergrund eine HTTP-JSON-Quelle, die den Live-Status aller Streamer auf einmal liefert (z. B. TokTracker). Der aktive Sender wird nicht zusätzlich abgefragt, sondern aus dem Supervisor-Status bewertet. Über **Status prüfen** lässt sich eine Prüfung sofort auslösen.
 
 ```dotenv
 ONLINE_CHECK_ENABLED=true
+ONLINE_SOURCE_URL=https://toktracker.cc/api/public/overview
+ONLINE_SOURCE_API_KEY=
 ONLINE_CHECK_INTERVAL_SECONDS=60
 ONLINE_CHECK_TIMEOUT_SECONDS=20
 ```
 
-Die Prüfung läuft mit maximal drei parallelen yt-dlp-Aufrufen. Bei einem Fehler (z. B. abgelaufenem Cookie) zeigt das Dashboard „unbekannt“ und im Karten-Tooltip die Fehlermeldung; der Restream läuft unabhängig davon weiter.
+Die Quelle erwartet eine Antwort mit einer Streamer-Liste, z. B.:
+
+```json
+{
+  "streamers": [
+    {"username": "supergirl0584", "is_live": true},
+    {"username": "karlchentv7", "is_live": false}
+  ]
+}
+```
+
+Akzeptiert werden auch eine reine Liste sowie die Felder `isLive`, `live`, `online`, `live_status` oder `status`. Ein API-Key wird optional als `X-API-Key`-Header gesendet. TokTracker stellt dafür `/api/public/overview` (öffentlich) oder `/api/overview` (Admin, API-Key nötig) bereit.
+
+Fehlt ein Streamer oder ein Live-Status in der Antwort, bleibt sein Status „unbekannt“ – er wird weder als offline gewertet noch bricht die Prüfung ab. Ist die Quelle insgesamt nicht erreichbar, bleiben die zuletzt bekannten Status erhalten; das Dashboard zeigt die Fehlermeldung im Tooltip. Der Restream läuft unabhängig davon weiter.
 
 ### Eigene YouTube-Streams und Titel
 

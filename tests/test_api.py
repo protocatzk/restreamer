@@ -6,7 +6,6 @@ from dataclasses import replace
 from fastapi.testclient import TestClient
 
 from app.main import create_app
-from app.resolver import Resolver
 from app.store import load_config, load_streamers
 
 
@@ -41,16 +40,24 @@ def test_online_check_endpoint(settings, streamers_file) -> None:
 def test_online_status_is_exposed(
     settings, streamers_file, monkeypatch
 ) -> None:
-    async def fake_probe(self, streamer) -> bool:
-        return streamer.id == "alice"
+    def fake_fetch_json(
+        url: str, headers: dict[str, str], timeout: float
+    ) -> object:
+        return {
+            "streamers": [
+                {"username": "alice", "is_live": True},
+                {"username": "bob", "is_live": False},
+            ]
+        }
 
-    monkeypatch.setattr(Resolver, "probe", fake_probe)
+    monkeypatch.setattr("app.online._fetch_json", fake_fetch_json)
     app = create_app(
         replace(
             settings,
             streamers_file=streamers_file,
             online_check_enabled=True,
             online_check_interval_seconds=10,
+            online_source_url="https://example.test/status",
         )
     )
 
@@ -281,6 +288,10 @@ def test_update_settings(tmp_path, settings, streamers_file) -> None:
                 "online_check_enabled": False,
                 "online_check_interval_seconds": 90,
                 "online_check_timeout_seconds": 25,
+                "online_source_url": (
+                    "https://toktracker.cc/api/public/overview"
+                ),
+                "online_source_api_key": "online-secret",
                 "youtube_title_template": "@{tiktok} live: {title}",
             },
         )
@@ -294,8 +305,14 @@ def test_update_settings(tmp_path, settings, streamers_file) -> None:
         assert payload["online_check_enabled"] is False
         assert payload["online_check_interval_seconds"] == 90
         assert payload["online_check_timeout_seconds"] == 25
+        assert (
+            payload["online_source_url"]
+            == "https://toktracker.cc/api/public/overview"
+        )
+        assert payload["online_source_api_key_set"] is True
         assert payload["youtube_title_template"] == "@{tiktok} live: {title}"
         assert "session-abc" not in response.text
+        assert "online-secret" not in response.text
         assert settings.offline_poll_seconds == 30
         assert settings.output_orientation == "landscape"
         assert runtime_file.exists()
@@ -306,6 +323,13 @@ def test_update_settings(tmp_path, settings, streamers_file) -> None:
             "/api/settings", json={"ffmpeg_loglevel": "loud"}
         )
         assert invalid.status_code == 400
+
+        cleared_online = client.put(
+            "/api/settings",
+            json={"clear_online_source_api_key": True},
+        )
+        assert cleared_online.status_code == 200
+        assert cleared_online.json()["online_source_api_key_set"] is False
 
         cleared = client.put(
             "/api/settings",

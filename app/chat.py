@@ -15,6 +15,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Protocol
 
+from app.handles import normalize_handle
 from app.pause import find_pause_font
 from app.settings import Settings
 
@@ -36,21 +37,6 @@ _WHITESPACE_RE = re.compile(r"\s+")
 _CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
 JsonFetcher = Callable[[str, dict[str, str], float], object]
-
-
-def normalize_handle(value: str) -> str:
-    """Return a plain lowercase TikTok handle for comparisons."""
-    text = (value or "").strip()
-    if not text:
-        return ""
-    if "://" in text or "tiktok.com" in text.lower():
-        match = re.search(r"@([A-Za-z0-9._-]+)", text)
-        if match:
-            return match.group(1).lower()
-        path = urllib.parse.urlsplit(text).path.rstrip("/")
-        if path:
-            text = path.rsplit("/", 1)[-1]
-    return text.lstrip("@").strip().lower()
 
 
 def _clean_text(value: str) -> str:

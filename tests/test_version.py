@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from app import __version__
 from app.settings import Settings
 from app.version import build_version_filter
 
@@ -25,7 +26,7 @@ def test_version_filter_renders_top_right(tmp_path: Path) -> None:
 
     assert filter_value is not None
     assert "drawtext=" in filter_value
-    assert "text='v0.8.0'" in filter_value
+    assert f"text='v{__version__}'" in filter_value
     assert "expansion=none" in filter_value
     assert "fontsize=28" in filter_value
     assert "x=w-text_w-42" in filter_value

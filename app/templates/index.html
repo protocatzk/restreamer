@@ -430,15 +430,30 @@
           </div>
           <div class="form-grid">
             <label class="field">
+              <span>Statusquelle (HTTP-JSON)</span>
+              <input name="online_source_url" placeholder="https://toktracker.cc/api/public/overview">
+            </label>
+            <label class="field">
+              <span>API-Key (optional)</span>
+              <input name="online_source_api_key" type="password" autocomplete="new-password"
+                     placeholder="leer lassen = unverändert">
+              <small id="online-key-hint" class="hint"></small>
+            </label>
+            <label class="field">
               <span>Prüfintervall (Sekunden)</span>
               <input name="online_check_interval_seconds" type="number" min="10" max="3600" step="1">
             </label>
             <label class="field">
-              <span>Timeout pro Prüfung (Sekunden)</span>
+              <span>Timeout pro Abfrage (Sekunden)</span>
               <input name="online_check_timeout_seconds" type="number" min="5" max="120" step="1">
             </label>
           </div>
-          <p class="hint">Alle aktivierten Streamer werden im Hintergrund per yt-dlp geprüft.
+          <div class="check-row">
+            <label class="check"><input type="checkbox" name="clear_online_source_api_key"> Online-API-Key entfernen</label>
+          </div>
+          <p class="hint">Die Statusquelle wird einmal pro Intervall abgefragt und liefert
+            die Live-Status aller Streamer (z. B. TokTracker <code>/api/public/overview</code>).
+            Fehlt ein Streamer oder ein Status in der Antwort, bleibt er „unbekannt“.
             Der gerade laufende Sender wird aus dem Stream-Status bewertet.</p>
         </fieldset>
 

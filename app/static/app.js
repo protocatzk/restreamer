@@ -101,22 +101,31 @@ function renderStatus(status) {
   const streamers = status.streamers || [];
   const liveCount = streamers.filter((streamer) => streamer.online === true).length;
   const onlineCheck = status.online_check || {};
+  const onlineUnconfigured = onlineCheck.configured === false;
+  const onlineDisabled = onlineCheck.enabled === false;
+  const onlineError = onlineCheck.error ? ` · Fehler: ${onlineCheck.error}` : "";
   const onlineCount = $("online-count");
-  onlineCount.textContent = onlineCheck.enabled === false
-    ? "aus"
-    : streamers.length
-      ? `${liveCount} / ${streamers.length}`
-      : "–";
+  onlineCount.textContent = onlineUnconfigured
+    ? "nicht konfiguriert"
+    : onlineDisabled
+      ? "aus"
+      : streamers.length
+        ? `${liveCount} / ${streamers.length}`
+        : "–";
   onlineCount.className = liveCount ? "live-text" : "";
-  onlineCount.title = onlineCheck.enabled === false
-    ? "Online-Prüfung ist in den Einstellungen deaktiviert."
-    : "Zuletzt geprüft: " + (onlineCheck.last_run_at || "noch nicht");
+  onlineCount.title = onlineUnconfigured
+    ? "Keine Statusquelle konfiguriert."
+    : onlineDisabled
+      ? "Online-Prüfung ist in den Einstellungen deaktiviert."
+      : `Zuletzt geprüft: ${onlineCheck.last_run_at || "noch nicht"}${onlineError}`;
 
   const checkButton = $("online-check-btn");
-  checkButton.disabled = onlineCheck.enabled === false;
-  checkButton.title = onlineCheck.enabled === false
-    ? "Online-Prüfung ist in den Einstellungen deaktiviert."
-    : "Online-Status aller Streamer sofort prüfen";
+  checkButton.disabled = onlineDisabled || onlineUnconfigured;
+  checkButton.title = onlineUnconfigured
+    ? "Keine Statusquelle konfiguriert."
+    : onlineDisabled
+      ? "Online-Prüfung ist in den Einstellungen deaktiviert."
+      : "Online-Status aller Streamer sofort prüfen";
 
   $("cookies-state").textContent = status.cookies_configured ? "vorhanden" : "fehlen";
   const progressAge = status.progress_age_seconds;
@@ -569,8 +578,12 @@ function renderStreamers(status) {
       const checked = formatCheckedAt(streamer.online_checked_at);
       if (checked) details.push(`Zuletzt geprüft ${checked}`);
       if (streamer.online_error) details.push(`Fehler: ${streamer.online_error}`);
-      if (status.online_check?.enabled === false) {
+      if (status.online_check?.configured === false) {
+        details.push("Keine Statusquelle konfiguriert");
+      } else if (status.online_check?.enabled === false) {
         details.push("Online-Prüfung ist aus");
+      } else if (status.online_check?.error) {
+        details.push(`Quelle: ${status.online_check.error}`);
       }
       headBadge.title = details.join(" · ");
     }
@@ -1264,6 +1277,9 @@ function populateSettings(settings) {
     ? "Ein Passwort ist gesetzt. Leer lassen, um es zu behalten."
     : "Aktuell ist kein Passwort gesetzt.";
   $("chat-key-hint").textContent = settings.chat_source_api_key_set
+    ? "Ein API-Key ist gespeichert. Leer lassen, um ihn zu behalten."
+    : "Noch kein API-Key gespeichert.";
+  $("online-key-hint").textContent = settings.online_source_api_key_set
     ? "Ein API-Key ist gespeichert. Leer lassen, um ihn zu behalten."
     : "Noch kein API-Key gespeichert.";
   $("path-streamers").textContent = settings.streamers_file;

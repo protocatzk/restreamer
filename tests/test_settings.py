@@ -80,6 +80,8 @@ def test_new_defaults_are_present(tmp_path: Path) -> None:
     assert data["online_check_enabled"] is True
     assert data["online_check_interval_seconds"] == 60
     assert data["online_check_timeout_seconds"] == 20
+    assert data["online_source_url"] == ""
+    assert data["online_source_api_key_set"] is False
     assert data["youtube_title_template"] == "{name} live: {title}"
 
 
@@ -97,10 +99,20 @@ def test_online_check_values_are_validated(tmp_path: Path) -> None:
         {
             "online_check_interval_seconds": 120,
             "online_check_timeout_seconds": 30,
+            "online_source_url": "https://toktracker.cc/api/public/overview",
+            "online_source_api_key": "secret",
         }
     )
     assert updated.online_check_interval_seconds == 120
     assert updated.online_check_timeout_seconds == 30
+    assert (
+        updated.online_source_url
+        == "https://toktracker.cc/api/public/overview"
+    )
+    assert updated.online_source_api_key == "secret"
+
+    with pytest.raises(ValueError, match="online_source_url"):
+        settings.updated({"online_source_url": "toktracker.cc/api"})
 
 
 def test_youtube_title_template_is_validated(tmp_path: Path) -> None:

@@ -86,7 +86,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     online_monitor = OnlineStatusMonitor(
         settings,
         store,
-        resolver,
         is_active=lambda: supervisor.active_id,
     )
     supervisor.set_online_monitor(online_monitor)
@@ -204,6 +203,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         clear_password = bool(payload.pop("clear_dashboard_password", False))
         clear_session = bool(payload.pop("clear_tiktok_session", False))
         clear_chat_key = bool(payload.pop("clear_chat_source_api_key", False))
+        clear_online_key = bool(
+            payload.pop("clear_online_source_api_key", False)
+        )
 
         updates = dict(payload)
         for field in SECRET_FIELDS:
@@ -215,6 +217,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             updates["tiktok_session_id"] = ""
         if clear_chat_key:
             updates["chat_source_api_key"] = ""
+        if clear_online_key:
+            updates["online_source_api_key"] = ""
 
         try:
             candidate = settings.updated(updates)
@@ -267,6 +271,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             ) from exc
 
         settings.apply_from(candidate)
+        online_monitor.request_check()
 
         if output_needs_reload:
             await supervisor.reload_output()

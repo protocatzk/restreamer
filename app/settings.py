@@ -51,7 +51,12 @@ BOOL_FIELDS = {
     "online_check_enabled",
 }
 TUPLE_FIELDS = {"ytdlp_extra_args"}
-SECRET_FIELDS = {"dashboard_password", "tiktok_session_id", "chat_source_api_key"}
+SECRET_FIELDS = {
+    "dashboard_password",
+    "tiktok_session_id",
+    "chat_source_api_key",
+    "online_source_api_key",
+}
 STRING_FIELDS = {
     "dashboard_password",
     "tiktok_session_id",
@@ -69,6 +74,8 @@ STRING_FIELDS = {
     "output_orientation",
     "chat_source_url",
     "chat_source_api_key",
+    "online_source_url",
+    "online_source_api_key",
     "chat_overlay_position",
     "chat_overlay_font",
     "clock_position",
@@ -235,11 +242,14 @@ class Settings:
     text_overlay_font: str = ""
     text_overlay_speed: int = 100
 
-    # Dashboard-only live status for every configured streamer. Checks are
-    # performed with yt-dlp in the background and never affect the restream.
+    # Dashboard-only live status for every configured streamer. The monitor
+    # polls one external HTTP/JSON source (e.g. TokTracker) in the background
+    # and never affects the restream.
     online_check_enabled: bool = True
     online_check_interval_seconds: int = 60
     online_check_timeout_seconds: int = 20
+    online_source_url: str = ""
+    online_source_api_key: str = ""
 
     # Local title preview for YouTube Studio. YouTube's RTMP key cannot set a
     # broadcast title, so the rendered value is shown in the dashboard and can
@@ -338,6 +348,8 @@ class Settings:
             online_check_timeout_seconds=_env_int(
                 "ONLINE_CHECK_TIMEOUT_SECONDS", 20
             ),
+            online_source_url=os.getenv("ONLINE_SOURCE_URL", ""),
+            online_source_api_key=os.getenv("ONLINE_SOURCE_API_KEY", ""),
             youtube_title_template=os.getenv(
                 "YOUTUBE_TITLE_TEMPLATE", "{name} live: {title}"
             ),
@@ -512,6 +524,12 @@ class Settings:
         if not 5 <= self.online_check_timeout_seconds <= 120:
             raise ValueError(
                 "online_check_timeout_seconds muss zwischen 5 und 120 liegen"
+            )
+        if self.online_source_url and not self.online_source_url.startswith(
+            ("http://", "https://")
+        ):
+            raise ValueError(
+                "online_source_url muss mit http:// oder https:// beginnen"
             )
         if len(self.youtube_title_template) > YOUTUBE_TITLE_TEMPLATE_MAX_LENGTH:
             raise ValueError(

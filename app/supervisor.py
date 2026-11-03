@@ -307,7 +307,14 @@ class Supervisor:
                 self._online.summary()
                 if self._online is not None
                 else {
-                    "enabled": bool(self.settings.online_check_enabled),
+                    "enabled": bool(
+                        self.settings.online_check_enabled
+                        and self.settings.online_source_url.strip()
+                    ),
+                    "configured": bool(
+                        self.settings.online_source_url.strip()
+                    ),
+                    "source": "",
                     "interval_seconds": int(
                         self.settings.online_check_interval_seconds
                     ),
@@ -319,6 +326,7 @@ class Supervisor:
                     "online": 0,
                     "checked": 0,
                     "errors": 0,
+                    "error": "",
                 }
             ),
             "cookies_configured": self.settings.cookies_file.exists(),

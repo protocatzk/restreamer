@@ -163,66 +163,6 @@ class Resolver:
         args.append(streamer.live_url)
         return args
 
-    def build_probe_args(self, streamer: StreamerConfig) -> list[str]:
-        """Build a lightweight yt-dlp call that only prints ``is_live``."""
-        timeout = max(5, min(self.settings.online_check_timeout_seconds, 60))
-        args = [
-            self.settings.ytdlp_bin,
-            "--simulate",
-            "--no-playlist",
-            "--no-warnings",
-            "--no-progress",
-            "--socket-timeout",
-            str(timeout),
-            "--retries",
-            "1",
-            "--print",
-            "%(is_live)s",
-        ]
-
-        cookies = self.settings.cookies_file
-        if cookies.exists() and cookies.stat().st_size > 0:
-            args += ["--cookies", str(cookies)]
-
-        args += list(streamer.ytdlp_args)
-        args += list(self.settings.ytdlp_extra_args)
-        args.append(streamer.live_url)
-        return args
-
-    async def probe(self, streamer: StreamerConfig) -> bool:
-        """Return whether a streamer is currently live.
-
-        The probe is intentionally much cheaper than :meth:`resolve`: it does
-        not dump formats or pick a stream URL, so it can run periodically for
-        every configured streamer in the background.
-        """
-        args = self.build_probe_args(streamer)
-        logger.debug("yt-dlp probe: %s", " ".join(args))
-
-        result = await self._runner(
-            args, max(5, min(self.settings.online_check_timeout_seconds, 60))
-        )
-
-        if result.returncode != 0:
-            combined = f"{result.stderr}\n{result.stdout}".lower()
-            if any(marker in combined for marker in OFFLINE_MARKERS):
-                return False
-            detail = (result.stderr or result.stdout).strip().splitlines()
-            tail = " | ".join(detail[-3:]) if detail else "unbekannter Fehler"
-            raise ResolveError(f"yt-dlp Fehler (rc={result.returncode}): {tail[:500]}")
-
-        lines = [
-            line.strip().lower()
-            for line in result.stdout.splitlines()
-            if line.strip()
-        ]
-        value = lines[-1] if lines else ""
-        if value in {"true", "1", "yes"}:
-            return True
-        if value in {"false", "0", "no", "na", "none"}:
-            return False
-        raise ResolveError("yt-dlp lieferte keinen Live-Status")
-
     async def resolve(self, streamer: StreamerConfig) -> ResolvedStream:
         args = self.build_args(streamer)
         logger.debug("yt-dlp: %s", " ".join(args))

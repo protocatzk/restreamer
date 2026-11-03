@@ -180,54 +180,6 @@ async def test_resolve_error(settings: Settings) -> None:
         await resolver.resolve(STREAMER)
 
 
-async def test_probe_live(settings: Settings) -> None:
-    runner = StubRunner(CommandResult(returncode=0, stdout="True\n", stderr=""))
-    resolver = Resolver(settings, runner=runner)
-
-    assert await resolver.probe(STREAMER) is True
-    assert runner.args is not None
-    assert "--simulate" in runner.args
-    assert "--print" in runner.args
-    assert runner.args[-1] == "https://www.tiktok.com/@alice/live"
-
-
-async def test_probe_offline_by_output(settings: Settings) -> None:
-    runner = StubRunner(CommandResult(returncode=0, stdout="False\n", stderr=""))
-    resolver = Resolver(settings, runner=runner)
-
-    assert await resolver.probe(STREAMER) is False
-
-
-async def test_probe_offline_by_stderr(settings: Settings) -> None:
-    runner = StubRunner(
-        CommandResult(
-            returncode=1,
-            stdout="",
-            stderr="ERROR: [TikTokLive] alice is not currently live",
-        )
-    )
-    resolver = Resolver(settings, runner=runner)
-
-    assert await resolver.probe(STREAMER) is False
-
-
-async def test_probe_error(settings: Settings) -> None:
-    runner = StubRunner(
-        CommandResult(returncode=1, stdout="", stderr="ERROR: HTTP Error 403")
-    )
-    resolver = Resolver(settings, runner=runner)
-
-    with pytest.raises(ResolveError, match="403"):
-        await resolver.probe(STREAMER)
-
-
-async def test_probe_treats_na_as_offline(settings: Settings) -> None:
-    runner = StubRunner(CommandResult(returncode=0, stdout="NA\n", stderr=""))
-    resolver = Resolver(settings, runner=runner)
-
-    assert await resolver.probe(STREAMER) is False
-
-
 async def test_cookies_are_passed(settings: Settings, tmp_path: Path) -> None:
     cookies = tmp_path / "cookies.txt"
     cookies.write_text("# Netscape HTTP Cookie File\n", encoding="utf-8")
