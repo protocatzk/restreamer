@@ -311,3 +311,45 @@ def test_clock_values_are_validated(tmp_path: Path) -> None:
     assert updated.clock_show_seconds is True
     assert updated.clock_font_size == 28
     assert updated.clock_font == "/tmp/font.ttf"
+
+
+def test_text_overlay_defaults_are_present(tmp_path: Path) -> None:
+    settings = Settings(runtime_file=tmp_path / "settings.yml")
+    data = settings.to_public_dict()
+
+    assert data["text_overlay_enabled"] is False
+    assert data["text_overlay_text"] == ""
+    assert data["text_overlay_position"] == "bottom"
+    assert data["text_overlay_font_size"] == 0
+    assert data["text_overlay_font"] == ""
+    assert data["text_overlay_speed"] == 100
+
+
+def test_text_overlay_values_are_validated(tmp_path: Path) -> None:
+    settings = Settings(runtime_file=tmp_path / "settings.yml")
+
+    with pytest.raises(ValueError, match="text_overlay_position"):
+        settings.updated({"text_overlay_position": "middle"})
+    with pytest.raises(ValueError, match="text_overlay_font_size"):
+        settings.updated({"text_overlay_font_size": 201})
+    with pytest.raises(ValueError, match="text_overlay_speed"):
+        settings.updated({"text_overlay_speed": 9})
+    with pytest.raises(ValueError, match="text_overlay_text"):
+        settings.updated({"text_overlay_text": "x" * 501})
+
+    updated = settings.updated(
+        {
+            "text_overlay_enabled": True,
+            "text_overlay_text": "Heute Abend: Community-Stream",
+            "text_overlay_position": "top",
+            "text_overlay_font_size": 32,
+            "text_overlay_font": "/tmp/font.ttf",
+            "text_overlay_speed": 240,
+        }
+    )
+    assert updated.text_overlay_enabled is True
+    assert updated.text_overlay_text == "Heute Abend: Community-Stream"
+    assert updated.text_overlay_position == "top"
+    assert updated.text_overlay_font_size == 32
+    assert updated.text_overlay_font == "/tmp/font.ttf"
+    assert updated.text_overlay_speed == 240

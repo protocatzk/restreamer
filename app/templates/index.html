@@ -603,6 +603,40 @@
         </fieldset>
 
         <fieldset>
+          <legend>Text-Overlay / Laufschrift</legend>
+          <div class="check-row">
+            <label class="check"><input type="checkbox" name="text_overlay_enabled"> Text im Stream anzeigen</label>
+          </div>
+          <div class="form-grid">
+            <label class="field wide">
+              <span>Text</span>
+              <input name="text_overlay_text" maxlength="500" placeholder="z. B. Heute Abend ab 20 Uhr: Community-Stream">
+            </label>
+            <label class="field">
+              <span>Position</span>
+              <select name="text_overlay_position">
+                <option value="bottom">unten</option>
+                <option value="top">oben</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Schriftgröße (0 = automatisch)</span>
+              <input name="text_overlay_font_size" type="number" min="0" max="200" step="1">
+            </label>
+            <label class="field">
+              <span>Schriftdatei (optional)</span>
+              <input name="text_overlay_font" placeholder="leer = automatisch">
+            </label>
+            <label class="field">
+              <span>Scroll-Geschwindigkeit (px/s)</span>
+              <input name="text_overlay_speed" type="number" min="10" max="1000" step="10">
+            </label>
+          </div>
+          <p class="hint">Passt der Text in die Ausgabebreite, bleibt er stehen. Ist er länger,
+            läuft er als Laufschrift von rechts nach links.</p>
+        </fieldset>
+
+        <fieldset>
           <legend>Dashboard</legend>
           <div class="form-grid">
             <label class="field">

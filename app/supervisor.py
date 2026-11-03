@@ -36,6 +36,7 @@ from app.resolver import ResolveError, Resolver
 from app.settings import Settings
 from app.source_rate import DEFAULT_WINDOW_SECONDS, SourceRateMonitor
 from app.store import StreamerStore
+from app.text_overlay import build_text_overlay_filter
 from app.titles import render_title
 from app.version import build_version_filter
 
@@ -213,6 +214,7 @@ class Supervisor:
         self._chat_filter_warned = False
         self._clock_filter_warned = False
         self._version_filter_warned = False
+        self._text_filter_warned = False
 
         self._playlist_mode = False
         self._playlist_id: str | None = None
@@ -633,6 +635,7 @@ class Supervisor:
             self._chat_filter_warned = False
             self._clock_filter_warned = False
             self._version_filter_warned = False
+            self._text_filter_warned = False
             self._start_chat(streamer)
 
             self._output_task = asyncio.create_task(
@@ -1061,6 +1064,18 @@ class Supervisor:
                 self._record(
                     "[Clock] Keine Schrift gefunden – Uhrzeit deaktiviert"
                 )
+            text_filter = build_text_overlay_filter(self.settings)
+            if text_filter is not None:
+                video_filters.append(text_filter)
+            elif (
+                self.settings.text_overlay_enabled
+                and not self._text_filter_warned
+            ):
+                self._text_filter_warned = True
+                self._record(
+                    "[Text] Keine Schrift oder Textdatei gefunden – "
+                    "Text-Overlay deaktiviert"
+                )
             version_filter = build_version_filter(self.settings)
             if version_filter is not None:
                 video_filters.append(version_filter)
@@ -1251,6 +1266,7 @@ class Supervisor:
             self._chat_filter_warned = False
             self._clock_filter_warned = False
             self._version_filter_warned = False
+            self._text_filter_warned = False
             pause_was_running = self._pause_running()
             if pause_was_running:
                 await self._stop_pause()

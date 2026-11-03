@@ -26,6 +26,7 @@ Restream einzelner TikTok-Live-Streamer auf YouTube – aufgelöst mit **yt-dlp*
 - **Pausenscreen**: Bei Stream-Ende/Offline wird automatisch ein generierter Pausenscreen (Text + stille Audiospur) in denselben YouTube-Stream eingespielt, bis der Streamer zurück ist
 - **Optionales Chat-Overlay**: liest eine HTTP-JSON-Chatquelle (z. B. TokTracker `/api/chat-logs`), verzögert die Nachrichten um den Relay-Delay und rendert sie per `drawtext` im laufenden Output – ohne zusätzlichen Encoder
 - **Optionales Uhrzeit-Overlay**: aktuelle Uhrzeit (HH:MM oder HH:MM:SS) an einer frei wählbaren Ecke, direkt von ffmpeg gerendert; optional mit Versionsanzeige oben rechts
+- **Optionales Text-Overlay (Laufschrift)**: frei wählbarer Text oben oder unten; passt er nicht in die Ausgabebreite, scrollt er automatisch als Laufschrift
 - **Mehrere Senderlisten (Playlists)**: Streamer in festen Reihenfolgen wie TV-Sender durchschalten – automatisch bei Stream-Ende/Offline oder manuell per Vor/Zurück
 - **Automatisches Playlist-Ende**: Senderliste nach einer Dauer oder täglich zu einer festen Uhrzeit beenden
 - **Gemeinsame oder eigene YouTube-Ausgabe**: optional ein Key pro Senderliste, sonst behält jeder Streamer seinen eigenen
@@ -185,6 +186,7 @@ Alle Optionen sind in [`.env.example`](.env.example) dokumentiert.
 - **Pausenscreen**: Ein/Aus, Texte, Hintergrundfarbe, Schriftdatei und Maximaldauer
 - **Chat-Overlay**: Ein/Aus, HTTP-JSON-Quelle, API-Key, Poll-Intervall, Position, Schriftgröße, Chatbreite und maximale Nachrichtenzahl
 - **Uhrzeit-Overlay**: Ein/Aus, Position, Sekunden, Schriftgröße und Schriftdatei; zusätzlich Versionsanzeige oben rechts
+- **Text-Overlay (Laufschrift)**: Ein/Aus, Text, Position oben/unten, Schriftgröße, Schriftdatei und Scroll-Geschwindigkeit
 - **Ausgabeformat**: 720p Hochformat (720×1280) oder Querformat (1280×720). Beim Umschalten im laufenden Betrieb wird nur der YouTube-Output kurz neu aufgebaut; die TikTok-Quelle läuft weiter.
 - ffmpeg Log-Level, Ausgabe-FPS (Default 25), horizontale Streckung (Default 10 %), Audio-/Video-Bitrate (Default 5000k/192k; Änderungen bauen den Ausgabe-Encoder automatisch neu auf)
 - Delay-Puffer (`RELAY_DELAY_SECONDS`, 0–60 s; 0 = aus)
@@ -283,6 +285,21 @@ Zusätzlich wird oben rechts standardmäßig die App-Version als `v0.7.0` eingeb
 ```dotenv
 VERSION_OVERLAY_ENABLED=false
 ```
+
+### Text-Overlay / Laufschrift
+
+Ein frei wählbarer Text kann oben oder unten im Bild eingeblendet werden. Passt er in die Ausgabebreite, bleibt er an Ort und Stelle; ist er breiter, läuft er automatisch als Laufschrift von rechts nach links. Die Entscheidung trifft ffmpeg anhand der tatsächlich gerenderten Textbreite (`text_w`), es ist also keine manuelle Zeichenzählung nötig.
+
+```dotenv
+TEXT_OVERLAY_ENABLED=true
+TEXT_OVERLAY_TEXT=Heute Abend ab 20 Uhr: Community-Stream
+TEXT_OVERLAY_POSITION=bottom   # top | bottom
+TEXT_OVERLAY_FONT_SIZE=0       # 0 = automatisch
+TEXT_OVERLAY_FONT=             # optional, sonst DejaVu
+TEXT_OVERLAY_SPEED=100         # Scroll-Geschwindigkeit in px/s
+```
+
+Änderungen an Text, Position, Größe, Schrift oder Geschwindigkeit bauen den YouTube-Output einmal kurz neu auf; die TikTok-Quelle läuft weiter.
 
 ### YouTube-Key
 

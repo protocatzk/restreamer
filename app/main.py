@@ -240,6 +240,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             or candidate.clock_show_seconds != settings.clock_show_seconds
             or candidate.clock_font_size != settings.clock_font_size
             or candidate.clock_font != settings.clock_font
+            or candidate.text_overlay_enabled != settings.text_overlay_enabled
+            or candidate.text_overlay_text != settings.text_overlay_text
+            or candidate.text_overlay_position
+            != settings.text_overlay_position
+            or candidate.text_overlay_font_size
+            != settings.text_overlay_font_size
+            or candidate.text_overlay_font != settings.text_overlay_font
+            or candidate.text_overlay_speed != settings.text_overlay_speed
             or candidate.version_overlay_enabled
             != settings.version_overlay_enabled
         )
