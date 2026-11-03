@@ -607,6 +607,7 @@ function renderStreamers(status) {
       badges.append(badge("Legacy: reencode", "warn"));
     }
     if (streamer.auto_start) badges.append(badge("Auto-Start"));
+    if (streamer.preferred) badges.append(badge("Bevorzugt", "ok"));
     if (streamer.own_stream) badges.append(badge("Eigener Stream", "ok"));
     if (!streamer.enabled) badges.append(badge("deaktiviert", "warn"));
     if (streamer.key_source === "config") badges.append(badge("Key gespeichert", "ok"));
@@ -786,6 +787,7 @@ function openStreamerDialog(streamer = null) {
     streamerForm.elements.video_mode.value = streamer.video_mode;
     streamerForm.elements.auto_start.checked = Boolean(streamer.auto_start);
     streamerForm.elements.enabled.checked = Boolean(streamer.enabled);
+    streamerForm.elements.preferred.checked = Boolean(streamer.preferred);
     streamerForm.elements.own_stream.checked = Boolean(streamer.own_stream);
     streamerForm.elements.youtube_key_env.value = streamer.youtube_key_env || "";
     streamerForm.elements.youtube_key.value = "";
@@ -830,6 +832,7 @@ streamerForm.addEventListener("submit", async (event) => {
     video_mode: elements.video_mode.value,
     auto_start: elements.auto_start.checked,
     enabled: elements.enabled.checked,
+    preferred: elements.preferred.checked,
     own_stream: elements.own_stream.checked,
     youtube_key_env: elements.youtube_key_env.value.trim(),
     ytdlp_args: linesToArray(elements.ytdlp_args.value),

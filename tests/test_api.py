@@ -212,6 +212,7 @@ def test_create_update_delete_streamer(settings, streamers_file) -> None:
             "youtube_key": "top-secret-key",
             "video_mode": "copy",
             "enabled": True,
+            "preferred": True,
             "own_stream": True,
         }
         created = client.post("/api/streamers", json=payload)
@@ -222,6 +223,7 @@ def test_create_update_delete_streamer(settings, streamers_file) -> None:
         carol = next(item for item in status["streamers"] if item["id"] == "carol")
         assert carol["key_source"] == "config"
         assert carol["key_configured"] is True
+        assert carol["preferred"] is True
         assert carol["own_stream"] is True
         assert "top-secret-key" not in str(status)
 
@@ -234,6 +236,7 @@ def test_create_update_delete_streamer(settings, streamers_file) -> None:
                 "youtube_key": "",
                 "video_mode": "reencode",
                 "enabled": True,
+                "preferred": False,
                 "own_stream": False,
             },
         )
@@ -243,6 +246,7 @@ def test_create_update_delete_streamer(settings, streamers_file) -> None:
         assert streamers["carol"].name == "Carol neu"
         assert streamers["carol"].youtube_key == "top-secret-key"
         assert streamers["carol"].video_mode == "reencode"
+        assert streamers["carol"].preferred is False
         assert streamers["carol"].own_stream is False
 
         duplicate = client.post("/api/streamers", json=payload)

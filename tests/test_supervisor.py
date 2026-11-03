@@ -30,6 +30,33 @@ streamers:
     youtube_key_env: BOB_YT_KEY
 """
 
+PREFERRED_BOB = """
+streamers:
+  - id: alice
+    name: Alice
+    tiktok: alice
+    youtube_key_env: ALICE_YT_KEY
+  - id: bob
+    name: Bob
+    tiktok: bob
+    youtube_key_env: BOB_YT_KEY
+    preferred: true
+"""
+
+PREFERRED_BOTH = """
+streamers:
+  - id: alice
+    name: Alice
+    tiktok: alice
+    youtube_key_env: ALICE_YT_KEY
+    preferred: true
+  - id: bob
+    name: Bob
+    tiktok: bob
+    youtube_key_env: BOB_YT_KEY
+    preferred: true
+"""
+
 
 class FakeResolver:
     def __init__(self, stream: ResolvedStream) -> None:
@@ -136,6 +163,95 @@ async def test_switch_replaces_active_stream(settings, store, monkeypatch) -> No
             and supervisor.status()["state"] == "live"
         )
         assert supervisor.status()["sessions"] == 1
+    finally:
+        await supervisor.stop()
+
+
+async def test_preferred_online_streamer_is_switched_to(
+    settings, monkeypatch
+) -> None:
+    monkeypatch.setenv("ALICE_YT_KEY", "alice-key")
+    monkeypatch.setenv("BOB_YT_KEY", "bob-key")
+    store = make_store(settings, PREFERRED_BOB)
+    supervisor = Supervisor(
+        settings, store, FakeResolver(LIVE), spawn=spawn_sleep
+    )
+
+    try:
+        await supervisor.start("alice")
+        await wait_until(lambda: supervisor.status()["state"] == "live")
+
+        await supervisor.handle_online_statuses({"bob": True})
+
+        await wait_until(
+            lambda: supervisor.status()["active"] == "bob"
+            and supervisor.status()["state"] == "live"
+        )
+    finally:
+        await supervisor.stop()
+
+
+async def test_preferred_stream_stays_active(
+    settings, monkeypatch
+) -> None:
+    monkeypatch.setenv("ALICE_YT_KEY", "alice-key")
+    monkeypatch.setenv("BOB_YT_KEY", "bob-key")
+    store = make_store(settings, PREFERRED_BOTH)
+    supervisor = Supervisor(
+        settings, store, FakeResolver(LIVE), spawn=spawn_sleep
+    )
+
+    try:
+        await supervisor.start("alice")
+        await wait_until(lambda: supervisor.status()["state"] == "live")
+
+        await supervisor.handle_online_statuses({"bob": True})
+        await asyncio.sleep(0.1)
+
+        assert supervisor.status()["active"] == "alice"
+    finally:
+        await supervisor.stop()
+
+
+async def test_preferred_streamer_does_not_start_when_idle(
+    settings, monkeypatch
+) -> None:
+    monkeypatch.setenv("ALICE_YT_KEY", "alice-key")
+    monkeypatch.setenv("BOB_YT_KEY", "bob-key")
+    store = make_store(settings, PREFERRED_BOB)
+    supervisor = Supervisor(
+        settings, store, FakeResolver(LIVE), spawn=spawn_sleep
+    )
+
+    try:
+        assert supervisor.status()["active"] is None
+
+        await supervisor.handle_online_statuses({"bob": True})
+        await asyncio.sleep(0.1)
+
+        assert supervisor.status()["active"] is None
+    finally:
+        await supervisor.stop()
+
+
+async def test_preferred_offline_streamer_does_not_switch(
+    settings, monkeypatch
+) -> None:
+    monkeypatch.setenv("ALICE_YT_KEY", "alice-key")
+    monkeypatch.setenv("BOB_YT_KEY", "bob-key")
+    store = make_store(settings, PREFERRED_BOB)
+    supervisor = Supervisor(
+        settings, store, FakeResolver(LIVE), spawn=spawn_sleep
+    )
+
+    try:
+        await supervisor.start("alice")
+        await wait_until(lambda: supervisor.status()["state"] == "live")
+
+        await supervisor.handle_online_statuses({"bob": False})
+        await asyncio.sleep(0.1)
+
+        assert supervisor.status()["active"] == "alice"
     finally:
         await supervisor.stop()
 

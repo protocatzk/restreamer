@@ -26,6 +26,7 @@ streamers:
     youtube_key_env: ALICE_YT_KEY
     video_mode: copy
     auto_start: true
+    preferred: true
     own_stream: true
 """
 
@@ -46,6 +47,7 @@ def test_load_streamers(tmp_path: Path) -> None:
     assert streamers[0].id == "alice"
     assert streamers[0].tiktok == "alice"
     assert streamers[0].auto_start is True
+    assert streamers[0].preferred is True
     assert streamers[0].own_stream is True
     assert streamers[0].live_url == "https://www.tiktok.com/@alice/live"
 
@@ -117,6 +119,7 @@ def test_store_save_roundtrip_with_key(tmp_path: Path) -> None:
         youtube_key="secret-key",
         video_mode="reencode",
         auto_start=True,
+        preferred=True,
         own_stream=True,
     )
 
@@ -127,6 +130,7 @@ def test_store_save_roundtrip_with_key(tmp_path: Path) -> None:
     assert loaded.youtube_key == "secret-key"
     assert loaded.video_mode == "reencode"
     assert loaded.auto_start is True
+    assert loaded.preferred is True
     assert loaded.own_stream is True
 
 
@@ -183,6 +187,23 @@ def test_build_streamer_sets_own_stream() -> None:
         {"own_stream": False}, existing=streamer
     )
     assert cleared.own_stream is False
+
+
+def test_build_streamer_sets_preferred() -> None:
+    streamer = build_streamer(
+        {
+            "id": "alice",
+            "name": "Alice",
+            "tiktok": "alice",
+            "youtube_key": "alice-key",
+            "preferred": True,
+        }
+    )
+
+    assert streamer.preferred is True
+
+    cleared = build_streamer({"preferred": False}, existing=streamer)
+    assert cleared.preferred is False
 
 
 def test_build_streamer_keeps_existing_key_on_blank_update() -> None:

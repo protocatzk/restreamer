@@ -161,6 +161,22 @@ async def test_monitor_leaves_missing_statuses_unknown(settings) -> None:
     assert monitor.summary()["errors"] == 0
 
 
+async def test_monitor_notifies_status_handler(settings) -> None:
+    store = make_store(settings)
+    monitor = OnlineStatusMonitor(
+        settings, store, FakeOnlineSource({"alice": True, "bob": False})
+    )
+    received: list[dict[str, bool]] = []
+
+    async def handler(statuses: dict[str, bool]) -> None:
+        received.append(statuses)
+
+    monitor.set_status_handler(handler)
+    await monitor._check_all()
+
+    assert received == [{"alice": True, "bob": False}]
+
+
 async def test_monitor_skips_active_streamer(settings) -> None:
     store = make_store(settings)
     source = FakeOnlineSource({"alice": True, "bob": True})

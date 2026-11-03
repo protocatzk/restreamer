@@ -115,7 +115,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             logger.info("cookies.txt aus den Einstellungen geschrieben")
 
         await delay_buffer.start()
-        online_monitor.start()
 
         if settings.auto_start:
             for candidate in store.streamers:
@@ -126,6 +125,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     except Exception:
                         logger.exception("Auto-Start für %s fehlgeschlagen", candidate.id)
                     break
+
+        online_monitor.start()
 
         yield
 

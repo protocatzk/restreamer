@@ -11,6 +11,7 @@ streamers:
     # youtube_key_env: ALICE_YT_KEY
     video_mode: copy      # copy | reencode
     auto_start: false     # beim Containerstart automatisch starten
+    preferred: false      # bei Online automatisch dorthin umschalten
     enabled: true
     own_stream: false     # eigener Key auch bei gemeinsamem Playlist-Key
 

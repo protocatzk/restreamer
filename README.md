@@ -22,7 +22,7 @@ Restream einzelner TikTok-Live-Streamer auf YouTube – aufgelöst mit **yt-dlp*
 - **Auto-Refresh** alle 20 Minuten (einstellbar) mit vorab aufgelöster URL – startet nur die Quelle neu, der YouTube-Stream bleibt verbunden
 - **Stall-Watchdog**: 30 s ohne Fortschritt → Quelle wird neu gestartet, Pausenscreen überbrückt, RTMP bleibt bestehen
 - Offline-Polling, Reconnect-Backoff 5 s → 5 min, Watch-Modus
-- **Online-Status aller Streamer im Dashboard**: modulare HTTP-JSON-Quelle (z. B. TokTracker), LIVE/offline auch ohne aktiven Stream, einstellbares Intervall und „Status prüfen“-Button
+- **Online-Status aller Streamer im Dashboard**: modulare HTTP-JSON-Quelle (z. B. TokTracker), LIVE/offline auch ohne aktiven Stream, einstellbares Intervall und „Status prüfen“-Button; bevorzugte Streamer werden bei Online automatisch übernommen
 - **Pausenscreen**: Bei Stream-Ende/Offline wird automatisch ein generierter Pausenscreen (Text + stille Audiospur) in denselben YouTube-Stream eingespielt, bis der Streamer zurück ist
 - **Optionales Chat-Overlay**: liest eine HTTP-JSON-Chatquelle (z. B. TokTracker `/api/chat-logs`), verzögert die Nachrichten um den Relay-Delay und rendert sie per `drawtext` im laufenden Output – ohne zusätzlichen Encoder
 - **Optionales Uhrzeit-Overlay**: aktuelle Uhrzeit (HH:MM oder HH:MM:SS) an einer frei wählbaren Ecke, direkt von ffmpeg gerendert; optional mit Versionsanzeige oben rechts
@@ -83,6 +83,7 @@ streamers:
     youtube_key: xxxx-xxxx-xxxx   # ODER youtube_key_env: ALICE_YT_KEY
     video_mode: copy              # veraltet; Ausgabe wird immer normalisiert
     auto_start: false             # beim Containerstart automatisch starten
+    preferred: false              # bei Online automatisch dorthin umschalten
     enabled: true
     own_stream: false             # eigener Key auch bei gemeinsamem Playlist-Key
 ```
@@ -96,6 +97,7 @@ streamers:
 | `youtube_key_env` | ja* | Alternative: Name der Env-Variable mit dem Key |
 | `video_mode` | nein | Veraltet/ignoriert. Die Ausgabe wird immer auf H.264/AAC normalisiert. |
 | `auto_start` | nein | Beim Start des Containers automatisch starten |
+| `preferred` | nein | Sobald der Online-Check diesen Streamer als live meldet, automatisch dorthin umschalten |
 | `enabled` | nein | Streamer im Dashboard deaktivieren |
 | `own_stream` | nein | Eigener YouTube-Key auch in Senderlisten mit gemeinsamem Key; beim Umschalten wird ein separater YouTube-Stream geöffnet |
 | `ytdlp_args` | nein | Zusätzliche yt-dlp-Argumente (Liste) |
@@ -149,7 +151,7 @@ Die frühere einzelne `playlist:`-Schreibweise wird weiterhin gelesen und als Se
 
 **Ausgabe-Verhalten:** Ist in einer Senderliste ein gemeinsamer Key gesetzt, senden alle Sender dieser Liste auf denselben YouTube-Stream. Beim automatischen Weiterschalten (Stream-Ende/offline) wird nur die TikTok-Quelle ausgetauscht; die RTMP-Verbindung bleibt bestehen. Ohne gemeinsamen Key nutzt jeder Sender seinen eigenen YouTube-Key – Zuschauer wechseln dann mit dem Sender auf ein anderes YouTube-Video.
 
-Automatisch weitergeschaltet wird immer innerhalb der aktiven Senderliste, bei einem sauberen Stream-Ende oder wenn TikTok „offline“ meldet. Auto-Refresh und Stall-Watchdog starten dagegen weiterhin denselben Sender neu, ohne die RTMP-Verbindung zu trennen. Ist kein Sender der aktiven Liste erreichbar, greift der Pausenscreen und nach `offline_poll_seconds` wird die Liste erneut versucht. Ein manuelles „Starten“ auf einer Streamer-Karte bleibt im Einzelmodus und schaltet nicht automatisch weiter; die Senderleiste startet den Playlist-Modus. Beim manuellen Wechsel innerhalb einer Playlist baut der Bot die YouTube-Session bewusst neu auf; bei gleichem YouTube-Key bleibt der Delay-Puffer erhalten, sodass keine 30-s-Datenlücke entsteht.
+Automatisch weitergeschaltet wird immer innerhalb der aktiven Senderliste, bei einem sauberen Stream-Ende oder wenn TikTok „offline“ meldet. Auto-Refresh und Stall-Watchdog starten dagegen weiterhin denselben Sender neu, ohne die RTMP-Verbindung zu trennen. Ist kein Sender der aktiven Liste erreichbar, greift der Pausenscreen und nach `offline_poll_seconds` wird die Liste erneut versucht. Ein manuelles „Starten“ auf einer Streamer-Karte bleibt im Einzelmodus und schaltet nicht automatisch weiter; die Senderleiste startet den Playlist-Modus. Einzige Ausnahme ist die bevorzugte Online-Umschaltung (`preferred`), die auch aus dem Einzelmodus wechseln kann. Beim manuellen Wechsel innerhalb einer Playlist baut der Bot die YouTube-Session bewusst neu auf; bei gleichem YouTube-Key bleibt der Delay-Puffer erhalten, sodass keine 30-s-Datenlücke entsteht.
 
 ### `.env`
 
@@ -223,6 +225,8 @@ Die Quelle erwartet eine Antwort mit einer Streamer-Liste, z. B.:
 Akzeptiert werden auch eine reine Liste sowie die Felder `isLive`, `live`, `online`, `live_status` oder `status`. Ein API-Key wird optional als `X-API-Key`-Header gesendet. TokTracker stellt dafür `/api/public/overview` (öffentlich) oder `/api/overview` (Admin, API-Key nötig) bereit.
 
 Fehlt ein Streamer oder ein Live-Status in der Antwort, bleibt sein Status „unbekannt“ – er wird weder als offline gewertet noch bricht die Prüfung ab. Ist die Quelle insgesamt nicht erreichbar, bleiben die zuletzt bekannten Status erhalten; das Dashboard zeigt die Fehlermeldung im Tooltip. Der Restream läuft unabhängig davon weiter.
+
+Mit `preferred: true` (Dashboard: **Bevorzugt**) schaltet der Restreamer automatisch auf diesen Streamer um, sobald der Online-Check ihn als live meldet – auch aus dem Einzelmodus und wenn gerade ein anderer Sender läuft. Läuft bereits ein bevorzugter Sender, bleibt er aktiv; sind mehrere bevorzugte Sender live, gewinnt der erste in der Streamer-Reihenfolge. Ist ein bevorzugter Sender Teil der aktiven Senderliste, bleibt der Playlist-Modus erhalten.
 
 ### Eigene YouTube-Streams und Titel
 
@@ -333,6 +337,7 @@ Eine eigene `data/cookies.txt` (Netscape-Format, z. B. per Browser-Export) funkt
 - **Bearbeiten**: Werte ändern; ein leeres Key-Feld behält den gespeicherten Key. „Gespeicherten Key entfernen“ löscht ihn.
 - **Löschen**: nur möglich, wenn der Streamer nicht gerade aktiv ist.
 - **Online-Status**: Die Streamer-Karten und Senderkacheln zeigen LIVE/offline/unbekannt für alle aktivierten Streamer. „Status prüfen“ startet eine sofortige Hintergrundprüfung.
+- **Bevorzugt**: Bei „Bevorzugt“ markierte Streamer werden automatisch übernommen, sobald der Online-Check sie als live meldet. Ein bereits laufender bevorzugter Streamer wird nicht unterbrochen.
 - **Eigener Stream**: Streamer mit `own_stream` nutzen beim Umschalten ihren eigenen YouTube-Key und öffnen damit einen separaten Stream. Der Titel wird im „Jetzt läuft“-Bereich als kopierbare Vorschau angezeigt.
 - **Starten**: löst den Stream auf und startet ffmpeg. Ist der Streamer offline, wird im Watch-Modus weiter gepollt.
 - **Senderleiste**: Über die Tabs wird die gewünschte Senderliste ausgewählt. „Playlist starten“ startet den ersten bzw. aktuellen Sender dieser Liste. „Vorheriger“/„Nächster“ wechseln sofort, ein Klick auf eine Senderkachel schaltet direkt um. Endet ein Stream oder ist der Sender offline, wird automatisch der nächste erreichbare Sender derselben Liste gestartet.

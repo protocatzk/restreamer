@@ -7,7 +7,7 @@ import re
 import time
 import urllib.parse
 import urllib.request
-from collections.abc import Callable, Iterable
+from collections.abc import Awaitable, Callable, Iterable
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -266,6 +266,16 @@ class OnlineStatusMonitor:
         self._last_error = ""
         self._last_error_log = 0.0
         self._signature: tuple[str, str, int] | None = None
+        self._status_handler: (
+            Callable[[dict[str, bool]], Awaitable[None]] | None
+        ) = None
+
+    def set_status_handler(
+        self,
+        handler: Callable[[dict[str, bool]], Awaitable[None]] | None,
+    ) -> None:
+        """Register a callback that receives every successful status snapshot."""
+        self._status_handler = handler
 
     def start(self) -> None:
         if self._task is not None:
@@ -387,11 +397,23 @@ class OnlineStatusMonitor:
             self._last_error = ""
             self._apply_statuses(candidates, statuses)
             self._last_run_at = _utc_now_iso()
+            await self._notify_statuses(statuses)
         finally:
             for streamer in candidates:
                 state = self._states.get(streamer.id)
                 if state is not None:
                     state.checking = False
+
+    async def _notify_statuses(self, statuses: dict[str, bool]) -> None:
+        handler = self._status_handler
+        if handler is None:
+            return
+        try:
+            await handler(statuses)
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001 - status callback must not break polling
+            logger.exception("Online-Status-Callback fehlgeschlagen")
 
     def _prune_states(self, candidates: Iterable[StreamerConfig]) -> None:
         known_ids = {streamer.id for streamer in candidates}

@@ -23,6 +23,7 @@ from app.ffmpeg_cmd import (
     build_output_command,
     build_source_command,
 )
+from app.handles import normalize_handle
 from app.logs import RingLog, redact
 from app.models import (
     PlaylistConfig,
@@ -43,6 +44,8 @@ from app.version import build_version_filter
 logger = logging.getLogger(__name__)
 
 Spawn = Callable[[list[str]], Awaitable[asyncio.subprocess.Process]]
+
+AUTO_SWITCH_RETRY_SECONDS = 300.0
 
 CODEC_ERROR_MARKERS = (
     "could not find tag for codec",
@@ -210,6 +213,7 @@ class Supervisor:
         self._pause_retry_monotonic = 0.0
 
         self._online: OnlineStatusMonitor | None = None
+        self._auto_switch_attempts: dict[str, float] = {}
         self._chat: ChatWorker | None = None
         self._chat_filter_warned = False
         self._clock_filter_warned = False
@@ -233,11 +237,97 @@ class Supervisor:
     # ------------------------------------------------------------------ status
 
     def set_online_monitor(self, monitor: OnlineStatusMonitor | None) -> None:
+        if self._online is not None:
+            self._online.set_status_handler(None)
         self._online = monitor
+        if monitor is not None:
+            monitor.set_status_handler(self.handle_online_statuses)
 
     @property
     def active_id(self) -> str | None:
         return self._active_id
+
+    async def handle_online_statuses(self, statuses: dict[str, bool]) -> None:
+        """Switch to a preferred streamer as soon as it is reported live.
+
+        The online monitor skips the active streamer, so its own state is
+        evaluated from the supervisor. A live preferred streamer is never
+        switched away from; a recent auto-switch target is not retried within
+        the cooldown to avoid interrupting the current stream in a loop.
+        """
+        if not statuses or self._active_id is None:
+            return
+
+        self.store.refresh()
+        preferred = [
+            streamer
+            for streamer in self.store.streamers
+            if streamer.enabled and streamer.preferred
+        ]
+        if not preferred:
+            return
+
+        live: list[StreamerConfig] = []
+        for streamer in preferred:
+            if streamer.id == self._active_id:
+                continue
+            if statuses.get(normalize_handle(streamer.tiktok)) is True:
+                live.append(streamer)
+            else:
+                self._auto_switch_attempts.pop(streamer.id, None)
+        if not live:
+            return
+
+        active = self.store.get(self._active_id)
+        if (
+            active is not None
+            and active.preferred
+            and self._state in {StreamState.RESOLVING, StreamState.LIVE}
+        ):
+            return
+
+        now = time.monotonic()
+        target = next(
+            (
+                streamer
+                for streamer in live
+                if now - self._auto_switch_attempts.get(streamer.id, 0.0)
+                >= AUTO_SWITCH_RETRY_SECONDS
+            ),
+            None,
+        )
+        if target is None or self._state == StreamState.STOPPING:
+            return
+
+        self._auto_switch_attempts[target.id] = now
+        self._record(
+            f"[Restreamer] Bevorzugter Sender online: {target.name}"
+        )
+        try:
+            playlist_id = self.active_playlist_id()
+            if playlist_id:
+                playlist = self.store.playlist(playlist_id)
+                if playlist is not None and target.id in playlist.channels:
+                    await self.start(
+                        target.id,
+                        watch=True,
+                        playlist_mode=True,
+                        playlist_id=playlist_id,
+                        keep_playlist_end=True,
+                        bridge_pause=True,
+                    )
+                    return
+            await self.start(target.id, watch=True)
+        except Exception as exc:  # noqa: BLE001 - keep the monitor alive
+            logger.warning(
+                "Automatischer Wechsel zu %s fehlgeschlagen: %s",
+                target.id,
+                exc,
+            )
+            self._record(
+                "[Restreamer] Automatischer Wechsel zu "
+                f"{target.name} fehlgeschlagen: {self._redact(str(exc))}"
+            )
 
     def status(self) -> dict:
         self.store.refresh()
@@ -416,6 +506,7 @@ class Supervisor:
                     "number": number,
                     "enabled": cfg.enabled,
                     "key_configured": key_source != "missing",
+                    "preferred": cfg.preferred,
                     "own_stream": cfg.own_stream,
                     "own_stream_conflicts": bool(
                         cfg.own_stream
@@ -492,6 +583,7 @@ class Supervisor:
             "enabled": cfg.enabled,
             "auto_start": cfg.auto_start,
             "video_mode": cfg.video_mode,
+            "preferred": cfg.preferred,
             "own_stream": cfg.own_stream,
             "youtube_key_env": cfg.youtube_key_env,
             "key_configured": key_source != "missing",
