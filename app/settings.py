@@ -33,6 +33,8 @@ INT_FIELDS = {
     "chat_overlay_font_size",
     "chat_overlay_width",
     "clock_font_size",
+    "online_check_interval_seconds",
+    "online_check_timeout_seconds",
 }
 BOOL_FIELDS = {
     "youtube_backup",
@@ -43,6 +45,7 @@ BOOL_FIELDS = {
     "clock_enabled",
     "clock_show_seconds",
     "version_overlay_enabled",
+    "online_check_enabled",
 }
 TUPLE_FIELDS = {"ytdlp_extra_args"}
 SECRET_FIELDS = {"dashboard_password", "tiktok_session_id", "chat_source_api_key"}
@@ -213,6 +216,12 @@ class Settings:
     clock_font: str = ""
     version_overlay_enabled: bool = True
 
+    # Dashboard-only live status for every configured streamer. Checks are
+    # performed with yt-dlp in the background and never affect the restream.
+    online_check_enabled: bool = True
+    online_check_interval_seconds: int = 60
+    online_check_timeout_seconds: int = 20
+
     resolve_timeout_seconds: int = 90
     terminate_timeout_seconds: int = 10
     log_buffer_lines: int = 500
@@ -290,6 +299,13 @@ class Settings:
             clock_font_size=_env_int("CLOCK_FONT_SIZE", 0),
             clock_font=os.getenv("CLOCK_FONT", ""),
             version_overlay_enabled=_env_bool("VERSION_OVERLAY_ENABLED", True),
+            online_check_enabled=_env_bool("ONLINE_CHECK_ENABLED", True),
+            online_check_interval_seconds=_env_int(
+                "ONLINE_CHECK_INTERVAL_SECONDS", 60
+            ),
+            online_check_timeout_seconds=_env_int(
+                "ONLINE_CHECK_TIMEOUT_SECONDS", 20
+            ),
             resolve_timeout_seconds=_env_int("RESOLVE_TIMEOUT_SECONDS", 90),
             terminate_timeout_seconds=_env_int("TERMINATE_TIMEOUT_SECONDS", 10),
             log_buffer_lines=_env_int("LOG_BUFFER_LINES", 500),
@@ -453,6 +469,14 @@ class Settings:
                 "clock_position muss einer von "
                 + ", ".join(CLOCK_POSITIONS)
                 + " sein"
+            )
+        if not 10 <= self.online_check_interval_seconds <= 3600:
+            raise ValueError(
+                "online_check_interval_seconds muss zwischen 10 und 3600 liegen"
+            )
+        if not 5 <= self.online_check_timeout_seconds <= 120:
+            raise ValueError(
+                "online_check_timeout_seconds muss zwischen 5 und 120 liegen"
             )
         if not 0 <= self.clock_font_size <= 200:
             raise ValueError("clock_font_size muss zwischen 0 und 200 liegen")

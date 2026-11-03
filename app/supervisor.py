@@ -30,6 +30,7 @@ from app.models import (
     StreamerConfig,
     StreamState,
 )
+from app.online import OnlineStatusMonitor
 from app.pause import build_pause_command, find_pause_font, write_pause_texts
 from app.resolver import ResolveError, Resolver
 from app.settings import Settings
@@ -206,6 +207,7 @@ class Supervisor:
         self._pause_since: str | None = None
         self._pause_retry_monotonic = 0.0
 
+        self._online: OnlineStatusMonitor | None = None
         self._chat: ChatWorker | None = None
         self._chat_filter_warned = False
         self._clock_filter_warned = False
@@ -226,6 +228,13 @@ class Supervisor:
         self._pipe_offset_value: float | None = None
 
     # ------------------------------------------------------------------ status
+
+    def set_online_monitor(self, monitor: OnlineStatusMonitor | None) -> None:
+        self._online = monitor
+
+    @property
+    def active_id(self) -> str | None:
+        return self._active_id
 
     def status(self) -> dict:
         self.store.refresh()
@@ -290,6 +299,24 @@ class Supervisor:
             "last_error": self._last_error,
             "log_file": str(self._log_path) if self._log_path else None,
             "config_error": self.store.error,
+            "online_check": (
+                self._online.summary()
+                if self._online is not None
+                else {
+                    "enabled": bool(self.settings.online_check_enabled),
+                    "interval_seconds": int(
+                        self.settings.online_check_interval_seconds
+                    ),
+                    "timeout_seconds": int(
+                        self.settings.online_check_timeout_seconds
+                    ),
+                    "last_run_at": None,
+                    "checking": False,
+                    "online": 0,
+                    "checked": 0,
+                    "errors": 0,
+                }
+            ),
             "cookies_configured": self.settings.cookies_file.exists(),
             "auto_refresh_minutes": self.settings.auto_refresh_minutes,
             "next_refresh_in_seconds": next_refresh,
@@ -362,6 +389,7 @@ class Supervisor:
             if cfg is None:
                 continue
             key_source = self._key_source(cfg.youtube_key, cfg.youtube_key_env)
+            online = self._online_view(cfg)
             channels.append(
                 {
                     "id": cfg.id,
@@ -372,6 +400,9 @@ class Supervisor:
                     "key_configured": key_source != "missing",
                     "active": cfg.id == self._active_id,
                     "offline": mode_active and cfg.id in self._offline_cycle,
+                    "online": online["online"],
+                    "online_checked_at": online["online_checked_at"],
+                    "online_checking": online["online_checking"],
                 }
             )
 
@@ -433,7 +464,31 @@ class Supervisor:
             "key_configured": key_source != "missing",
             "key_source": key_source,
             "active": cfg.id == self._active_id,
+            **self._online_view(cfg),
         }
+
+    def _online_view(self, cfg: StreamerConfig) -> dict:
+        if cfg.id == self._active_id:
+            if self._state == StreamState.LIVE:
+                online: bool | None = True
+            elif self._state == StreamState.OFFLINE:
+                online = False
+            else:
+                online = None
+            return {
+                "online": online,
+                "online_checked_at": None,
+                "online_error": "",
+                "online_checking": False,
+            }
+        if self._online is None:
+            return {
+                "online": None,
+                "online_checked_at": None,
+                "online_error": "",
+                "online_checking": False,
+            }
+        return self._online.view(cfg.id)
 
     def tail_log(self, streamer_id: str, count: int = 200) -> list[str]:
         if streamer_id == self._active_id:

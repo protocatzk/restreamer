@@ -77,6 +77,29 @@ def test_new_defaults_are_present(tmp_path: Path) -> None:
     assert data["output_stretch_percent"] == 10
     assert data["relay_delay_seconds"] == 30
     assert data["source_min_rate_percent"] == 85
+    assert data["online_check_enabled"] is True
+    assert data["online_check_interval_seconds"] == 60
+    assert data["online_check_timeout_seconds"] == 20
+
+
+def test_online_check_values_are_validated(tmp_path: Path) -> None:
+    settings = Settings(runtime_file=tmp_path / "settings.yml")
+
+    assert settings.updated({"online_check_enabled": False}).online_check_enabled is False
+
+    with pytest.raises(ValueError, match="online_check_interval_seconds"):
+        settings.updated({"online_check_interval_seconds": 9})
+    with pytest.raises(ValueError, match="online_check_timeout_seconds"):
+        settings.updated({"online_check_timeout_seconds": 4})
+
+    updated = settings.updated(
+        {
+            "online_check_interval_seconds": 120,
+            "online_check_timeout_seconds": 30,
+        }
+    )
+    assert updated.online_check_interval_seconds == 120
+    assert updated.online_check_timeout_seconds == 30
 
 
 def test_output_orientation_can_be_switched(tmp_path: Path) -> None:

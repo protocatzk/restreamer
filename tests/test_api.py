@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import time
 from dataclasses import replace
 
 from fastapi.testclient import TestClient
 
 from app.main import create_app
+from app.resolver import Resolver
 from app.store import load_config, load_streamers
 
 
@@ -22,6 +24,50 @@ def test_health_and_status(settings, streamers_file) -> None:
         assert [item["id"] for item in payload["streamers"]] == ["alice", "bob"]
         assert payload["config_error"] == ""
         assert payload["active"] is None
+        assert payload["online_check"]["enabled"] is False
+        assert all(item["online"] is None for item in payload["streamers"])
+
+
+def test_online_check_endpoint(settings, streamers_file) -> None:
+    app = create_app(replace(settings, streamers_file=streamers_file))
+
+    with TestClient(app) as client:
+        response = client.post("/api/online/check")
+        assert response.status_code == 200
+        assert response.json()["ok"] is True
+        assert response.json()["online_check"]["enabled"] is False
+
+
+def test_online_status_is_exposed(
+    settings, streamers_file, monkeypatch
+) -> None:
+    async def fake_probe(self, streamer) -> bool:
+        return streamer.id == "alice"
+
+    monkeypatch.setattr(Resolver, "probe", fake_probe)
+    app = create_app(
+        replace(
+            settings,
+            streamers_file=streamers_file,
+            online_check_enabled=True,
+            online_check_interval_seconds=10,
+        )
+    )
+
+    with TestClient(app) as client:
+        payload = {}
+        for _ in range(100):
+            payload = client.get("/api/status").json()
+            if all(
+                item["online"] is not None for item in payload["streamers"]
+            ):
+                break
+            time.sleep(0.01)
+
+        online = {item["id"]: item["online"] for item in payload["streamers"]}
+        assert online == {"alice": True, "bob": False}
+        assert payload["online_check"]["enabled"] is True
+        assert payload["online_check"]["checked"] == 2
 
 
 def test_index_page(settings, streamers_file) -> None:
@@ -50,6 +96,11 @@ def test_index_page(settings, streamers_file) -> None:
         assert 'name="clock_position"' in response.text
         assert 'name="clock_show_seconds"' in response.text
         assert 'name="version_overlay_enabled"' in response.text
+        assert 'name="online_check_enabled"' in response.text
+        assert 'name="online_check_interval_seconds"' in response.text
+        assert 'name="online_check_timeout_seconds"' in response.text
+        assert 'id="online-check-btn"' in response.text
+        assert 'id="online-count"' in response.text
 
 
 def test_chat_settings_are_exposed(settings, streamers_file) -> None:
@@ -211,6 +262,9 @@ def test_update_settings(tmp_path, settings, streamers_file) -> None:
                 "tiktok_session_id": "session-abc",
                 "ytdlp_extra_args": ["--foo"],
                 "output_orientation": "landscape",
+                "online_check_enabled": False,
+                "online_check_interval_seconds": 90,
+                "online_check_timeout_seconds": 25,
             },
         )
         assert response.status_code == 200
@@ -220,6 +274,9 @@ def test_update_settings(tmp_path, settings, streamers_file) -> None:
         assert payload["auto_start"] is True
         assert payload["tiktok_session_id_set"] is True
         assert payload["output_orientation"] == "landscape"
+        assert payload["online_check_enabled"] is False
+        assert payload["online_check_interval_seconds"] == 90
+        assert payload["online_check_timeout_seconds"] == 25
         assert "session-abc" not in response.text
         assert settings.offline_poll_seconds == 30
         assert settings.output_orientation == "landscape"

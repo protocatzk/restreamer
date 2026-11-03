@@ -16,6 +16,7 @@ from app import __version__
 from app.chat import ensure_chat_overlay_file
 from app.cookies import write_tiktok_cookies
 from app.delay_buffer import DelayBuffer
+from app.online import OnlineStatusMonitor
 from app.resolver import Resolver
 from app.settings import SECRET_FIELDS, Settings
 from app.store import (
@@ -82,6 +83,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     supervisor = Supervisor(
         settings, store, resolver, delay_buffer=delay_buffer
     )
+    online_monitor = OnlineStatusMonitor(
+        settings,
+        store,
+        resolver,
+        is_active=lambda: supervisor.active_id,
+    )
+    supervisor.set_online_monitor(online_monitor)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -108,6 +116,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             logger.info("cookies.txt aus den Einstellungen geschrieben")
 
         await delay_buffer.start()
+        online_monitor.start()
 
         if settings.auto_start:
             for candidate in store.streamers:
@@ -121,6 +130,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         yield
 
+        await online_monitor.stop()
         await supervisor.shutdown()
         await delay_buffer.stop()
         logger.info("Restreamer beendet")
@@ -136,6 +146,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.store = store
     app.state.supervisor = supervisor
     app.state.delay_buffer = delay_buffer
+    app.state.online_monitor = online_monitor
 
     @app.middleware("http")
     async def basic_auth_middleware(request: Request, call_next):
@@ -174,6 +185,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/api/status")
     async def api_status():
         return supervisor.status()
+
+    @app.post("/api/online/check")
+    async def api_online_check():
+        online_monitor.request_check()
+        return {"ok": True, "online_check": online_monitor.summary()}
 
     # ------------------------------------------------------------- Einstellungen
 

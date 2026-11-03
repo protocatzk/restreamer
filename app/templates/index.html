@@ -43,6 +43,10 @@
         <strong id="active-sessions">0</strong>
       </div>
       <div>
+        <span class="label">Streamer live</span>
+        <strong id="online-count">–</strong>
+      </div>
+      <div>
         <span class="label">Cookies</span>
         <strong id="cookies-state">–</strong>
       </div>
@@ -100,6 +104,7 @@
         <h2>Streamer</h2>
         <div class="actions">
           <button id="add-streamer-btn" class="btn primary" type="button">+ Streamer</button>
+          <button id="online-check-btn" class="btn ghost" type="button">Status prüfen</button>
           <button id="settings-btn" class="btn ghost" type="button">Einstellungen</button>
           <button id="reload-btn" class="btn ghost" type="button">Config neu laden</button>
         </div>
@@ -406,6 +411,25 @@
             <label class="check"><input type="checkbox" name="auto_start"> Auto-Start beim Containerstart</label>
             <label class="check"><input type="checkbox" name="auto_reencode_fallback"> Automatischer Re-Encode-Fallback</label>
           </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Online-Status</legend>
+          <div class="check-row">
+            <label class="check"><input type="checkbox" name="online_check_enabled"> Online-Status aller Streamer im Dashboard anzeigen</label>
+          </div>
+          <div class="form-grid">
+            <label class="field">
+              <span>Prüfintervall (Sekunden)</span>
+              <input name="online_check_interval_seconds" type="number" min="10" max="3600" step="1">
+            </label>
+            <label class="field">
+              <span>Timeout pro Prüfung (Sekunden)</span>
+              <input name="online_check_timeout_seconds" type="number" min="5" max="120" step="1">
+            </label>
+          </div>
+          <p class="hint">Alle aktivierten Streamer werden im Hintergrund per yt-dlp geprüft.
+            Der gerade laufende Sender wird aus dem Stream-Status bewertet.</p>
         </fieldset>
 
         <fieldset>

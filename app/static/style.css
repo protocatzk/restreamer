@@ -83,6 +83,10 @@ h1 { margin: 0; font-size: 18px; letter-spacing: 0.2px; }
 .dot.resolving, .dot.backoff, .dot.stopping { background: var(--warn); }
 .dot.error { background: var(--error); }
 .dot.offline { background: #5b6b7d; }
+.dot.online {
+  background: #2ecc71;
+  box-shadow: 0 0 0 4px rgba(46, 204, 113, 0.16);
+}
 
 @keyframes pulse {
   0%, 100% { opacity: 1; }
@@ -140,6 +144,7 @@ main {
 h2 { margin: 0; font-size: 15px; font-weight: 600; letter-spacing: 0.3px; }
 .muted { color: var(--muted); font-weight: 400; }
 .warn-text { color: #ffd79a; }
+.live-text { color: #ff5c7c; }
 
 .channel-mixer {
   background: linear-gradient(180deg, var(--panel), var(--panel-2));

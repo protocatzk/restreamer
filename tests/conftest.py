@@ -28,6 +28,7 @@ def settings(tmp_path: Path) -> Settings:
         terminate_timeout_seconds=2,
         relay_port=free_tcp_port(),
         relay_delay_seconds=1,
+        online_check_enabled=False,
     )
 
 
