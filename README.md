@@ -29,6 +29,8 @@ Restream einzelner TikTok-Live-Streamer auf YouTube – aufgelöst mit **yt-dlp*
 - **Mehrere Senderlisten (Playlists)**: Streamer in festen Reihenfolgen wie TV-Sender durchschalten – automatisch bei Stream-Ende/Offline oder manuell per Vor/Zurück
 - **Automatisches Playlist-Ende**: Senderliste nach einer Dauer oder täglich zu einer festen Uhrzeit beenden
 - **Gemeinsame oder eigene YouTube-Ausgabe**: optional ein Key pro Senderliste, sonst behält jeder Streamer seinen eigenen
+- **Eigene YouTube-Streams pro Streamer**: markierte Streamer nutzen ihren eigenen Key auch innerhalb einer Senderliste mit gemeinsamem Key und öffnen dadurch beim Umschalten einen neuen YouTube-Stream
+- **Lokale Titel-Vorschau**: globales Template (`{name}`, `{tiktok}`, `{title}`, `{date}`, `{time}`) mit Kopierbutton im Dashboard – ohne YouTube-API/OAuth
 - Web-Dashboard mit Status, Ist-Bitrate, Start/Stop/Switch, umschaltbaren Senderlisten und Log-Tail
 - Streamer komplett im Dashboard anlegen, bearbeiten und löschen – inkl. Schnell-Anlegen per Handle/URL (einzeln oder als Liste)
 - Alle Einstellungen und Secrets (YouTube-Keys, TikTok-Cookie, Passwort, Chat-API-Key) im Dashboard pflegen
@@ -81,6 +83,7 @@ streamers:
     video_mode: copy              # veraltet; Ausgabe wird immer normalisiert
     auto_start: false             # beim Containerstart automatisch starten
     enabled: true
+    own_stream: false             # eigener Key auch bei gemeinsamem Playlist-Key
 ```
 
 | Feld | Pflicht | Bedeutung |
@@ -93,6 +96,7 @@ streamers:
 | `video_mode` | nein | Veraltet/ignoriert. Die Ausgabe wird immer auf H.264/AAC normalisiert. |
 | `auto_start` | nein | Beim Start des Containers automatisch starten |
 | `enabled` | nein | Streamer im Dashboard deaktivieren |
+| `own_stream` | nein | Eigener YouTube-Key auch in Senderlisten mit gemeinsamem Key; beim Umschalten wird ein separater YouTube-Stream geöffnet |
 | `ytdlp_args` | nein | Zusätzliche yt-dlp-Argumente (Liste) |
 | `ffmpeg_args` | nein | Zusätzliche ffmpeg-Argumente für den Ausgabe-Prozess (Liste) |
 
@@ -161,6 +165,7 @@ OUTPUT_STRETCH_PERCENT=10  # horizontale Streckung des Bildes in 16:9
 ONLINE_CHECK_ENABLED=true  # Live-Status aller Streamer im Dashboard
 ONLINE_CHECK_INTERVAL_SECONDS=60
 ONLINE_CHECK_TIMEOUT_SECONDS=20
+YOUTUBE_TITLE_TEMPLATE={name} live: {title}
 ```
 
 Alle Optionen sind in [`.env.example`](.env.example) dokumentiert.
@@ -175,6 +180,7 @@ Alle Optionen sind in [`.env.example`](.env.example) dokumentiert.
 - YouTube-RTMP-URL und Backup-RTMP
 - Offline-Poll, Backoff, **Auto-Refresh-Intervall**, **Stall-Timeout**, **Watchdog-Intervall**
 - **Online-Status**: Ein/Aus, Prüfintervall und Timeout; der Live-Status wird für alle aktivierten Streamer im Hintergrund per yt-dlp geprüft
+- **YouTube-Titel-Template**: lokale Vorschau mit Platzhaltern und Kopierbutton im Dashboard
 - Auto-Start, Reencode-Fallback
 - **Pausenscreen**: Ein/Aus, Texte, Hintergrundfarbe, Schriftdatei und Maximaldauer
 - **Chat-Overlay**: Ein/Aus, HTTP-JSON-Quelle, API-Key, Poll-Intervall, Position, Schriftgröße, Chatbreite und maximale Nachrichtenzahl
@@ -200,6 +206,29 @@ ONLINE_CHECK_TIMEOUT_SECONDS=20
 ```
 
 Die Prüfung läuft mit maximal drei parallelen yt-dlp-Aufrufen. Bei einem Fehler (z. B. abgelaufenem Cookie) zeigt das Dashboard „unbekannt“ und im Karten-Tooltip die Fehlermeldung; der Restream läuft unabhängig davon weiter.
+
+### Eigene YouTube-Streams und Titel
+
+Ein Streamer kann im Dashboard oder per YAML mit `own_stream: true` markiert werden. Dann verwendet er seinen eigenen `youtube_key` bzw. `youtube_key_env` auch dann, wenn die aktive Senderliste einen gemeinsamen Key hat. Beim Umschalten auf diesen Streamer beendet der Supervisor die bisherige YouTube-Verbindung und baut sie mit dem eigenen Key neu auf – YouTube öffnet dadurch einen separaten Stream. Beim Wechsel auf einen normalen Sender wird wieder der gemeinsame Key verwendet.
+
+```yaml
+streamers:
+  - id: alice
+    name: Alice
+    tiktok: alice
+    youtube_key: xxxx-xxxx-xxxx
+    own_stream: true
+```
+
+Das Dashboard zeigt für markierte Streamer ein **„Eigener Stream“**-Badge. Sind eigener Key und gemeinsamer Playlist-Key identisch, erscheint ein Warnhinweis, weil dann kein separater Stream entsteht.
+
+Der YouTube-Titel wird **nicht** über die YouTube-API gesetzt. Stattdessen rendert das Dashboard aus dem TikTok-Live-Titel und dem globalen Template eine Vorschau, die mit **„Titel kopieren“** in die Zwischenablage übernommen werden kann:
+
+```dotenv
+YOUTUBE_TITLE_TEMPLATE={name} live: {title}
+```
+
+Verfügbare Platzhalter: `{name}`, `{tiktok}`, `{title}`, `{date}`, `{time}`. Der Titel wird auf 100 Zeichen begrenzt. Änderungen am Template wirken sofort auf die nächste Statusanzeige.
 
 ### Chat-Overlay (optional)
 
@@ -249,7 +278,7 @@ CLOCK_FONT=                 # optional, sonst DejaVu
 
 Bei der Querformat-Ausgabe liegt `top-left` im linken schwarzen Balken, oberhalb des Chats. Die Uhrzeit wird bei jeder Änderung von Position/Größe/Sekunden einmalig mit dem Output neu aufgebaut; der laufende Minutenwechsel selbst braucht keinen Neustart.
 
-Zusätzlich wird oben rechts standardmäßig die App-Version als `v0.6.0` eingeblendet. Abschalten:
+Zusätzlich wird oben rechts standardmäßig die App-Version als `v0.7.0` eingeblendet. Abschalten:
 
 ```dotenv
 VERSION_OVERLAY_ENABLED=false
@@ -272,6 +301,7 @@ Eine eigene `data/cookies.txt` (Netscape-Format, z. B. per Browser-Export) funkt
 - **Bearbeiten**: Werte ändern; ein leeres Key-Feld behält den gespeicherten Key. „Gespeicherten Key entfernen“ löscht ihn.
 - **Löschen**: nur möglich, wenn der Streamer nicht gerade aktiv ist.
 - **Online-Status**: Die Streamer-Karten und Senderkacheln zeigen LIVE/offline/unbekannt für alle aktivierten Streamer. „Status prüfen“ startet eine sofortige Hintergrundprüfung.
+- **Eigener Stream**: Streamer mit `own_stream` nutzen beim Umschalten ihren eigenen YouTube-Key und öffnen damit einen separaten Stream. Der Titel wird im „Jetzt läuft“-Bereich als kopierbare Vorschau angezeigt.
 - **Starten**: löst den Stream auf und startet ffmpeg. Ist der Streamer offline, wird im Watch-Modus weiter gepollt.
 - **Senderleiste**: Über die Tabs wird die gewünschte Senderliste ausgewählt. „Playlist starten“ startet den ersten bzw. aktuellen Sender dieser Liste. „Vorheriger“/„Nächster“ wechseln sofort, ein Klick auf eine Senderkachel schaltet direkt um. Endet ein Stream oder ist der Sender offline, wird automatisch der nächste erreichbare Sender derselben Liste gestartet.
 - **Senderliste bearbeiten**: ID, Name, Reihenfolge, Auto-Weiter, Wrap-around, Verzögerung, automatisches Ende (Dauer oder Uhrzeit) und optional ein gemeinsamer YouTube-Key. Über „+ Senderliste“ lassen sich weitere Listen anlegen; Löschen entfernt nur die Liste, nicht die Streamer.

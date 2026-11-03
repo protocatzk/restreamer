@@ -12,6 +12,7 @@ streamers:
     video_mode: copy      # copy | reencode
     auto_start: false     # beim Containerstart automatisch starten
     enabled: true
+    own_stream: false     # eigener Key auch bei gemeinsamem Playlist-Key
 
   - id: bob
     name: Bob

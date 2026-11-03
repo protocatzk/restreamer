@@ -36,6 +36,7 @@ from app.resolver import ResolveError, Resolver
 from app.settings import Settings
 from app.source_rate import DEFAULT_WINDOW_SECONDS, SourceRateMonitor
 from app.store import StreamerStore
+from app.titles import render_title
 from app.version import build_version_filter
 
 logger = logging.getLogger(__name__)
@@ -296,6 +297,7 @@ class Supervisor:
             "source_min_rate_percent": self.settings.source_min_rate_percent,
             "source_slow_count": self._source_slow_count,
             "title": self._title,
+            "youtube_title": self._youtube_title(),
             "last_error": self._last_error,
             "log_file": str(self._log_path) if self._log_path else None,
             "config_error": self.store.error,
@@ -383,12 +385,18 @@ class Supervisor:
             and self._playlist_id == playlist.id
             and self._active_id is not None
         )
+        shared_key_value = self._configured_key(
+            playlist.youtube_key, playlist.youtube_key_env
+        )
         channels: list[dict] = []
         for number, channel_id in enumerate(playlist.channels, start=1):
             cfg = self.store.get(channel_id)
             if cfg is None:
                 continue
             key_source = self._key_source(cfg.youtube_key, cfg.youtube_key_env)
+            own_key_value = self._configured_key(
+                cfg.youtube_key, cfg.youtube_key_env
+            )
             online = self._online_view(cfg)
             channels.append(
                 {
@@ -398,6 +406,12 @@ class Supervisor:
                     "number": number,
                     "enabled": cfg.enabled,
                     "key_configured": key_source != "missing",
+                    "own_stream": cfg.own_stream,
+                    "own_stream_conflicts": bool(
+                        cfg.own_stream
+                        and shared_key_value
+                        and own_key_value == shared_key_value
+                    ),
                     "active": cfg.id == self._active_id,
                     "offline": mode_active and cfg.id in self._offline_cycle,
                     "online": online["online"],
@@ -444,6 +458,14 @@ class Supervisor:
         }
 
     @staticmethod
+    def _configured_key(key: str, env_name: str) -> str:
+        if key.strip():
+            return key.strip()
+        if env_name:
+            return os.getenv(env_name, "").strip()
+        return ""
+
+    @staticmethod
     def _key_source(key: str, env_name: str) -> str:
         if key.strip():
             return "config"
@@ -460,6 +482,7 @@ class Supervisor:
             "enabled": cfg.enabled,
             "auto_start": cfg.auto_start,
             "video_mode": cfg.video_mode,
+            "own_stream": cfg.own_stream,
             "youtube_key_env": cfg.youtube_key_env,
             "key_configured": key_source != "missing",
             "key_source": key_source,
@@ -489,6 +512,19 @@ class Supervisor:
                 "online_checking": False,
             }
         return self._online.view(cfg.id)
+
+    def _youtube_title(self) -> str:
+        if not self._title or self._active_id is None:
+            return ""
+        streamer = self.store.get(self._active_id)
+        if streamer is None:
+            return ""
+        return render_title(
+            self.settings.youtube_title_template,
+            name=streamer.name,
+            tiktok=streamer.tiktok,
+            title=self._title,
+        )
 
     def tail_log(self, streamer_id: str, count: int = 200) -> list[str]:
         if streamer_id == self._active_id:
@@ -1241,6 +1277,8 @@ class Supervisor:
     def _channel_can_output(
         self, cfg: StreamerConfig, playlist: PlaylistConfig
     ) -> bool:
+        if cfg.own_stream:
+            return self._key_source(cfg.youtube_key, cfg.youtube_key_env) != "missing"
         if self._shared_output_configured(playlist):
             return self._shared_output_available(playlist)
         return self._key_source(cfg.youtube_key, cfg.youtube_key_env) != "missing"
@@ -1365,6 +1403,7 @@ class Supervisor:
 
                 if not stream.is_live:
                     self._current_stream = None
+                    self._title = ""
                     self._last_error = "Streamer ist offline"
                     self._record("[Restreamer] Streamer ist offline")
                     self._set_state(StreamState.OFFLINE)
@@ -2030,6 +2069,11 @@ class Supervisor:
         playlist: PlaylistConfig | None = None,
     ) -> str:
         mode = self._playlist_mode if playlist_mode is None else playlist_mode
+        if streamer.own_stream:
+            # A marked streamer always uses its own YouTube key, even inside a
+            # playlist with a shared key. The key change makes the supervisor
+            # rebuild the output and YouTube opens a separate stream.
+            return self._youtube_key(streamer)
         if playlist is None and mode and self._playlist_id:
             playlist = self.store.playlist(self._playlist_id)
         if mode and playlist is not None and (

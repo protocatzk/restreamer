@@ -101,6 +101,10 @@ def test_index_page(settings, streamers_file) -> None:
         assert 'name="online_check_timeout_seconds"' in response.text
         assert 'id="online-check-btn"' in response.text
         assert 'id="online-count"' in response.text
+        assert 'name="own_stream"' in response.text
+        assert 'name="youtube_title_template"' in response.text
+        assert 'id="now-title-row"' in response.text
+        assert 'id="copy-title-btn"' in response.text
 
 
 def test_chat_settings_are_exposed(settings, streamers_file) -> None:
@@ -193,6 +197,7 @@ def test_create_update_delete_streamer(settings, streamers_file) -> None:
             "youtube_key": "top-secret-key",
             "video_mode": "copy",
             "enabled": True,
+            "own_stream": True,
         }
         created = client.post("/api/streamers", json=payload)
         assert created.status_code == 201
@@ -202,6 +207,7 @@ def test_create_update_delete_streamer(settings, streamers_file) -> None:
         carol = next(item for item in status["streamers"] if item["id"] == "carol")
         assert carol["key_source"] == "config"
         assert carol["key_configured"] is True
+        assert carol["own_stream"] is True
         assert "top-secret-key" not in str(status)
 
         updated = client.put(
@@ -213,6 +219,7 @@ def test_create_update_delete_streamer(settings, streamers_file) -> None:
                 "youtube_key": "",
                 "video_mode": "reencode",
                 "enabled": True,
+                "own_stream": False,
             },
         )
         assert updated.status_code == 200
@@ -221,6 +228,7 @@ def test_create_update_delete_streamer(settings, streamers_file) -> None:
         assert streamers["carol"].name == "Carol neu"
         assert streamers["carol"].youtube_key == "top-secret-key"
         assert streamers["carol"].video_mode == "reencode"
+        assert streamers["carol"].own_stream is False
 
         duplicate = client.post("/api/streamers", json=payload)
         assert duplicate.status_code == 409
@@ -265,6 +273,7 @@ def test_update_settings(tmp_path, settings, streamers_file) -> None:
                 "online_check_enabled": False,
                 "online_check_interval_seconds": 90,
                 "online_check_timeout_seconds": 25,
+                "youtube_title_template": "@{tiktok} live: {title}",
             },
         )
         assert response.status_code == 200
@@ -277,6 +286,7 @@ def test_update_settings(tmp_path, settings, streamers_file) -> None:
         assert payload["online_check_enabled"] is False
         assert payload["online_check_interval_seconds"] == 90
         assert payload["online_check_timeout_seconds"] == 25
+        assert payload["youtube_title_template"] == "@{tiktok} live: {title}"
         assert "session-abc" not in response.text
         assert settings.offline_poll_seconds == 30
         assert settings.output_orientation == "landscape"

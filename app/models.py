@@ -24,6 +24,7 @@ class StreamerConfig:
     video_mode: str = "copy"
     auto_start: bool = False
     enabled: bool = True
+    own_stream: bool = False
     ytdlp_args: tuple[str, ...] = ()
     ffmpeg_args: tuple[str, ...] = ()
 
