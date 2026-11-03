@@ -42,6 +42,51 @@ def test_index_page(settings, streamers_file) -> None:
         assert 'id="channel-strip"' in response.text
         assert 'id="quick-add-form"' in response.text
         assert 'id="quick-playlist"' in response.text
+        assert 'name="chat_enabled"' in response.text
+        assert 'name="chat_source_url"' in response.text
+        assert 'name="chat_source_api_key"' in response.text
+        assert 'id="chat-key-hint"' in response.text
+        assert 'name="clock_enabled"' in response.text
+        assert 'name="clock_position"' in response.text
+        assert 'name="clock_show_seconds"' in response.text
+        assert 'name="version_overlay_enabled"' in response.text
+
+
+def test_chat_settings_are_exposed(settings, streamers_file) -> None:
+    app = create_app(replace(settings, streamers_file=streamers_file))
+
+    with TestClient(app) as client:
+        payload = client.get("/api/settings").json()
+
+    assert payload["chat_enabled"] is False
+    assert payload["chat_source_url"] == ""
+    assert payload["chat_source_api_key_set"] is False
+    assert payload["chat_poll_seconds"] == 5
+    assert payload["clock_enabled"] is False
+    assert payload["clock_position"] == "top-left"
+    assert payload["version_overlay_enabled"] is True
+
+
+def test_chat_api_key_can_be_cleared(settings, streamers_file, tmp_path) -> None:
+    app = create_app(
+        replace(
+            settings,
+            streamers_file=streamers_file,
+            runtime_file=tmp_path / "settings.yml",
+            offline_poll_seconds=60,
+            chat_source_api_key="secret-chat-key",
+        )
+    )
+
+    with TestClient(app) as client:
+        assert client.get("/api/settings").json()["chat_source_api_key_set"] is True
+
+        response = client.put(
+            "/api/settings", json={"clear_chat_source_api_key": True}
+        )
+
+        assert response.status_code == 200
+        assert response.json()["chat_source_api_key_set"] is False
 
 
 def test_basic_auth(settings, streamers_file) -> None:

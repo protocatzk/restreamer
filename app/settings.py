@@ -26,15 +26,26 @@ INT_FIELDS = {
     "source_min_rate_percent",
     "output_fps",
     "output_stretch_percent",
+    "chat_poll_seconds",
+    "chat_delay_seconds",
+    "chat_overlay_max_messages",
+    "chat_overlay_max_age_seconds",
+    "chat_overlay_font_size",
+    "chat_overlay_width",
+    "clock_font_size",
 }
 BOOL_FIELDS = {
     "youtube_backup",
     "auto_start",
     "auto_reencode_fallback",
     "pause_screen_enabled",
+    "chat_enabled",
+    "clock_enabled",
+    "clock_show_seconds",
+    "version_overlay_enabled",
 }
 TUPLE_FIELDS = {"ytdlp_extra_args"}
-SECRET_FIELDS = {"dashboard_password", "tiktok_session_id"}
+SECRET_FIELDS = {"dashboard_password", "tiktok_session_id", "chat_source_api_key"}
 STRING_FIELDS = {
     "dashboard_password",
     "tiktok_session_id",
@@ -50,6 +61,12 @@ STRING_FIELDS = {
     "pause_screen_background",
     "pause_screen_font",
     "output_orientation",
+    "chat_source_url",
+    "chat_source_api_key",
+    "chat_overlay_position",
+    "chat_overlay_font",
+    "clock_position",
+    "clock_font",
 }
 EDITABLE_FIELDS = INT_FIELDS | BOOL_FIELDS | TUPLE_FIELDS | STRING_FIELDS
 
@@ -68,6 +85,8 @@ BITRATE_PATTERN = re.compile(r"^\d+(?:\.\d+)?[kKmM]?$")
 COLOR_PATTERN = re.compile(r"^(?:#|0x|0X)?[0-9a-fA-F]{6}$")
 PAUSE_SCREEN_TEXT_MAX_LENGTH = 120
 PAUSE_SCREEN_SUBTEXT_MAX_LENGTH = 160
+CHAT_OVERLAY_POSITIONS = ("bottom-left", "bottom-right", "top-left", "top-right")
+CLOCK_POSITIONS = ("top-left", "top-right", "bottom-left", "bottom-right")
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -173,6 +192,27 @@ class Settings:
     pause_screen_font: str = ""
     pause_screen_max_minutes: int = 0
 
+    # Optional chat overlay fed by an external HTTP/JSON source.
+    chat_enabled: bool = False
+    chat_source_url: str = ""
+    chat_source_api_key: str = ""
+    chat_poll_seconds: int = 5
+    chat_delay_seconds: int = -1
+    chat_overlay_max_messages: int = 6
+    chat_overlay_max_age_seconds: int = 25
+    chat_overlay_font_size: int = 0
+    chat_overlay_width: int = 320
+    chat_overlay_position: str = "bottom-left"
+    chat_overlay_font: str = ""
+
+    # Optional wall-clock overlay rendered directly by ffmpeg.
+    clock_enabled: bool = False
+    clock_position: str = "top-left"
+    clock_show_seconds: bool = False
+    clock_font_size: int = 0
+    clock_font: str = ""
+    version_overlay_enabled: bool = True
+
     resolve_timeout_seconds: int = 90
     terminate_timeout_seconds: int = 10
     log_buffer_lines: int = 500
@@ -229,6 +269,27 @@ class Settings:
             pause_screen_background=os.getenv("PAUSE_SCREEN_BACKGROUND", "101418"),
             pause_screen_font=os.getenv("PAUSE_SCREEN_FONT", ""),
             pause_screen_max_minutes=_env_int("PAUSE_SCREEN_MAX_MINUTES", 0),
+            chat_enabled=_env_bool("CHAT_ENABLED", False),
+            chat_source_url=os.getenv("CHAT_SOURCE_URL", ""),
+            chat_source_api_key=os.getenv("CHAT_SOURCE_API_KEY", ""),
+            chat_poll_seconds=_env_int("CHAT_POLL_SECONDS", 5),
+            chat_delay_seconds=_env_int("CHAT_DELAY_SECONDS", -1),
+            chat_overlay_max_messages=_env_int("CHAT_OVERLAY_MAX_MESSAGES", 6),
+            chat_overlay_max_age_seconds=_env_int(
+                "CHAT_OVERLAY_MAX_AGE_SECONDS", 25
+            ),
+            chat_overlay_font_size=_env_int("CHAT_OVERLAY_FONT_SIZE", 0),
+            chat_overlay_width=_env_int("CHAT_OVERLAY_WIDTH", 320),
+            chat_overlay_position=os.getenv(
+                "CHAT_OVERLAY_POSITION", "bottom-left"
+            ).strip().lower(),
+            chat_overlay_font=os.getenv("CHAT_OVERLAY_FONT", ""),
+            clock_enabled=_env_bool("CLOCK_ENABLED", False),
+            clock_position=os.getenv("CLOCK_POSITION", "top-left").strip().lower(),
+            clock_show_seconds=_env_bool("CLOCK_SHOW_SECONDS", False),
+            clock_font_size=_env_int("CLOCK_FONT_SIZE", 0),
+            clock_font=os.getenv("CLOCK_FONT", ""),
+            version_overlay_enabled=_env_bool("VERSION_OVERLAY_ENABLED", True),
             resolve_timeout_seconds=_env_int("RESOLVE_TIMEOUT_SECONDS", 90),
             terminate_timeout_seconds=_env_int("TERMINATE_TIMEOUT_SECONDS", 10),
             log_buffer_lines=_env_int("LOG_BUFFER_LINES", 500),
@@ -358,6 +419,48 @@ class Settings:
         if not 0 <= self.output_stretch_percent <= 50:
             raise ValueError(
                 "output_stretch_percent muss zwischen 0 und 50 liegen"
+            )
+        if self.chat_source_url and not self.chat_source_url.startswith(
+            ("http://", "https://")
+        ):
+            raise ValueError(
+                "chat_source_url muss mit http:// oder https:// beginnen"
+            )
+        if not 2 <= self.chat_poll_seconds <= 60:
+            raise ValueError("chat_poll_seconds muss zwischen 2 und 60 liegen")
+        if not -1 <= self.chat_delay_seconds <= 120:
+            raise ValueError(
+                "chat_delay_seconds muss zwischen -1 und 120 liegen"
+            )
+        if not 1 <= self.chat_overlay_max_messages <= 12:
+            raise ValueError(
+                "chat_overlay_max_messages muss zwischen 1 und 12 liegen"
+            )
+        if not 5 <= self.chat_overlay_max_age_seconds <= 120:
+            raise ValueError(
+                "chat_overlay_max_age_seconds muss zwischen 5 und 120 liegen"
+            )
+        if not 0 <= self.chat_overlay_font_size <= 200:
+            raise ValueError(
+                "chat_overlay_font_size muss zwischen 0 und 200 liegen"
+            )
+        if not 0 <= self.chat_overlay_width <= 1000:
+            raise ValueError(
+                "chat_overlay_width muss zwischen 0 und 1000 liegen"
+            )
+        if self.clock_position not in CLOCK_POSITIONS:
+            raise ValueError(
+                "clock_position muss einer von "
+                + ", ".join(CLOCK_POSITIONS)
+                + " sein"
+            )
+        if not 0 <= self.clock_font_size <= 200:
+            raise ValueError("clock_font_size muss zwischen 0 und 200 liegen")
+        if self.chat_overlay_position not in CHAT_OVERLAY_POSITIONS:
+            raise ValueError(
+                "chat_overlay_position muss einer von "
+                + ", ".join(CHAT_OVERLAY_POSITIONS)
+                + " sein"
             )
 
     def save_runtime(self) -> None:

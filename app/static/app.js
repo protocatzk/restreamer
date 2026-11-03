@@ -511,6 +511,15 @@ function renderStreamers(status) {
         badge(`Quell-Neustarts: ${status.source_slow_count}`, "warn")
       );
     }
+    if (streamer.active && status.chat?.enabled) {
+      const chat = status.chat;
+      badges.append(
+        badge(
+          chat.connected ? "Chat aktiv" : "Chat: nicht verbunden",
+          chat.connected ? "ok" : "warn"
+        )
+      );
+    }
     card.append(badges);
 
     const actions = document.createElement("div");
@@ -1142,6 +1151,9 @@ function populateSettings(settings) {
   $("password-hint").textContent = settings.dashboard_password_set
     ? "Ein Passwort ist gesetzt. Leer lassen, um es zu behalten."
     : "Aktuell ist kein Passwort gesetzt.";
+  $("chat-key-hint").textContent = settings.chat_source_api_key_set
+    ? "Ein API-Key ist gespeichert. Leer lassen, um ihn zu behalten."
+    : "Noch kein API-Key gespeichert.";
   $("path-streamers").textContent = settings.streamers_file;
   $("path-settings").textContent = settings.settings_file;
   $("path-cookies").textContent = `${settings.cookies_file}${

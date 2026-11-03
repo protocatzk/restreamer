@@ -13,6 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from app import __version__
+from app.chat import ensure_chat_overlay_file
 from app.cookies import write_tiktok_cookies
 from app.delay_buffer import DelayBuffer
 from app.resolver import Resolver
@@ -91,6 +92,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         logger.info("Restreamer %s startet", __version__)
         if store.error:
             logger.warning("Konfigurationsfehler: %s", store.error)
+
+        try:
+            ensure_chat_overlay_file(settings)
+        except OSError:
+            logger.warning(
+                "Chat-Overlay-Datei konnte nicht angelegt werden", exc_info=True
+            )
 
         if write_tiktok_cookies(
             settings.cookies_file,
@@ -179,6 +187,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         clear_password = bool(payload.pop("clear_dashboard_password", False))
         clear_session = bool(payload.pop("clear_tiktok_session", False))
+        clear_chat_key = bool(payload.pop("clear_chat_source_api_key", False))
 
         updates = dict(payload)
         for field in SECRET_FIELDS:
@@ -188,6 +197,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             updates["dashboard_password"] = ""
         if clear_session:
             updates["tiktok_session_id"] = ""
+        if clear_chat_key:
+            updates["chat_source_api_key"] = ""
 
         try:
             candidate = settings.updated(updates)
@@ -201,7 +212,28 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             or candidate.output_fps != settings.output_fps
             or candidate.output_stretch_percent
             != settings.output_stretch_percent
+            or candidate.chat_enabled != settings.chat_enabled
+            or candidate.chat_overlay_position
+            != settings.chat_overlay_position
+            or candidate.chat_overlay_font_size
+            != settings.chat_overlay_font_size
+            or candidate.chat_overlay_width != settings.chat_overlay_width
+            or candidate.chat_overlay_font != settings.chat_overlay_font
+            or candidate.clock_enabled != settings.clock_enabled
+            or candidate.clock_position != settings.clock_position
+            or candidate.clock_show_seconds != settings.clock_show_seconds
+            or candidate.clock_font_size != settings.clock_font_size
+            or candidate.clock_font != settings.clock_font
+            or candidate.version_overlay_enabled
+            != settings.version_overlay_enabled
         )
+
+        try:
+            ensure_chat_overlay_file(candidate)
+        except OSError:
+            logger.warning(
+                "Chat-Overlay-Datei konnte nicht angelegt werden", exc_info=True
+            )
 
         try:
             candidate.save_runtime()

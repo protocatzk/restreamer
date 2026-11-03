@@ -175,3 +175,103 @@ def test_write_tiktok_cookies(tmp_path: Path) -> None:
     assert (path.stat().st_mode & 0o777) == 0o600
 
     assert write_tiktok_cookies(path, "") is False
+
+
+def test_chat_defaults_are_present(tmp_path: Path) -> None:
+    settings = Settings(runtime_file=tmp_path / "settings.yml")
+    data = settings.to_public_dict()
+
+    assert data["chat_enabled"] is False
+    assert data["chat_source_url"] == ""
+    assert data["chat_source_api_key_set"] is False
+    assert data["chat_poll_seconds"] == 5
+    assert data["chat_delay_seconds"] == -1
+    assert data["chat_overlay_max_messages"] == 6
+    assert data["chat_overlay_max_age_seconds"] == 25
+    assert data["chat_overlay_width"] == 320
+    assert data["chat_overlay_position"] == "bottom-left"
+
+
+def test_chat_values_are_validated(tmp_path: Path) -> None:
+    settings = Settings(runtime_file=tmp_path / "settings.yml")
+
+    with pytest.raises(ValueError, match="chat_source_url"):
+        settings.updated({"chat_source_url": "ftp://example.invalid/chat"})
+    with pytest.raises(ValueError, match="chat_poll_seconds"):
+        settings.updated({"chat_poll_seconds": 1})
+    with pytest.raises(ValueError, match="chat_delay_seconds"):
+        settings.updated({"chat_delay_seconds": 121})
+    with pytest.raises(ValueError, match="chat_overlay_max_messages"):
+        settings.updated({"chat_overlay_max_messages": 13})
+    with pytest.raises(ValueError, match="chat_overlay_max_age_seconds"):
+        settings.updated({"chat_overlay_max_age_seconds": 4})
+    with pytest.raises(ValueError, match="chat_overlay_font_size"):
+        settings.updated({"chat_overlay_font_size": 201})
+    with pytest.raises(ValueError, match="chat_overlay_width"):
+        settings.updated({"chat_overlay_width": 1001})
+    with pytest.raises(ValueError, match="chat_overlay_position"):
+        settings.updated({"chat_overlay_position": "middle"})
+
+    updated = settings.updated(
+        {
+            "chat_enabled": True,
+            "chat_source_url": "https://toktracker.cc/api/chat-logs",
+            "chat_source_api_key": "secret-key",
+            "chat_poll_seconds": 10,
+            "chat_overlay_position": "top-right",
+        }
+    )
+    assert updated.chat_enabled is True
+    assert updated.chat_source_url == "https://toktracker.cc/api/chat-logs"
+    assert updated.chat_source_api_key == "secret-key"
+    assert updated.chat_poll_seconds == 10
+    assert updated.chat_overlay_width == 320
+    assert updated.chat_overlay_position == "top-right"
+
+
+def test_chat_api_key_is_masked(tmp_path: Path) -> None:
+    settings = Settings(
+        runtime_file=tmp_path / "settings.yml",
+        chat_source_api_key="super-secret-chat-key",
+    )
+
+    serialized = json.dumps(settings.to_public_dict())
+
+    assert "super-secret-chat-key" not in serialized
+    assert settings.to_public_dict()["chat_source_api_key_set"] is True
+
+
+def test_clock_defaults_are_present(tmp_path: Path) -> None:
+    settings = Settings(runtime_file=tmp_path / "settings.yml")
+    data = settings.to_public_dict()
+
+    assert data["clock_enabled"] is False
+    assert data["clock_position"] == "top-left"
+    assert data["clock_show_seconds"] is False
+    assert data["clock_font_size"] == 0
+    assert data["clock_font"] == ""
+    assert data["version_overlay_enabled"] is True
+
+
+def test_clock_values_are_validated(tmp_path: Path) -> None:
+    settings = Settings(runtime_file=tmp_path / "settings.yml")
+
+    with pytest.raises(ValueError, match="clock_position"):
+        settings.updated({"clock_position": "middle"})
+    with pytest.raises(ValueError, match="clock_font_size"):
+        settings.updated({"clock_font_size": 201})
+
+    updated = settings.updated(
+        {
+            "clock_enabled": True,
+            "clock_position": "top-right",
+            "clock_show_seconds": True,
+            "clock_font_size": 28,
+            "clock_font": "/tmp/font.ttf",
+        }
+    )
+    assert updated.clock_enabled is True
+    assert updated.clock_position == "top-right"
+    assert updated.clock_show_seconds is True
+    assert updated.clock_font_size == 28
+    assert updated.clock_font == "/tmp/font.ttf"

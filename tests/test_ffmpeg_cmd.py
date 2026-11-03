@@ -120,6 +120,17 @@ def test_output_landscape_canvas(settings: Settings) -> None:
     assert "fps=25" in video_filter
 
 
+def test_output_appends_extra_video_filters(settings: Settings) -> None:
+    args = build_output_command(
+        settings,
+        "key-123",
+        extra_video_filters=("drawtext=text='hi':reload=1",),
+    )
+
+    video_filter = args[args.index("-vf") + 1]
+    assert video_filter.endswith(",drawtext=text='hi':reload=1")
+
+
 def test_output_uses_settings_bitrate_and_double_bufsize(
     settings: Settings,
 ) -> None:

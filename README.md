@@ -23,12 +23,14 @@ Restream einzelner TikTok-Live-Streamer auf YouTube – aufgelöst mit **yt-dlp*
 - **Stall-Watchdog**: 30 s ohne Fortschritt → Quelle wird neu gestartet, Pausenscreen überbrückt, RTMP bleibt bestehen
 - Offline-Polling, Reconnect-Backoff 5 s → 5 min, Watch-Modus
 - **Pausenscreen**: Bei Stream-Ende/Offline wird automatisch ein generierter Pausenscreen (Text + stille Audiospur) in denselben YouTube-Stream eingespielt, bis der Streamer zurück ist
+- **Optionales Chat-Overlay**: liest eine HTTP-JSON-Chatquelle (z. B. TokTracker `/api/chat-logs`), verzögert die Nachrichten um den Relay-Delay und rendert sie per `drawtext` im laufenden Output – ohne zusätzlichen Encoder
+- **Optionales Uhrzeit-Overlay**: aktuelle Uhrzeit (HH:MM oder HH:MM:SS) an einer frei wählbaren Ecke, direkt von ffmpeg gerendert; optional mit Versionsanzeige oben rechts
 - **Mehrere Senderlisten (Playlists)**: Streamer in festen Reihenfolgen wie TV-Sender durchschalten – automatisch bei Stream-Ende/Offline oder manuell per Vor/Zurück
 - **Automatisches Playlist-Ende**: Senderliste nach einer Dauer oder täglich zu einer festen Uhrzeit beenden
 - **Gemeinsame oder eigene YouTube-Ausgabe**: optional ein Key pro Senderliste, sonst behält jeder Streamer seinen eigenen
 - Web-Dashboard mit Status, Ist-Bitrate, Start/Stop/Switch, umschaltbaren Senderlisten und Log-Tail
 - Streamer komplett im Dashboard anlegen, bearbeiten und löschen – inkl. Schnell-Anlegen per Handle/URL (einzeln oder als Liste)
-- Alle Einstellungen und Secrets (YouTube-Keys, TikTok-Cookie, Passwort) im Dashboard pflegen
+- Alle Einstellungen und Secrets (YouTube-Keys, TikTok-Cookie, Passwort, Chat-API-Key) im Dashboard pflegen
 - TikTok-Cookie wird beim Start aus `TIKTOK_SESSION_ID` oder den Dashboard-Einstellungen erzeugt
 - Docker-Compose, Healthcheck, non-root, nur an `127.0.0.1` gebunden
 - Tests und CI (ruff + pytest + Docker-Build)
@@ -170,6 +172,8 @@ Alle Optionen sind in [`.env.example`](.env.example) dokumentiert.
 - Offline-Poll, Backoff, **Auto-Refresh-Intervall**, **Stall-Timeout**, **Watchdog-Intervall**
 - Auto-Start, Reencode-Fallback
 - **Pausenscreen**: Ein/Aus, Texte, Hintergrundfarbe, Schriftdatei und Maximaldauer
+- **Chat-Overlay**: Ein/Aus, HTTP-JSON-Quelle, API-Key, Poll-Intervall, Position, Schriftgröße, Chatbreite und maximale Nachrichtenzahl
+- **Uhrzeit-Overlay**: Ein/Aus, Position, Sekunden, Schriftgröße und Schriftdatei; zusätzlich Versionsanzeige oben rechts
 - **Ausgabeformat**: 720p Hochformat (720×1280) oder Querformat (1280×720). Beim Umschalten im laufenden Betrieb wird nur der YouTube-Output kurz neu aufgebaut; die TikTok-Quelle läuft weiter.
 - ffmpeg Log-Level, Ausgabe-FPS (Default 25), horizontale Streckung (Default 10 %), Audio-/Video-Bitrate (Default 5000k/192k; Änderungen bauen den Ausgabe-Encoder automatisch neu auf)
 - Delay-Puffer (`RELAY_DELAY_SECONDS`, 0–60 s; 0 = aus)
@@ -179,6 +183,60 @@ Alle Optionen sind in [`.env.example`](.env.example) dokumentiert.
 - Binärpfade, Timeouts, Log-Puffer, yt-dlp-Extra-Argumente
 
 Secrets werden nie im Klartext an den Browser zurückgegeben; die API meldet nur, ob ein Wert gesetzt ist. Leere Passwort-/Cookie-Felder bedeuten „unverändert“. Zum Entfernen gibt es eigene Checkboxen.
+
+### Chat-Overlay (optional)
+
+Der Chat kann aus einer beliebigen HTTP-JSON-Quelle eingeblendet werden. Der Restreamer kennt TokTracker nicht direkt: Er pollt nur die konfigurierte URL und erwartet eine Antwort wie:
+
+```json
+{
+  "messages": [
+    {
+      "id": 502089,
+      "username": "karlchentv7",
+      "nickname": "Karlchen TV",
+      "comment": "Hallo!",
+      "streamer_username": "supergirl0584",
+      "created_at": "2026-11-02 15:30:22"
+    }
+  ]
+}
+```
+
+Abfrageparameter: `after_id`, `limit` und `order_dir=ASC`. Ein API-Key wird optional als `X-API-Key`-Header gesendet. Der TokTracker-Endpoint `/api/chat-logs` erfüllt diesen Vertrag direkt:
+
+```dotenv
+CHAT_ENABLED=true
+CHAT_SOURCE_URL=https://toktracker.cc/api/chat-logs
+CHAT_SOURCE_API_KEY=<TIKTOK_API_KEY aus TokTracker>
+CHAT_POLL_SECONDS=5
+```
+
+Das Overlay läuft im bestehenden Output-ffmpeg (`drawtext` mit `reload=1`), braucht also keinen zusätzlichen Encoder. Nachrichten werden um `CHAT_DELAY_SECONDS` verzögert; `-1` übernimmt automatisch `RELAY_DELAY_SECONDS`, damit der Chat zum 30-Sekunden-delayten Bild passt. Bei Senderwechsel oder Pausenscreen wird der alte Chat erst nach demselben Delay ausgeblendet.
+
+Mit `CHAT_OVERLAY_WIDTH` lässt sich der Chat auf eine feste Breite begrenzen. Bei einer 9:16-Quelle in der Querformat-Ausgabe (1280×720) bleibt links ein schwarzer Balken von ca. 387 px; mit `CHAT_OVERLAY_WIDTH=320` und Schriftgröße 20 bleibt der Chat komplett in diesem Balken. Der Umbruch wird in Python berechnet, `drawtext` zeichnet nur die fertigen Zeilen.
+
+Wenn die Chatquelle nicht erreichbar ist, läuft der Stream normal weiter – es wird nur kein Chat angezeigt. Aktivierung, Position und Schriftgröße können im Dashboard gepflegt werden; Änderungen daran bauen den YouTube-Output einmal kurz neu auf.
+
+### Uhrzeit-Overlay
+
+Optional kann die aktuelle Uhrzeit im Stream angezeigt werden. Das erledigt ffmpeg direkt über `drawtext` mit `%{localtime}` – ohne zusätzliche Datei und ohne Neustart pro Minute:
+
+```dotenv
+CLOCK_ENABLED=true
+CLOCK_POSITION=top-left      # top-left | top-right | bottom-left | bottom-right
+CLOCK_SHOW_SECONDS=false     # true = HH:MM:SS, false = HH:MM
+CLOCK_FONT_SIZE=0            # 0 = automatisch
+CLOCK_FONT=                 # optional, sonst DejaVu
+```
+
+Bei der Querformat-Ausgabe liegt `top-left` im linken schwarzen Balken, oberhalb des Chats. Die Uhrzeit wird bei jeder Änderung von Position/Größe/Sekunden einmalig mit dem Output neu aufgebaut; der laufende Minutenwechsel selbst braucht keinen Neustart.
+
+Zusätzlich wird oben rechts standardmäßig die App-Version als `v0.5.0` eingeblendet. Abschalten:
+
+```dotenv
+VERSION_OVERLAY_ENABLED=false
+```
 
 ### YouTube-Key
 

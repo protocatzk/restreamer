@@ -11,6 +11,12 @@ from contextlib import suppress
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from app.chat import (
+    ChatWorker,
+    build_overlay_filter,
+    ensure_chat_overlay_file,
+)
+from app.clock import build_clock_filter
 from app.delay_buffer import DelayBuffer
 from app.ffmpeg_cmd import (
     bitrate_to_kbps,
@@ -29,6 +35,7 @@ from app.resolver import ResolveError, Resolver
 from app.settings import Settings
 from app.source_rate import DEFAULT_WINDOW_SECONDS, SourceRateMonitor
 from app.store import StreamerStore
+from app.version import build_version_filter
 
 logger = logging.getLogger(__name__)
 
@@ -199,6 +206,11 @@ class Supervisor:
         self._pause_since: str | None = None
         self._pause_retry_monotonic = 0.0
 
+        self._chat: ChatWorker | None = None
+        self._chat_filter_warned = False
+        self._clock_filter_warned = False
+        self._version_filter_warned = False
+
         self._playlist_mode = False
         self._playlist_id: str | None = None
         self._offline_cycle: set[str] = set()
@@ -288,6 +300,19 @@ class Supervisor:
             "last_restart_reason": self._last_restart_reason,
             "pause_active": self._pause_running(),
             "pause_since": self._pause_since,
+            "chat": (
+                self._chat.status()
+                if self._chat is not None
+                else {
+                    "enabled": bool(self.settings.chat_enabled),
+                    "streamer": None,
+                    "connected": False,
+                    "messages": 0,
+                    "last_message_at": None,
+                    "error": "",
+                    "source": "",
+                }
+            ),
             "progress_age_seconds": progress_age,
             "source_progress_age_seconds": source_progress_age,
             "progress_out_time_seconds": (
@@ -514,6 +539,10 @@ class Supervisor:
             self._reset_progress()
             self._log.clear()
             self._open_log_file(streamer.id)
+            self._chat_filter_warned = False
+            self._clock_filter_warned = False
+            self._version_filter_warned = False
+            self._start_chat(streamer)
 
             self._output_task = asyncio.create_task(
                 self._output_loop(key), name=f"youtube-output-{streamer.id}"
@@ -755,6 +784,7 @@ class Supervisor:
         await self._cancel_playlist_end()
         task = self._task
         if task is None:
+            await self._stop_chat()
             await self._stop_pause()
             await self._stop_output()
             self._reset_session()
@@ -785,6 +815,7 @@ class Supervisor:
 
         self._task = None
         self._proc = None
+        await self._stop_chat()
         await self._stop_pause()
         await self._stop_output()
         self._reset_session()
@@ -828,6 +859,27 @@ class Supervisor:
         self._close_log_file()
         self._set_state(StreamState.IDLE)
 
+    def _start_chat(self, streamer: StreamerConfig) -> None:
+        try:
+            ensure_chat_overlay_file(self.settings)
+        except OSError as exc:
+            self._record(f"[Chat] Overlay-Datei nicht anlegbar: {exc}")
+        try:
+            self._chat = ChatWorker(self.settings, log=self._record)
+        except Exception as exc:  # noqa: BLE001 - chat is optional
+            self._chat = None
+            self._record(f"[Chat] Chatquelle nicht initialisierbar: {exc}")
+            return
+        self._chat.set_streamer(streamer.tiktok)
+        self._chat.start()
+
+    async def _stop_chat(self) -> None:
+        chat = self._chat
+        self._chat = None
+        if chat is not None:
+            with suppress(Exception):
+                await chat.stop()
+
     def _activate_channel(self, streamer: StreamerConfig, key: str) -> None:
         """Switch the worker to another channel without restarting the task."""
         self._active_id = streamer.id
@@ -848,6 +900,8 @@ class Supervisor:
         self._reset_progress()
         self._log.clear()
         self._open_log_file(streamer.id)
+        if self._chat is not None:
+            self._chat.set_streamer(streamer.tiktok)
 
     def _reset_progress(self) -> None:
         self._last_progress_monotonic = None
@@ -898,9 +952,42 @@ class Supervisor:
         """Keep one YouTube RTMP connection alive across source changes."""
         backoff = self.settings.backoff_initial_seconds
         while not self._stop_event.is_set():
+            video_filters: list[str] = []
+            chat_filter = build_overlay_filter(self.settings)
+            if chat_filter is not None:
+                video_filters.append(chat_filter)
+            elif self.settings.chat_enabled and not self._chat_filter_warned:
+                self._chat_filter_warned = True
+                self._record(
+                    "[Chat] Keine Schrift oder Overlay-Datei gefunden – "
+                    "Chat-Overlay deaktiviert"
+                )
+            clock_filter = build_clock_filter(self.settings)
+            if clock_filter is not None:
+                video_filters.append(clock_filter)
+            elif self.settings.clock_enabled and not self._clock_filter_warned:
+                self._clock_filter_warned = True
+                self._record(
+                    "[Clock] Keine Schrift gefunden – Uhrzeit deaktiviert"
+                )
+            version_filter = build_version_filter(self.settings)
+            if version_filter is not None:
+                video_filters.append(version_filter)
+            elif (
+                self.settings.version_overlay_enabled
+                and not self._version_filter_warned
+            ):
+                self._version_filter_warned = True
+                self._record(
+                    "[Version] Keine Schrift gefunden – "
+                    "Versionsanzeige deaktiviert"
+                )
             try:
                 args = build_output_command(
-                    self.settings, key, self._output_args
+                    self.settings,
+                    key,
+                    self._output_args,
+                    extra_video_filters=tuple(video_filters),
                 )
             except ValueError as exc:
                 self._output_error = self._redact(str(exc))
@@ -1070,6 +1157,9 @@ class Supervisor:
                 "[Restreamer] Ausgabeformat oder Bitrate geändert – "
                 "YouTube-Ausgang wird für kurze Zeit neu aufgebaut"
             )
+            self._chat_filter_warned = False
+            self._clock_filter_warned = False
+            self._version_filter_warned = False
             pause_was_running = self._pause_running()
             if pause_was_running:
                 await self._stop_pause()
@@ -1424,6 +1514,8 @@ class Supervisor:
             self._set_state(StreamState.ERROR)
         finally:
             with suppress(asyncio.CancelledError):
+                await self._stop_chat()
+            with suppress(asyncio.CancelledError):
                 await self._stop_pause()
             with suppress(asyncio.CancelledError):
                 await self._stop_output()
@@ -1534,6 +1626,8 @@ class Supervisor:
             self._pump_logs(process, prefix="[pause] ")
         )
         self._record(f"[Restreamer] Pausenscreen aktiv ({reason})")
+        if self._chat is not None:
+            self._chat.pause()
 
         if find_pause_font(self.settings.pause_screen_font) is None:
             self._record(
