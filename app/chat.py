@@ -101,11 +101,12 @@ class ChatMessage:
 
     @property
     def display_name(self) -> str:
-        nickname = _clean_text(self.nickname)
-        if nickname:
-            return nickname
+        # Prefer the unique handle over the (non-unique) display name so the
+        # overlay always shows who actually wrote the message.
         username = _clean_text(self.username)
-        return f"@{username}" if username else "?"
+        if username:
+            return f"@{username}"
+        return _clean_text(self.nickname) or "?"
 
 
 class ChatSource(Protocol):

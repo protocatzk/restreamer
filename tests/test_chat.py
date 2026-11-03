@@ -87,6 +87,23 @@ def test_parse_accepts_bare_list_and_text_alias() -> None:
     assert messages[0].text == "hi"
 
 
+def test_display_name_prefers_username_over_nickname() -> None:
+    message = ChatMessage(
+        cursor="1",
+        username="karlchentv7",
+        text="Hallo!",
+        nickname="Karlchen TV",
+    )
+
+    assert message.display_name == "@karlchentv7"
+
+
+def test_display_name_falls_back_to_nickname() -> None:
+    message = ChatMessage(cursor="1", username="", text="Hallo!", nickname="Karlchen TV")
+
+    assert message.display_name == "Karlchen TV"
+
+
 def test_normalize_handle() -> None:
     assert normalize_handle("@Alice") == "alice"
     assert normalize_handle("https://www.tiktok.com/@Alice/live") == "alice"
