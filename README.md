@@ -22,6 +22,7 @@ Restream einzelner TikTok-Live-Streamer auf YouTube – aufgelöst mit **yt-dlp*
 - **Auto-Refresh** alle 20 Minuten (einstellbar) mit vorab aufgelöster URL – startet nur die Quelle neu, der YouTube-Stream bleibt verbunden
 - **Stall-Watchdog**: 30 s ohne Fortschritt → Quelle wird neu gestartet, Pausenscreen überbrückt, RTMP bleibt bestehen
 - Offline-Polling, Reconnect-Backoff 5 s → 5 min, Watch-Modus
+- **Online-Status aller Streamer im Dashboard**: Hintergrundprüfung per yt-dlp, LIVE/offline auch ohne aktiven Stream, einstellbares Intervall und „Status prüfen“-Button
 - **Pausenscreen**: Bei Stream-Ende/Offline wird automatisch ein generierter Pausenscreen (Text + stille Audiospur) in denselben YouTube-Stream eingespielt, bis der Streamer zurück ist
 - **Optionales Chat-Overlay**: liest eine HTTP-JSON-Chatquelle (z. B. TokTracker `/api/chat-logs`), verzögert die Nachrichten um den Relay-Delay und rendert sie per `drawtext` im laufenden Output – ohne zusätzlichen Encoder
 - **Optionales Uhrzeit-Overlay**: aktuelle Uhrzeit (HH:MM oder HH:MM:SS) an einer frei wählbaren Ecke, direkt von ffmpeg gerendert; optional mit Versionsanzeige oben rechts
@@ -157,6 +158,9 @@ SOURCE_MIN_RATE_PERCENT=85   # Auto-Neustart unter dieser Quellrate, 0 = aus
 OUTPUT_ORIENTATION=portrait  # portrait (720x1280) | landscape (1280x720)
 OUTPUT_FPS=25
 OUTPUT_STRETCH_PERCENT=10  # horizontale Streckung des Bildes in 16:9
+ONLINE_CHECK_ENABLED=true  # Live-Status aller Streamer im Dashboard
+ONLINE_CHECK_INTERVAL_SECONDS=60
+ONLINE_CHECK_TIMEOUT_SECONDS=20
 ```
 
 Alle Optionen sind in [`.env.example`](.env.example) dokumentiert.
@@ -170,6 +174,7 @@ Alle Optionen sind in [`.env.example`](.env.example) dokumentiert.
 - TikTok-Session-ID und Target IDC (Cookie wird sofort neu geschrieben)
 - YouTube-RTMP-URL und Backup-RTMP
 - Offline-Poll, Backoff, **Auto-Refresh-Intervall**, **Stall-Timeout**, **Watchdog-Intervall**
+- **Online-Status**: Ein/Aus, Prüfintervall und Timeout; der Live-Status wird für alle aktivierten Streamer im Hintergrund per yt-dlp geprüft
 - Auto-Start, Reencode-Fallback
 - **Pausenscreen**: Ein/Aus, Texte, Hintergrundfarbe, Schriftdatei und Maximaldauer
 - **Chat-Overlay**: Ein/Aus, HTTP-JSON-Quelle, API-Key, Poll-Intervall, Position, Schriftgröße, Chatbreite und maximale Nachrichtenzahl
@@ -183,6 +188,18 @@ Alle Optionen sind in [`.env.example`](.env.example) dokumentiert.
 - Binärpfade, Timeouts, Log-Puffer, yt-dlp-Extra-Argumente
 
 Secrets werden nie im Klartext an den Browser zurückgegeben; die API meldet nur, ob ein Wert gesetzt ist. Leere Passwort-/Cookie-Felder bedeuten „unverändert“. Zum Entfernen gibt es eigene Checkboxen.
+
+### Online-Status
+
+Im Dashboard zeigt jede Streamer-Karte und jede Senderkachel, ob der Streamer gerade live ist. Dafür prüft der Restreamer alle aktivierten Streamer im Hintergrund per `yt-dlp --simulate --print is_live` – ohne den laufenden Stream zu beeinflussen. Der aktive Sender wird nicht zusätzlich geprüft, sondern aus dem Supervisor-Status bewertet. Über **Status prüfen** lässt sich eine Prüfung sofort auslösen.
+
+```dotenv
+ONLINE_CHECK_ENABLED=true
+ONLINE_CHECK_INTERVAL_SECONDS=60
+ONLINE_CHECK_TIMEOUT_SECONDS=20
+```
+
+Die Prüfung läuft mit maximal drei parallelen yt-dlp-Aufrufen. Bei einem Fehler (z. B. abgelaufenem Cookie) zeigt das Dashboard „unbekannt“ und im Karten-Tooltip die Fehlermeldung; der Restream läuft unabhängig davon weiter.
 
 ### Chat-Overlay (optional)
 
@@ -232,7 +249,7 @@ CLOCK_FONT=                 # optional, sonst DejaVu
 
 Bei der Querformat-Ausgabe liegt `top-left` im linken schwarzen Balken, oberhalb des Chats. Die Uhrzeit wird bei jeder Änderung von Position/Größe/Sekunden einmalig mit dem Output neu aufgebaut; der laufende Minutenwechsel selbst braucht keinen Neustart.
 
-Zusätzlich wird oben rechts standardmäßig die App-Version als `v0.5.1` eingeblendet. Abschalten:
+Zusätzlich wird oben rechts standardmäßig die App-Version als `v0.6.0` eingeblendet. Abschalten:
 
 ```dotenv
 VERSION_OVERLAY_ENABLED=false
@@ -254,6 +271,7 @@ Eine eigene `data/cookies.txt` (Netscape-Format, z. B. per Browser-Export) funkt
 - **+ Streamer**: ID, Name, TikTok-Handle und YouTube-Key eintragen; optional Key-Env-Name, Video-Modus und Zusatzargumente.
 - **Bearbeiten**: Werte ändern; ein leeres Key-Feld behält den gespeicherten Key. „Gespeicherten Key entfernen“ löscht ihn.
 - **Löschen**: nur möglich, wenn der Streamer nicht gerade aktiv ist.
+- **Online-Status**: Die Streamer-Karten und Senderkacheln zeigen LIVE/offline/unbekannt für alle aktivierten Streamer. „Status prüfen“ startet eine sofortige Hintergrundprüfung.
 - **Starten**: löst den Stream auf und startet ffmpeg. Ist der Streamer offline, wird im Watch-Modus weiter gepollt.
 - **Senderleiste**: Über die Tabs wird die gewünschte Senderliste ausgewählt. „Playlist starten“ startet den ersten bzw. aktuellen Sender dieser Liste. „Vorheriger“/„Nächster“ wechseln sofort, ein Klick auf eine Senderkachel schaltet direkt um. Endet ein Stream oder ist der Sender offline, wird automatisch der nächste erreichbare Sender derselben Liste gestartet.
 - **Senderliste bearbeiten**: ID, Name, Reihenfolge, Auto-Weiter, Wrap-around, Verzögerung, automatisches Ende (Dauer oder Uhrzeit) und optional ein gemeinsamer YouTube-Key. Über „+ Senderliste“ lassen sich weitere Listen anlegen; Löschen entfernt nur die Liste, nicht die Streamer.
@@ -269,7 +287,8 @@ Eine eigene `data/cookies.txt` (Netscape-Format, z. B. per Browser-Export) funkt
 | Methode | Pfad | Beschreibung |
 | :--- | :--- | :--- |
 | `GET` | `/healthz` | Healthcheck (ohne Auth) |
-| `GET` | `/api/status` | Status + Senderliste + Streamerliste |
+| `GET` | `/api/status` | Status + Senderliste + Streamerliste inkl. Online-Status |
+| `POST` | `/api/online/check` | Online-Prüfung sofort auslösen |
 | `GET` | `/api/settings` | Einstellungen (Secrets maskiert) |
 | `PUT` | `/api/settings` | Einstellungen speichern |
 | `POST` | `/api/streamers` | Streamer anlegen |

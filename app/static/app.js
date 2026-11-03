@@ -82,6 +82,27 @@ function renderStatus(status) {
   $("active-state").textContent = STATE_LABELS[state] || state;
   $("active-pid").textContent = status.pid ? String(status.pid) : "–";
   $("active-sessions").textContent = String(status.sessions || 0);
+
+  const streamers = status.streamers || [];
+  const liveCount = streamers.filter((streamer) => streamer.online === true).length;
+  const onlineCheck = status.online_check || {};
+  const onlineCount = $("online-count");
+  onlineCount.textContent = onlineCheck.enabled === false
+    ? "aus"
+    : streamers.length
+      ? `${liveCount} / ${streamers.length}`
+      : "–";
+  onlineCount.className = liveCount ? "live-text" : "";
+  onlineCount.title = onlineCheck.enabled === false
+    ? "Online-Prüfung ist in den Einstellungen deaktiviert."
+    : "Zuletzt geprüft: " + (onlineCheck.last_run_at || "noch nicht");
+
+  const checkButton = $("online-check-btn");
+  checkButton.disabled = onlineCheck.enabled === false;
+  checkButton.title = onlineCheck.enabled === false
+    ? "Online-Prüfung ist in den Einstellungen deaktiviert."
+    : "Online-Status aller Streamer sofort prüfen";
+
   $("cookies-state").textContent = status.cookies_configured ? "vorhanden" : "fehlen";
   const progressAge = status.progress_age_seconds;
   const speed = status.progress_speed;
@@ -159,6 +180,30 @@ function formatDurationMinutes(minutes) {
   return formatRemaining(Math.max(0, Number(minutes) || 0) * 60);
 }
 
+function formatCheckedAt(value) {
+  if (!value) return "";
+  const parsed = Date.parse(value);
+  if (Number.isNaN(parsed)) return "";
+  const seconds = Math.max(0, Math.round((Date.now() - parsed) / 1000));
+  if (seconds < 60) return `vor ${seconds} s`;
+  if (seconds < 3600) return `vor ${Math.floor(seconds / 60)} min`;
+  return `vor ${Math.floor(seconds / 3600)} h`;
+}
+
+function streamerOnlineLabel(streamer) {
+  if (streamer.online === true) return "LIVE";
+  if (streamer.online === false) return "offline";
+  if (streamer.online_checking) return "prüfe …";
+  return "unbekannt";
+}
+
+function streamerOnlineKind(streamer) {
+  if (streamer.online === true) return "live";
+  if (streamer.online === false) return "offline";
+  if (streamer.online_checking) return "resolving";
+  return "idle";
+}
+
 function renderPlaylistTabs(playlists, status) {
   const tabs = $("playlist-tabs");
   tabs.replaceChildren();
@@ -173,6 +218,9 @@ function renderPlaylistTabs(playlists, status) {
 
   const state = status.state || "idle";
   for (const playlist of playlists) {
+    const liveCount = (playlist.channels || []).filter(
+      (channel) => channel.online === true
+    ).length;
     const tab = document.createElement("button");
     tab.type = "button";
     tab.className = `playlist-tab${
@@ -184,7 +232,7 @@ function renderPlaylistTabs(playlists, status) {
 
     const dot = document.createElement("span");
     dot.className = `dot ${
-      playlist.mode_active ? state : "offline"
+      playlist.mode_active ? state : liveCount ? "online" : "offline"
     }`;
 
     const name = document.createElement("span");
@@ -193,6 +241,7 @@ function renderPlaylistTabs(playlists, status) {
     const count = document.createElement("span");
     count.className = "count";
     count.textContent = String(playlist.total);
+    if (liveCount) count.title = `${liveCount} Streamer live`;
 
     tab.append(dot, name, count);
     tab.addEventListener("click", () => {
@@ -280,12 +329,16 @@ function renderPlaylist(status) {
     strip.append(empty);
   } else {
     for (const channel of channels) {
+      const onlineLabel = streamerOnlineLabel(channel);
+      const onlineKind = streamerOnlineKind(channel);
+      const dimmed =
+        channel.offline || (!channel.active && channel.online === false);
       const tile = document.createElement("button");
       tile.type = "button";
       tile.className = [
         "channel",
         channel.active ? "active" : "",
-        channel.offline ? "offline" : "",
+        dimmed ? "offline" : "",
         channel.enabled ? "" : "disabled",
       ]
         .filter(Boolean)
@@ -293,7 +346,7 @@ function renderPlaylist(status) {
       tile.disabled = !channel.enabled;
       tile.title = channel.active
         ? `Aktiver Sender: ${channel.name}`
-        : `Auf ${channel.name} umschalten`;
+        : `Auf ${channel.name} umschalten · ${onlineLabel}`;
 
       const number = document.createElement("span");
       number.className = "channel-num";
@@ -308,7 +361,7 @@ function renderPlaylist(status) {
       text.append(name, handle);
 
       const dot = document.createElement("span");
-      dot.className = `dot ${channel.active ? state : "offline"}`;
+      dot.className = `dot ${channel.active ? state : onlineKind}`;
 
       tile.append(number, text, dot);
       tile.addEventListener("click", () => playlistTune(playlist.id, channel));
@@ -468,12 +521,36 @@ function renderStreamers(status) {
     handle.textContent = `@${streamer.tiktok}`;
     title.append(name, handle);
 
-    const currentState = streamer.active ? status.state : "idle";
-    head.append(title, badge(STATE_LABELS[currentState] || currentState, currentState));
+    let headBadge;
+    if (streamer.active) {
+      const currentState = status.state;
+      headBadge = badge(
+        STATE_LABELS[currentState] || currentState,
+        currentState
+      );
+      headBadge.title = "Status des laufenden Streams";
+    } else {
+      headBadge = badge(
+        streamerOnlineLabel(streamer),
+        streamerOnlineKind(streamer)
+      );
+      const details = [];
+      const checked = formatCheckedAt(streamer.online_checked_at);
+      if (checked) details.push(`Zuletzt geprüft ${checked}`);
+      if (streamer.online_error) details.push(`Fehler: ${streamer.online_error}`);
+      if (status.online_check?.enabled === false) {
+        details.push("Online-Prüfung ist aus");
+      }
+      headBadge.title = details.join(" · ");
+    }
+    head.append(title, headBadge);
     card.append(head);
 
     const badges = document.createElement("div");
     badges.className = "badges";
+    if (!streamer.active && streamer.online_checking) {
+      badges.append(badge("wird geprüft", "resolving"));
+    }
     if (channelNumbers.has(streamer.id)) {
       badges.append(
         badge(`Kanal ${channelNumbers.get(streamer.id).join(", ")}`, "ok")
@@ -1267,6 +1344,16 @@ async function refreshLog() {
 // ------------------------------------------------------------------- Wiring
 
 $("add-streamer-btn").addEventListener("click", () => openStreamerDialog());
+$("online-check-btn").addEventListener("click", async () => {
+  setBanner("");
+  try {
+    await api("/api/online/check", { method: "POST", body: "{}" });
+    setBanner("Online-Status wird geprüft …", "ok");
+    await refreshStatus();
+  } catch (error) {
+    setBanner(error.message, "error");
+  }
+});
 $("settings-btn").addEventListener("click", openSettingsDialog);
 $("playlist-new-btn").addEventListener("click", () => openPlaylistDialog(null));
 $("playlist-edit-btn").addEventListener("click", () =>
