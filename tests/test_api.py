@@ -96,6 +96,10 @@ def test_index_page(settings, streamers_file) -> None:
         assert 'name="clock_position"' in response.text
         assert 'name="clock_show_seconds"' in response.text
         assert 'name="version_overlay_enabled"' in response.text
+        assert 'name="text_overlay_enabled"' in response.text
+        assert 'name="text_overlay_text"' in response.text
+        assert 'name="text_overlay_position"' in response.text
+        assert 'name="text_overlay_speed"' in response.text
         assert 'name="online_check_enabled"' in response.text
         assert 'name="online_check_interval_seconds"' in response.text
         assert 'name="online_check_timeout_seconds"' in response.text
@@ -120,6 +124,10 @@ def test_chat_settings_are_exposed(settings, streamers_file) -> None:
     assert payload["clock_enabled"] is False
     assert payload["clock_position"] == "top-left"
     assert payload["version_overlay_enabled"] is True
+    assert payload["text_overlay_enabled"] is False
+    assert payload["text_overlay_text"] == ""
+    assert payload["text_overlay_position"] == "bottom"
+    assert payload["text_overlay_speed"] == 100
 
 
 def test_chat_api_key_can_be_cleared(settings, streamers_file, tmp_path) -> None:

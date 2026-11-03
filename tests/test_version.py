@@ -25,7 +25,7 @@ def test_version_filter_renders_top_right(tmp_path: Path) -> None:
 
     assert filter_value is not None
     assert "drawtext=" in filter_value
-    assert "text='v0.7.0'" in filter_value
+    assert "text='v0.8.0'" in filter_value
     assert "expansion=none" in filter_value
     assert "fontsize=28" in filter_value
     assert "x=w-text_w-42" in filter_value

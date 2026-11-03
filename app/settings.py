@@ -33,6 +33,8 @@ INT_FIELDS = {
     "chat_overlay_font_size",
     "chat_overlay_width",
     "clock_font_size",
+    "text_overlay_font_size",
+    "text_overlay_speed",
     "online_check_interval_seconds",
     "online_check_timeout_seconds",
 }
@@ -43,6 +45,7 @@ BOOL_FIELDS = {
     "pause_screen_enabled",
     "chat_enabled",
     "clock_enabled",
+    "text_overlay_enabled",
     "clock_show_seconds",
     "version_overlay_enabled",
     "online_check_enabled",
@@ -70,6 +73,9 @@ STRING_FIELDS = {
     "chat_overlay_font",
     "clock_position",
     "clock_font",
+    "text_overlay_text",
+    "text_overlay_position",
+    "text_overlay_font",
     "youtube_title_template",
 }
 EDITABLE_FIELDS = INT_FIELDS | BOOL_FIELDS | TUPLE_FIELDS | STRING_FIELDS
@@ -92,6 +98,8 @@ PAUSE_SCREEN_SUBTEXT_MAX_LENGTH = 160
 YOUTUBE_TITLE_TEMPLATE_MAX_LENGTH = 200
 CHAT_OVERLAY_POSITIONS = ("bottom-left", "bottom-right", "top-left", "top-right")
 CLOCK_POSITIONS = ("top-left", "top-right", "bottom-left", "bottom-right")
+TEXT_OVERLAY_POSITIONS = ("top", "bottom")
+TEXT_OVERLAY_TEXT_MAX_LENGTH = 500
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -218,6 +226,15 @@ class Settings:
     clock_font: str = ""
     version_overlay_enabled: bool = True
 
+    # Optional free text line. Short text stays in place, long text scrolls
+    # horizontally like a ticker.
+    text_overlay_enabled: bool = False
+    text_overlay_text: str = ""
+    text_overlay_position: str = "bottom"
+    text_overlay_font_size: int = 0
+    text_overlay_font: str = ""
+    text_overlay_speed: int = 100
+
     # Dashboard-only live status for every configured streamer. Checks are
     # performed with yt-dlp in the background and never affect the restream.
     online_check_enabled: bool = True
@@ -306,6 +323,14 @@ class Settings:
             clock_font_size=_env_int("CLOCK_FONT_SIZE", 0),
             clock_font=os.getenv("CLOCK_FONT", ""),
             version_overlay_enabled=_env_bool("VERSION_OVERLAY_ENABLED", True),
+            text_overlay_enabled=_env_bool("TEXT_OVERLAY_ENABLED", False),
+            text_overlay_text=os.getenv("TEXT_OVERLAY_TEXT", ""),
+            text_overlay_position=os.getenv(
+                "TEXT_OVERLAY_POSITION", "bottom"
+            ).strip().lower(),
+            text_overlay_font_size=_env_int("TEXT_OVERLAY_FONT_SIZE", 0),
+            text_overlay_font=os.getenv("TEXT_OVERLAY_FONT", ""),
+            text_overlay_speed=_env_int("TEXT_OVERLAY_SPEED", 100),
             online_check_enabled=_env_bool("ONLINE_CHECK_ENABLED", True),
             online_check_interval_seconds=_env_int(
                 "ONLINE_CHECK_INTERVAL_SECONDS", 60
@@ -495,6 +520,25 @@ class Settings:
             )
         if not 0 <= self.clock_font_size <= 200:
             raise ValueError("clock_font_size muss zwischen 0 und 200 liegen")
+        if self.text_overlay_position not in TEXT_OVERLAY_POSITIONS:
+            raise ValueError(
+                "text_overlay_position muss einer von "
+                + ", ".join(TEXT_OVERLAY_POSITIONS)
+                + " sein"
+            )
+        if not 0 <= self.text_overlay_font_size <= 200:
+            raise ValueError(
+                "text_overlay_font_size muss zwischen 0 und 200 liegen"
+            )
+        if not 10 <= self.text_overlay_speed <= 1000:
+            raise ValueError(
+                "text_overlay_speed muss zwischen 10 und 1000 liegen"
+            )
+        if len(self.text_overlay_text) > TEXT_OVERLAY_TEXT_MAX_LENGTH:
+            raise ValueError(
+                "text_overlay_text darf höchstens "
+                f"{TEXT_OVERLAY_TEXT_MAX_LENGTH} Zeichen lang sein"
+            )
         if self.chat_overlay_position not in CHAT_OVERLAY_POSITIONS:
             raise ValueError(
                 "chat_overlay_position muss einer von "
