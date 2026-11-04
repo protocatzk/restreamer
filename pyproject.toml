@@ -1,6 +1,6 @@
 [project]
 name = "restreamer"
-version = "0.12.2"
+version = "0.12.3"
 description = "Restream individual TikTok Live streamers to YouTube via yt-dlp, a local MPEG-TS relay and a persistent ffmpeg output"
 requires-python = ">=3.11"
 
