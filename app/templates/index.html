@@ -70,6 +70,42 @@
 
     <section>
       <div class="section-head">
+        <h2>Einnahmen <span id="earnings-streamer" class="muted"></span></h2>
+        <div class="actions">
+          <button id="earnings-refresh-btn" class="btn ghost" type="button">Einnahmen aktualisieren</button>
+        </div>
+      </div>
+      <div class="summary">
+        <div>
+          <span class="label">Zeitraum</span>
+          <strong id="earnings-period">–</strong>
+        </div>
+        <div>
+          <span class="label">Netto</span>
+          <strong id="earnings-net">–</strong>
+        </div>
+        <div>
+          <span class="label">Brutto</span>
+          <strong id="earnings-gross">–</strong>
+        </div>
+        <div>
+          <span class="label">Coins</span>
+          <strong id="earnings-coins">–</strong>
+        </div>
+        <div>
+          <span class="label">Gifts</span>
+          <strong id="earnings-gifts">–</strong>
+        </div>
+        <div>
+          <span class="label">Gifter</span>
+          <strong id="earnings-gifters">–</strong>
+        </div>
+      </div>
+      <p id="earnings-meta" class="hint"></p>
+    </section>
+
+    <section>
+      <div class="section-head">
         <h2>Sender</h2>
         <div class="actions">
           <button id="playlist-new-btn" class="btn ghost" type="button">+ Senderliste</button>
@@ -461,6 +497,75 @@
             die Live-Status aller Streamer (z. B. TokTracker <code>/api/public/overview</code>).
             Fehlt ein Streamer oder ein Status in der Antwort, bleibt er „unbekannt“.
             Der gerade laufende Sender wird aus dem Stream-Status bewertet.</p>
+        </fieldset>
+
+        <fieldset>
+          <legend>Einnahmen</legend>
+          <div class="check-row">
+            <label class="check"><input type="checkbox" name="earnings_enabled"> Einnahmen für den laufenden Streamer anzeigen</label>
+            <label class="check"><input type="checkbox" name="earnings_overlay_enabled"> Einnahmen im Stream einblenden</label>
+          </div>
+          <div class="form-grid">
+            <label class="field">
+              <span>Einnahmenquelle (HTTP-JSON)</span>
+              <input name="earnings_source_url" placeholder="https://toktracker.cc/api/public/overview">
+              <small class="hint">Optional <code>{username}</code> für den Detail-Endpunkt einer Quelle.</small>
+            </label>
+            <label class="field">
+              <span>API-Key (optional)</span>
+              <input name="earnings_source_api_key" type="password" autocomplete="new-password"
+                     placeholder="leer lassen = unverändert">
+              <small id="earnings-key-hint" class="hint"></small>
+            </label>
+            <label class="field">
+              <span>Zeitraum</span>
+              <select name="earnings_period">
+                <option value="today">Heute</option>
+                <option value="24h">Letzte 24 Stunden</option>
+                <option value="7d">Letzte 7 Tage</option>
+                <option value="30d">Letzte 30 Tage</option>
+                <option value="all">Gesamt</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Aktualisierungsintervall (Sekunden)</span>
+              <input name="earnings_refresh_seconds" type="number" min="30" max="3600" step="1">
+            </label>
+            <label class="field">
+              <span>Timeout pro Abfrage (Sekunden)</span>
+              <input name="earnings_timeout_seconds" type="number" min="5" max="120" step="1">
+            </label>
+            <label class="field">
+              <span>Overlay-Text</span>
+              <input name="earnings_overlay_template"
+                     placeholder="{period}: {net} · Brutto {gross}">
+              <small class="hint">Platzhalter: {period}, {net}, {gross}, {coins}, {gifts}, {gifters}, {name}, {username}</small>
+            </label>
+            <label class="field">
+              <span>Overlay-Position</span>
+              <select name="earnings_overlay_position">
+                <option value="top-left">oben links</option>
+                <option value="top-right">oben rechts</option>
+                <option value="bottom-left">unten links</option>
+                <option value="bottom-right">unten rechts</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Overlay-Schriftgröße (0 = automatisch)</span>
+              <input name="earnings_overlay_font_size" type="number" min="0" max="200" step="1">
+            </label>
+            <label class="field">
+              <span>Overlay-Schriftdatei (optional)</span>
+              <input name="earnings_overlay_font" placeholder="leer = automatisch">
+            </label>
+          </div>
+          <div class="check-row">
+            <label class="check"><input type="checkbox" name="clear_earnings_source_api_key"> Einnahmen-API-Key entfernen</label>
+          </div>
+          <p class="hint">Die Quelle wird für den aktiven Streamer abgefragt und liefert
+            TokTracker-kompatible Einnahmen (z. B. <code>/api/public/overview</code>).
+            Ein Streamerwechsel löst sofort eine neue Abfrage aus. Das Overlay wird
+            wie der Chat per <code>drawtext</code> aktualisiert.</p>
         </fieldset>
 
         <fieldset>

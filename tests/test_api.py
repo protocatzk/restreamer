@@ -24,7 +24,42 @@ def test_health_and_status(settings, streamers_file) -> None:
         assert payload["config_error"] == ""
         assert payload["active"] is None
         assert payload["online_check"]["enabled"] is False
+        assert payload["earnings"]["enabled"] is False
+        assert payload["earnings"]["status"] == "unconfigured"
         assert all(item["online"] is None for item in payload["streamers"])
+
+
+def test_earnings_check_endpoint(settings, streamers_file) -> None:
+    app = create_app(replace(settings, streamers_file=streamers_file))
+
+    with TestClient(app) as client:
+        response = client.post("/api/earnings/check")
+        assert response.status_code == 200
+        assert response.json()["ok"] is True
+        assert response.json()["earnings"]["enabled"] is False
+
+
+def test_earnings_source_is_exposed_without_active_stream(
+    settings, streamers_file
+) -> None:
+    app = create_app(
+        replace(
+            settings,
+            streamers_file=streamers_file,
+            earnings_enabled=True,
+            earnings_source_url="https://example.test/earnings",
+            earnings_period="today",
+        )
+    )
+
+    with TestClient(app) as client:
+        payload = client.get("/api/status").json()["earnings"]
+
+    assert payload["configured"] is True
+    assert payload["enabled"] is True
+    assert payload["period_label"] == "Heute"
+    assert payload["status"] == "inactive"
+    assert payload["data"] is None
 
 
 def test_online_check_endpoint(settings, streamers_file) -> None:
@@ -112,6 +147,18 @@ def test_index_page(settings, streamers_file) -> None:
         assert 'name="online_check_timeout_seconds"' in response.text
         assert 'id="online-check-btn"' in response.text
         assert 'id="online-count"' in response.text
+        assert 'name="earnings_enabled"' in response.text
+        assert 'name="earnings_source_url"' in response.text
+        assert 'name="earnings_source_api_key"' in response.text
+        assert 'name="earnings_period"' in response.text
+        assert 'name="earnings_refresh_seconds"' in response.text
+        assert 'name="earnings_timeout_seconds"' in response.text
+        assert 'name="earnings_overlay_enabled"' in response.text
+        assert 'name="earnings_overlay_template"' in response.text
+        assert 'name="earnings_overlay_position"' in response.text
+        assert 'id="earnings-key-hint"' in response.text
+        assert 'id="earnings-refresh-btn"' in response.text
+        assert 'id="earnings-net"' in response.text
         assert 'name="own_stream"' in response.text
         assert 'name="youtube_title_template"' in response.text
         assert 'id="now-title-row"' in response.text
@@ -135,6 +182,39 @@ def test_chat_settings_are_exposed(settings, streamers_file) -> None:
     assert payload["text_overlay_text"] == ""
     assert payload["text_overlay_position"] == "bottom"
     assert payload["text_overlay_speed"] == 100
+    assert payload["earnings_enabled"] is True
+    assert payload["earnings_source_url"] == ""
+    assert payload["earnings_source_api_key_set"] is False
+    assert payload["earnings_period"] == "today"
+    assert payload["earnings_refresh_seconds"] == 300
+    assert payload["earnings_overlay_enabled"] is False
+
+
+def test_earnings_api_key_can_be_cleared(
+    settings, streamers_file, tmp_path
+) -> None:
+    app = create_app(
+        replace(
+            settings,
+            streamers_file=streamers_file,
+            runtime_file=tmp_path / "settings.yml",
+            offline_poll_seconds=60,
+            earnings_source_api_key="secret-earnings-key",
+        )
+    )
+
+    with TestClient(app) as client:
+        assert (
+            client.get("/api/settings").json()["earnings_source_api_key_set"]
+            is True
+        )
+
+        response = client.put(
+            "/api/settings", json={"clear_earnings_source_api_key": True}
+        )
+
+        assert response.status_code == 200
+        assert response.json()["earnings_source_api_key_set"] is False
 
 
 def test_chat_api_key_can_be_cleared(settings, streamers_file, tmp_path) -> None:
@@ -296,6 +376,15 @@ def test_update_settings(tmp_path, settings, streamers_file) -> None:
                     "https://toktracker.cc/api/public/overview"
                 ),
                 "online_source_api_key": "online-secret",
+                "earnings_source_url": (
+                    "https://toktracker.cc/api/public/overview"
+                ),
+                "earnings_source_api_key": "earnings-secret",
+                "earnings_period": "7d",
+                "earnings_refresh_seconds": 120,
+                "earnings_overlay_enabled": True,
+                "earnings_overlay_template": "{period}: {net}",
+                "earnings_overlay_position": "bottom-right",
                 "youtube_title_template": "@{tiktok} live: {title}",
             },
         )
@@ -314,9 +403,20 @@ def test_update_settings(tmp_path, settings, streamers_file) -> None:
             == "https://toktracker.cc/api/public/overview"
         )
         assert payload["online_source_api_key_set"] is True
+        assert (
+            payload["earnings_source_url"]
+            == "https://toktracker.cc/api/public/overview"
+        )
+        assert payload["earnings_source_api_key_set"] is True
+        assert payload["earnings_period"] == "7d"
+        assert payload["earnings_refresh_seconds"] == 120
+        assert payload["earnings_overlay_enabled"] is True
+        assert payload["earnings_overlay_template"] == "{period}: {net}"
+        assert payload["earnings_overlay_position"] == "bottom-right"
         assert payload["youtube_title_template"] == "@{tiktok} live: {title}"
         assert "session-abc" not in response.text
         assert "online-secret" not in response.text
+        assert "earnings-secret" not in response.text
         assert settings.offline_poll_seconds == 30
         assert settings.output_orientation == "landscape"
         assert runtime_file.exists()

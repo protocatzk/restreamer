@@ -37,6 +37,9 @@ INT_FIELDS = {
     "text_overlay_speed",
     "online_check_interval_seconds",
     "online_check_timeout_seconds",
+    "earnings_refresh_seconds",
+    "earnings_timeout_seconds",
+    "earnings_overlay_font_size",
 }
 BOOL_FIELDS = {
     "youtube_backup",
@@ -49,6 +52,8 @@ BOOL_FIELDS = {
     "clock_show_seconds",
     "version_overlay_enabled",
     "online_check_enabled",
+    "earnings_enabled",
+    "earnings_overlay_enabled",
 }
 TUPLE_FIELDS = {"ytdlp_extra_args"}
 SECRET_FIELDS = {
@@ -56,6 +61,7 @@ SECRET_FIELDS = {
     "tiktok_session_id",
     "chat_source_api_key",
     "online_source_api_key",
+    "earnings_source_api_key",
 }
 STRING_FIELDS = {
     "dashboard_password",
@@ -76,6 +82,12 @@ STRING_FIELDS = {
     "chat_source_api_key",
     "online_source_url",
     "online_source_api_key",
+    "earnings_source_url",
+    "earnings_source_api_key",
+    "earnings_period",
+    "earnings_overlay_template",
+    "earnings_overlay_position",
+    "earnings_overlay_font",
     "chat_overlay_position",
     "chat_overlay_font",
     "clock_position",
@@ -107,6 +119,14 @@ CHAT_OVERLAY_POSITIONS = ("bottom-left", "bottom-right", "top-left", "top-right"
 CLOCK_POSITIONS = ("top-left", "top-right", "bottom-left", "bottom-right")
 TEXT_OVERLAY_POSITIONS = ("top", "bottom")
 TEXT_OVERLAY_TEXT_MAX_LENGTH = 500
+EARNINGS_PERIODS = ("today", "24h", "7d", "30d", "all")
+EARNINGS_OVERLAY_POSITIONS = (
+    "top-left",
+    "top-right",
+    "bottom-left",
+    "bottom-right",
+)
+EARNINGS_TEMPLATE_MAX_LENGTH = 200
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -251,6 +271,22 @@ class Settings:
     online_source_url: str = ""
     online_source_api_key: str = ""
 
+    # Optional earnings display for the active streamer. The HTTP/JSON source
+    # follows the TokTracker overview/detail contract; other providers can
+    # expose the same shape. The optional overlay is rendered like the chat
+    # overlay via a text file and drawtext reload=1.
+    earnings_enabled: bool = True
+    earnings_source_url: str = ""
+    earnings_source_api_key: str = ""
+    earnings_period: str = "today"
+    earnings_refresh_seconds: int = 300
+    earnings_timeout_seconds: int = 20
+    earnings_overlay_enabled: bool = False
+    earnings_overlay_template: str = "{period}: {net} · Brutto {gross}"
+    earnings_overlay_position: str = "top-left"
+    earnings_overlay_font_size: int = 0
+    earnings_overlay_font: str = ""
+
     # Local title preview for YouTube Studio. YouTube's RTMP key cannot set a
     # broadcast title, so the rendered value is shown in the dashboard and can
     # be copied with one click.
@@ -350,6 +386,26 @@ class Settings:
             ),
             online_source_url=os.getenv("ONLINE_SOURCE_URL", ""),
             online_source_api_key=os.getenv("ONLINE_SOURCE_API_KEY", ""),
+            earnings_enabled=_env_bool("EARNINGS_ENABLED", True),
+            earnings_source_url=os.getenv("EARNINGS_SOURCE_URL", ""),
+            earnings_source_api_key=os.getenv("EARNINGS_SOURCE_API_KEY", ""),
+            earnings_period=os.getenv("EARNINGS_PERIOD", "today").strip().lower(),
+            earnings_refresh_seconds=_env_int("EARNINGS_REFRESH_SECONDS", 300),
+            earnings_timeout_seconds=_env_int("EARNINGS_TIMEOUT_SECONDS", 20),
+            earnings_overlay_enabled=_env_bool(
+                "EARNINGS_OVERLAY_ENABLED", False
+            ),
+            earnings_overlay_template=os.getenv(
+                "EARNINGS_OVERLAY_TEMPLATE",
+                "{period}: {net} · Brutto {gross}",
+            ),
+            earnings_overlay_position=os.getenv(
+                "EARNINGS_OVERLAY_POSITION", "top-left"
+            ).strip().lower(),
+            earnings_overlay_font_size=_env_int(
+                "EARNINGS_OVERLAY_FONT_SIZE", 0
+            ),
+            earnings_overlay_font=os.getenv("EARNINGS_OVERLAY_FONT", ""),
             youtube_title_template=os.getenv(
                 "YOUTUBE_TITLE_TEMPLATE", "{name} live: {title}"
             ),
@@ -530,6 +586,44 @@ class Settings:
         ):
             raise ValueError(
                 "online_source_url muss mit http:// oder https:// beginnen"
+            )
+        if self.earnings_source_url and not self.earnings_source_url.startswith(
+            ("http://", "https://")
+        ):
+            raise ValueError(
+                "earnings_source_url muss mit http:// oder https:// beginnen"
+            )
+        if self.earnings_period not in EARNINGS_PERIODS:
+            raise ValueError(
+                "earnings_period muss einer von "
+                + ", ".join(EARNINGS_PERIODS)
+                + " sein"
+            )
+        if not 30 <= self.earnings_refresh_seconds <= 3600:
+            raise ValueError(
+                "earnings_refresh_seconds muss zwischen 30 und 3600 liegen"
+            )
+        if not 5 <= self.earnings_timeout_seconds <= 120:
+            raise ValueError(
+                "earnings_timeout_seconds muss zwischen 5 und 120 liegen"
+            )
+        if self.earnings_overlay_position not in EARNINGS_OVERLAY_POSITIONS:
+            raise ValueError(
+                "earnings_overlay_position muss einer von "
+                + ", ".join(EARNINGS_OVERLAY_POSITIONS)
+                + " sein"
+            )
+        if not 0 <= self.earnings_overlay_font_size <= 200:
+            raise ValueError(
+                "earnings_overlay_font_size muss zwischen 0 und 200 liegen"
+            )
+        if (
+            len(self.earnings_overlay_template)
+            > EARNINGS_TEMPLATE_MAX_LENGTH
+        ):
+            raise ValueError(
+                "earnings_overlay_template darf höchstens "
+                f"{EARNINGS_TEMPLATE_MAX_LENGTH} Zeichen lang sein"
             )
         if len(self.youtube_title_template) > YOUTUBE_TITLE_TEMPLATE_MAX_LENGTH:
             raise ValueError(

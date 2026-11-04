@@ -8,6 +8,16 @@ const STATE_LABELS = {
   error: "Fehler",
 };
 
+const EARNINGS_STATUS_LABELS = {
+  ok: "aktuell",
+  checking: "prüfe …",
+  inactive: "kein aktiver Streamer",
+  missing: "keine Daten",
+  error: "Fehler",
+  disabled: "aus",
+  unconfigured: "nicht konfiguriert",
+};
+
 const SWITCH_REASONS = {
   "playlist-start": "Playlist gestartet",
   offline: "Sender offline",
@@ -85,6 +95,21 @@ async function copyText(text) {
   area.remove();
 }
 
+function formatMoney(value, currency) {
+  if (value == null) return "–";
+  return new Intl.NumberFormat("de-DE", {
+    style: "currency",
+    currency: currency || "EUR",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value);
+}
+
+function formatCount(value) {
+  if (value == null) return "–";
+  return new Intl.NumberFormat("de-DE").format(value);
+}
+
 function renderStatus(status) {
   app.status = status;
 
@@ -126,6 +151,77 @@ function renderStatus(status) {
     : onlineDisabled
       ? "Online-Prüfung ist in den Einstellungen deaktiviert."
       : "Online-Status aller Streamer sofort prüfen";
+
+  const earnings = status.earnings || {};
+  const earningsData = earnings.data || {};
+  const earningsStreamer = earnings.active_streamer;
+  $("earnings-streamer").textContent = earningsStreamer
+    ? `· ${earningsStreamer.name} (@${earningsStreamer.tiktok})`
+    : "";
+  $("earnings-period").textContent =
+    earnings.period_label || earnings.period || "–";
+  $("earnings-net").textContent = formatMoney(
+    earningsData.net,
+    earningsData.currency
+  );
+  $("earnings-gross").textContent = formatMoney(
+    earningsData.gross,
+    earningsData.currency
+  );
+  $("earnings-coins").textContent = formatCount(earningsData.coins);
+  $("earnings-gifts").textContent = formatCount(earningsData.gift_events);
+  $("earnings-gifters").textContent = formatCount(
+    earningsData.unique_gifters
+  );
+
+  const earningsMeta = $("earnings-meta");
+  const earningsStatus =
+    EARNINGS_STATUS_LABELS[earnings.status] || earnings.status || "";
+  const earningsDetails = [];
+  if (earnings.configured === false) {
+    earningsDetails.push("Keine Einnahmenquelle konfiguriert.");
+  } else if (earnings.enabled === false) {
+    earningsDetails.push("Einnahmen-Anzeige ist in den Einstellungen deaktiviert.");
+  } else if (earnings.status === "inactive") {
+    earningsDetails.push("Kein aktiver Streamer.");
+  } else if (earnings.missing) {
+    const handle = earningsStreamer ? `@${earningsStreamer.tiktok}` : "den Streamer";
+    earningsDetails.push(`Keine Einnahmen-Daten für ${handle} in der Quelle.`);
+  } else if (earnings.error) {
+    earningsDetails.push(`Fehler: ${earnings.error}`);
+  }
+  if (earningsData.session_net != null) {
+    earningsDetails.push(
+      `Session: ${formatMoney(
+        earningsData.session_net,
+        earningsData.session_currency
+      )}`
+    );
+  }
+  if (earnings.last_run_at) {
+    earningsDetails.push(`Zuletzt geprüft: ${earnings.last_run_at}`);
+  }
+  if (earnings.source) {
+    earningsDetails.push(`Quelle: ${earnings.source}`);
+  }
+  if (earningsStatus) earningsDetails.push(`Status: ${earningsStatus}`);
+  earningsMeta.textContent = earningsDetails.join(" · ");
+  earningsMeta.className = earnings.error ? "hint warn-text" : "hint";
+  earningsMeta.title = earnings.configured === false
+    ? "Einnahmenquelle in den Einstellungen eintragen."
+    : `Intervall: ${earnings.interval_seconds || "–"} s · Zeitraum: ${
+        earnings.period_label || earnings.period || "–"
+      }`;
+
+  const earningsButton = $("earnings-refresh-btn");
+  earningsButton.disabled =
+    earnings.configured === false || earnings.enabled === false;
+  earningsButton.title =
+    earnings.configured === false
+      ? "Keine Einnahmenquelle konfiguriert."
+      : earnings.enabled === false
+        ? "Einnahmen-Anzeige ist in den Einstellungen deaktiviert."
+        : "Einnahmen des aktiven Streamers sofort aktualisieren";
 
   $("cookies-state").textContent = status.cookies_configured ? "vorhanden" : "fehlen";
   const progressAge = status.progress_age_seconds;
@@ -1294,6 +1390,9 @@ function populateSettings(settings) {
   $("online-key-hint").textContent = settings.online_source_api_key_set
     ? "Ein API-Key ist gespeichert. Leer lassen, um ihn zu behalten."
     : "Noch kein API-Key gespeichert.";
+  $("earnings-key-hint").textContent = settings.earnings_source_api_key_set
+    ? "Ein API-Key ist gespeichert. Leer lassen, um ihn zu behalten."
+    : "Noch kein API-Key gespeichert.";
   $("path-streamers").textContent = settings.streamers_file;
   $("path-settings").textContent = settings.settings_file;
   $("path-cookies").textContent = `${settings.cookies_file}${
@@ -1412,6 +1511,16 @@ $("online-check-btn").addEventListener("click", async () => {
   try {
     await api("/api/online/check", { method: "POST", body: "{}" });
     setBanner("Online-Status wird geprüft …", "ok");
+    await refreshStatus();
+  } catch (error) {
+    setBanner(error.message, "error");
+  }
+});
+$("earnings-refresh-btn").addEventListener("click", async () => {
+  setBanner("");
+  try {
+    await api("/api/earnings/check", { method: "POST", body: "{}" });
+    setBanner("Einnahmen werden aktualisiert …", "ok");
     await refreshStatus();
   } catch (error) {
     setBanner(error.message, "error");
