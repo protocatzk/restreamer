@@ -418,6 +418,33 @@ def test_build_overlay_filter_uses_reload_and_textfile(tmp_path: Path) -> None:
     assert str(earnings_overlay_path(settings)) in filter_value
 
 
+def test_build_overlay_filter_uses_all_positions(tmp_path: Path) -> None:
+    font = tmp_path / "font.ttf"
+    font.write_bytes(b"fake-font")
+    expected = {
+        "top-left": ("x=24", "y=24"),
+        "top-right": ("x=w-text_w-24", "y=24"),
+        "bottom-left": ("x=24", "y=h-text_h-24"),
+        "bottom-right": ("x=w-text_w-24", "y=h-text_h-24"),
+    }
+
+    for position, (x, y) in expected.items():
+        settings = _settings(
+            tmp_path,
+            earnings_overlay_enabled=True,
+            earnings_overlay_font=str(font),
+            earnings_overlay_font_size=30,
+            earnings_overlay_position=position,
+        )
+        ensure_earnings_overlay_file(settings)
+
+        filter_value = build_overlay_filter(settings)
+
+        assert filter_value is not None
+        assert x in filter_value
+        assert y in filter_value
+
+
 def test_build_overlay_filter_is_disabled_by_default(tmp_path: Path) -> None:
     assert build_overlay_filter(_settings(tmp_path)) is None
 
@@ -600,5 +627,7 @@ def test_default_summary_reflects_settings(tmp_path: Path) -> None:
     assert summary["period_label"] == "Letzte 7 Tage"
     assert summary["interval_seconds"] == 120
     assert summary["overlay_enabled"] is True
+    assert summary["overlay_position"] == "top-left"
+    assert summary["overlay_font_size"] == 0
     assert summary["view"] == "standard"
     assert summary["status"] == "inactive"

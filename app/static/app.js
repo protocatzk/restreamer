@@ -18,6 +18,13 @@ const EARNINGS_STATUS_LABELS = {
   unconfigured: "nicht konfiguriert",
 };
 
+const EARNINGS_POSITION_LABELS = {
+  "top-left": "oben links",
+  "top-right": "oben rechts",
+  "bottom-left": "unten links",
+  "bottom-right": "unten rechts",
+};
+
 const SWITCH_REASONS = {
   "playlist-start": "Playlist gestartet",
   offline: "Sender offline",
@@ -280,6 +287,16 @@ function renderStatus(status) {
   }
   if (earnings.source) {
     earningsDetails.push(`Quelle: ${earnings.source}`);
+  }
+  if (earnings.overlay_enabled) {
+    const position =
+      EARNINGS_POSITION_LABELS[earnings.overlay_position] ||
+      earnings.overlay_position ||
+      "–";
+    const font = earnings.overlay_font_size
+      ? `${earnings.overlay_font_size} px`
+      : "auto";
+    earningsDetails.push(`Overlay: ${position} · ${font}`);
   }
   if (earningsStatus) earningsDetails.push(`Status: ${earningsStatus}`);
   earningsMeta.textContent = earningsDetails.join(" · ");

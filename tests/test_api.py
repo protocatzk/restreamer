@@ -38,6 +38,7 @@ def test_earnings_endpoints(settings, streamers_file) -> None:
         assert response.json()["ok"] is True
         assert response.json()["earnings"]["enabled"] is False
         assert response.json()["earnings"]["view"] == "standard"
+        assert response.json()["earnings"]["overlay_position"] == "top-left"
 
         check = client.post("/api/earnings/check")
         assert check.status_code == 200
