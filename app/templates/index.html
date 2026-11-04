@@ -569,11 +569,11 @@
               <span>Timeout pro Abfrage (Sekunden)</span>
               <input name="earnings_timeout_seconds" type="number" min="5" max="120" step="1">
             </label>
-            <label class="field">
-              <span>Overlay-Text</span>
-              <input name="earnings_overlay_template"
-                     placeholder="{period}: {net} · Brutto {gross}">
-              <small class="hint">Platzhalter: {period}, {net}, {gross}, {coins}, {gifts}, {gifters}, {session_net}, {session_gross}, {session_coins}, {viewers}, {followers}, {live}, {top_gift}, {top_gifter}, {display_name}, {last_seen}, {name}, {username}</small>
+            <label class="field wide">
+              <span>Overlay-Text (mehrzeilig möglich)</span>
+              <textarea name="earnings_overlay_template" rows="4" spellcheck="false"
+                        placeholder="{display_name} · {live} · {viewers} Zuschauer&#10;{period}: {net} netto · {gross} brutto&#10;{coins} Coins · {gifters} Gifter · {gifts} Gifts"></textarea>
+              <small class="hint">Eine Zeile pro Overlay-Zeile. Platzhalter: {period}, {net}, {gross}, {coins}, {gifts}, {gifters}, {session_net}, {session_gross}, {session_coins}, {viewers}, {followers}, {live}, {top_gift}, {top_gifter}, {display_name}, {last_seen}, {name}, {username}</small>
             </label>
             <label class="field">
               <span>Overlay-Position</span>

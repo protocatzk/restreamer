@@ -146,6 +146,10 @@ def test_earnings_values_are_validated(tmp_path: Path) -> None:
         settings.updated({"earnings_overlay_font_size": 201})
     with pytest.raises(ValueError, match="earnings_overlay_template"):
         settings.updated({"earnings_overlay_template": "x" * 201})
+    multiline = settings.updated(
+        {"earnings_overlay_template": "Zeile 1\nZeile 2"}
+    )
+    assert multiline.earnings_overlay_template == "Zeile 1\nZeile 2"
 
     updated = settings.updated(
         {

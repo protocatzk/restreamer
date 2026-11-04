@@ -162,6 +162,7 @@ def test_index_page(settings, streamers_file) -> None:
         assert 'name="earnings_timeout_seconds"' in response.text
         assert 'name="earnings_overlay_enabled"' in response.text
         assert 'name="earnings_overlay_template"' in response.text
+        assert '<textarea name="earnings_overlay_template"' in response.text
         assert 'name="earnings_overlay_position"' in response.text
         assert 'id="earnings-key-hint"' in response.text
         assert 'id="earnings-refresh-btn"' in response.text
