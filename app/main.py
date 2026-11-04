@@ -208,6 +208,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         online_monitor.request_check()
         return {"ok": True, "online_check": online_monitor.summary()}
 
+    @app.get("/api/earnings")
+    async def api_earnings():
+        return {"ok": True, "earnings": earnings_monitor.summary()}
+
     @app.post("/api/earnings/check")
     async def api_earnings_check():
         earnings_monitor.request_check()

@@ -85,6 +85,7 @@ STRING_FIELDS = {
     "earnings_source_url",
     "earnings_source_api_key",
     "earnings_period",
+    "earnings_view",
     "earnings_overlay_template",
     "earnings_overlay_position",
     "earnings_overlay_font",
@@ -120,6 +121,7 @@ CLOCK_POSITIONS = ("top-left", "top-right", "bottom-left", "bottom-right")
 TEXT_OVERLAY_POSITIONS = ("top", "bottom")
 TEXT_OVERLAY_TEXT_MAX_LENGTH = 500
 EARNINGS_PERIODS = ("today", "24h", "7d", "30d", "all")
+EARNINGS_VIEWS = ("compact", "standard", "detailed")
 EARNINGS_OVERLAY_POSITIONS = (
     "top-left",
     "top-right",
@@ -279,6 +281,7 @@ class Settings:
     earnings_source_url: str = ""
     earnings_source_api_key: str = ""
     earnings_period: str = "today"
+    earnings_view: str = "standard"
     earnings_refresh_seconds: int = 300
     earnings_timeout_seconds: int = 20
     earnings_overlay_enabled: bool = False
@@ -390,6 +393,7 @@ class Settings:
             earnings_source_url=os.getenv("EARNINGS_SOURCE_URL", ""),
             earnings_source_api_key=os.getenv("EARNINGS_SOURCE_API_KEY", ""),
             earnings_period=os.getenv("EARNINGS_PERIOD", "today").strip().lower(),
+            earnings_view=os.getenv("EARNINGS_VIEW", "standard").strip().lower(),
             earnings_refresh_seconds=_env_int("EARNINGS_REFRESH_SECONDS", 300),
             earnings_timeout_seconds=_env_int("EARNINGS_TIMEOUT_SECONDS", 20),
             earnings_overlay_enabled=_env_bool(
@@ -597,6 +601,12 @@ class Settings:
             raise ValueError(
                 "earnings_period muss einer von "
                 + ", ".join(EARNINGS_PERIODS)
+                + " sein"
+            )
+        if self.earnings_view not in EARNINGS_VIEWS:
+            raise ValueError(
+                "earnings_view muss einer von "
+                + ", ".join(EARNINGS_VIEWS)
                 + " sein"
             )
         if not 30 <= self.earnings_refresh_seconds <= 3600:

@@ -75,6 +75,42 @@ def _first_value(item: dict[str, object], *keys: str) -> object | None:
     return None
 
 
+def _first_str(item: dict[str, object], *keys: str) -> str:
+    value = _first_value(item, *keys)
+    return "" if value is None else str(value).strip()
+
+
+def _parse_bool(value: object) -> bool | None:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    text = str(value).strip().lower()
+    if text in {"1", "true", "yes", "on", "live", "online", "streaming"}:
+        return True
+    if text in {"0", "false", "no", "off", "offline", "ended", "not_live"}:
+        return False
+    return None
+
+
+def _dict_field(
+    item: dict[str, object], *keys: str
+) -> dict[str, object] | None:
+    value = _first_value(item, *keys)
+    return dict(value) if isinstance(value, dict) else None
+
+
+def _selected_fields(
+    value: dict[str, object] | None, keys: tuple[str, ...]
+) -> dict[str, object] | None:
+    if not isinstance(value, dict):
+        return None
+    selected = {key: value[key] for key in keys if key in value}
+    return selected or None
+
+
 def _as_float(value: object) -> float | None:
     if value is None or isinstance(value, bool):
         return None
@@ -176,6 +212,10 @@ def _extract_items(payload: object) -> list[dict[str, object]]:
         rates = payload.get("rates")
         if isinstance(rates, dict):
             merged["__rates"] = rates
+        for key in ("worker_diagnostics", "workerDiagnostics", "active_session"):
+            value = payload.get(key)
+            if isinstance(value, dict):
+                merged[key] = value
         return [merged]
 
     for key in ("streamers", "data", "items", "results", "channels"):
@@ -239,17 +279,8 @@ def _session_values(
     session_usd_gross: float | None = None
     session_gifts: int | None = None
 
-    worker = item.get("worker_diagnostics")
-    if isinstance(worker, dict):
-        session_coins = _first_float(
-            worker, "coins_received_session", "session_coins"
-        )
-        session_gifts = _first_int(
-            worker, "gifts_received_session", "session_gifts"
-        )
-
     sessions = item.get("__sessions")
-    if session_coins is None and isinstance(sessions, list):
+    if isinstance(sessions, list):
         session_items = [entry for entry in sessions if isinstance(entry, dict)]
         active = next(
             (
@@ -267,6 +298,17 @@ def _session_values(
             session_eur_net = _first_float(active, "eur_net", "eurNet")
             session_gifts = _first_int(
                 active, "gift_events", "gifts_received_session"
+            )
+
+    worker = item.get("worker_diagnostics")
+    if isinstance(worker, dict):
+        if session_coins is None:
+            session_coins = _first_float(
+                worker, "coins_received_session", "session_coins"
+            )
+        if session_gifts is None:
+            session_gifts = _first_int(
+                worker, "gifts_received_session", "session_gifts"
             )
 
     item_rates = _extract_rates(item)
@@ -300,9 +342,98 @@ def _round_money(value: float | None) -> float | None:
     return None if value is None else round(value, 2)
 
 
+_SESSION_FIELDS = (
+    "id",
+    "session_id",
+    "room_id",
+    "started_at",
+    "ended_at",
+    "status",
+    "peak_viewers",
+    "last_fan_tickets",
+    "session_coins",
+    "gift_events",
+    "usd_net",
+    "eur_net",
+    "usd_gross",
+    "eur_gross",
+)
+
+_DIAGNOSTIC_FIELDS = (
+    "state",
+    "is_running",
+    "connected_since",
+    "last_event_at",
+    "last_message",
+    "reconnect_attempts",
+    "current_viewers",
+    "peak_viewers",
+    "room_fan_tickets",
+    "gifts_received_session",
+    "coins_received_session",
+    "session_id",
+)
+
+
+def _session_info(item: dict[str, object]) -> dict[str, object] | None:
+    info = dict(
+        _selected_fields(
+            _dict_field(item, "active_session", "activeSession"),
+            _SESSION_FIELDS,
+        )
+        or {}
+    )
+    sessions = item.get("__sessions")
+    if isinstance(sessions, list):
+        session_items = [entry for entry in sessions if isinstance(entry, dict)]
+        active = next(
+            (
+                entry
+                for entry in session_items
+                if str(entry.get("status", "")).strip().lower() == "active"
+            ),
+            session_items[0] if session_items else None,
+        )
+        if active is not None:
+            for key, value in active.items():
+                if key in _SESSION_FIELDS and info.get(key) in (None, ""):
+                    info[key] = value
+
+    worker = _dict_field(item, "worker_diagnostics", "workerDiagnostics")
+    if worker is not None:
+        if info.get("id") in (None, "") and worker.get("session_id") is not None:
+            info["id"] = worker.get("session_id")
+        if info.get("started_at") in (None, ""):
+            info["started_at"] = worker.get("connected_since")
+        if info.get("peak_viewers") in (None, ""):
+            info["peak_viewers"] = worker.get("peak_viewers")
+        if info.get("last_fan_tickets") in (None, ""):
+            info["last_fan_tickets"] = worker.get("room_fan_tickets")
+        if info.get("gift_events") in (None, ""):
+            info["gift_events"] = worker.get("gifts_received_session")
+        if info.get("session_coins") in (None, ""):
+            info["session_coins"] = worker.get("coins_received_session")
+
+    return info or None
+
+
+def _diagnostics(item: dict[str, object]) -> dict[str, object] | None:
+    return _selected_fields(
+        _dict_field(item, "worker_diagnostics", "workerDiagnostics"),
+        _DIAGNOSTIC_FIELDS,
+    )
+
+
 @dataclass(frozen=True)
 class EarningsEntry:
     username: str
+    display_name: str = ""
+    avatar_url: str = ""
+    room_id: str = ""
+    is_live: bool | None = None
+    follower_count: int | None = None
+    current_viewers: int | None = None
+    last_seen_at: str = ""
     coins: float | None = None
     usd_net: float | None = None
     eur_net: float | None = None
@@ -316,6 +447,11 @@ class EarningsEntry:
     session_eur_net: float | None = None
     session_usd_gross: float | None = None
     session_gifts: int | None = None
+    top_gift: dict[str, object] | None = None
+    top_gifter: dict[str, object] | None = None
+    session_info: dict[str, object] | None = None
+    diagnostics: dict[str, object] | None = None
+    rates: dict[str, float | None] | None = None
     period: str = ""
 
     @property
@@ -422,6 +558,33 @@ def parse_earnings(payload: object) -> dict[str, EarningsEntry]:
 
         earnings[username] = EarningsEntry(
             username=username,
+            display_name=_first_str(
+                item, "display_name", "displayName", "nickname", "name"
+            ),
+            avatar_url=_first_str(
+                item, "avatar_url", "avatarUrl", "avatar", "profile_picture"
+            ),
+            room_id=_first_str(item, "room_id", "roomId"),
+            is_live=_parse_bool(
+                _first_value(
+                    item,
+                    "is_live",
+                    "isLive",
+                    "live",
+                    "online",
+                    "is_online",
+                    "isOnline",
+                )
+            ),
+            follower_count=_first_int(
+                item, "follower_count", "followerCount", "followers"
+            ),
+            current_viewers=_first_int(
+                item, "current_viewers", "currentViewers", "viewers"
+            ),
+            last_seen_at=_first_str(
+                item, "last_seen_at", "lastSeenAt", "last_seen"
+            ),
             coins=coins,
             usd_net=_round_money(usd_net),
             eur_net=_round_money(eur_net),
@@ -441,6 +604,11 @@ def parse_earnings(payload: object) -> dict[str, EarningsEntry]:
             session_eur_net=session_eur_net,
             session_usd_gross=session_usd_gross,
             session_gifts=session_gifts,
+            top_gift=_dict_field(item, "top_gift", "topGift"),
+            top_gifter=_dict_field(item, "top_gifter", "topGifter"),
+            session_info=_session_info(item),
+            diagnostics=_diagnostics(item),
+            rates=item_rates,
             period=period,
         )
     return earnings
@@ -576,6 +744,44 @@ def _format_int(value: int | None) -> str:
     return f"{int(value):,}".replace(",", ".")
 
 
+def _format_top_gift(value: dict[str, object] | None) -> str:
+    if not value:
+        return "–"
+    name = str(
+        value.get("gift_name") or value.get("name") or value.get("gift") or ""
+    ).strip()
+    count = _as_int(value.get("count"))
+    coins = _as_int(value.get("coins"))
+    parts = [name or "?"]
+    if count is not None:
+        parts.append(f"{count}×")
+    if coins is not None:
+        parts.append(f"{_format_int(coins)} Coins")
+    return " · ".join(parts)
+
+
+def _format_top_gifter(value: dict[str, object] | None) -> str:
+    if not value:
+        return "–"
+    username = str(
+        value.get("sender_username")
+        or value.get("username")
+        or value.get("unique_id")
+        or ""
+    ).strip()
+    nickname = str(
+        value.get("sender_nickname")
+        or value.get("nickname")
+        or value.get("display_name")
+        or ""
+    ).strip()
+    coins = _as_int(value.get("coins"))
+    label = f"@{username}" if username else (nickname or "?")
+    if coins is not None:
+        label += f" · {_format_int(coins)} Coins"
+    return label
+
+
 def render_overlay_text(
     template: str,
     entry: EarningsEntry | None,
@@ -588,15 +794,33 @@ def render_overlay_text(
         return ""
     period_label = EARNINGS_PERIOD_LABELS.get(period, period or "")
     currency = entry.currency
+    session_currency = entry.session_currency
+    live = (
+        "live"
+        if entry.is_live is True
+        else "offline"
+        if entry.is_live is False
+        else "–"
+    )
     values = {
         "name": (name or "").strip(),
         "username": (username or "").strip().lstrip("@"),
+        "display_name": (entry.display_name or name or "").strip(),
         "period": period_label,
+        "live": live,
+        "viewers": _format_int(entry.current_viewers),
+        "followers": _format_int(entry.follower_count),
+        "last_seen": entry.last_seen_at or "–",
         "net": _format_amount(entry.net, currency),
         "gross": _format_amount(entry.gross, currency),
         "coins": _format_int(entry.coins),
         "gifts": _format_int(entry.gift_events),
         "gifters": _format_int(entry.unique_gifters),
+        "session_net": _format_amount(entry.session_net, session_currency),
+        "session_gross": _format_amount(entry.session_gross, session_currency),
+        "session_coins": _format_int(entry.session_coins),
+        "top_gift": _format_top_gift(entry.top_gift),
+        "top_gifter": _format_top_gifter(entry.top_gifter),
     }
     raw = (template or "").strip() or EARNINGS_DEFAULT_TEMPLATE
     if len(raw) > EARNINGS_TEMPLATE_MAX_LENGTH:
@@ -615,6 +839,14 @@ def _entry_view(entry: EarningsEntry) -> dict:
     currency = entry.currency
     session_currency = entry.session_currency
     return {
+        "username": entry.username,
+        "display_name": entry.display_name,
+        "avatar_url": entry.avatar_url,
+        "room_id": entry.room_id,
+        "is_live": entry.is_live,
+        "follower_count": entry.follower_count,
+        "current_viewers": entry.current_viewers,
+        "last_seen_at": entry.last_seen_at,
         "coins": entry.coins,
         "currency": currency,
         "net": entry.net,
@@ -631,6 +863,11 @@ def _entry_view(entry: EarningsEntry) -> dict:
         "session_net": entry.session_net,
         "session_gross": entry.session_gross,
         "session_gifts": entry.session_gifts,
+        "session_info": entry.session_info,
+        "top_gift": entry.top_gift,
+        "top_gifter": entry.top_gifter,
+        "diagnostics": entry.diagnostics,
+        "rates": entry.rates,
         "period": entry.period,
     }
 
@@ -655,6 +892,8 @@ def default_summary(settings: Settings) -> dict:
         "interval_seconds": int(settings.earnings_refresh_seconds),
         "timeout_seconds": int(settings.earnings_timeout_seconds),
         "overlay_enabled": bool(settings.earnings_overlay_enabled),
+        "view": settings.earnings_view,
+        "rates": None,
         "last_run_at": None,
         "checking": False,
         "status": status,
@@ -761,6 +1000,8 @@ class EarningsMonitor:
             "interval_seconds": int(self.settings.earnings_refresh_seconds),
             "timeout_seconds": int(self.settings.earnings_timeout_seconds),
             "overlay_enabled": bool(self.settings.earnings_overlay_enabled),
+            "view": self.settings.earnings_view,
+            "rates": self._entry.rates if self._entry is not None else None,
             "last_run_at": self._last_run_at,
             "checking": self._checking,
             "status": status,

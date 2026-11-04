@@ -76,29 +76,55 @@
         </div>
       </div>
       <div class="summary">
-        <div>
+        <div id="earnings-tile-period">
           <span class="label">Zeitraum</span>
           <strong id="earnings-period">–</strong>
         </div>
-        <div>
+        <div id="earnings-tile-net">
           <span class="label">Netto</span>
           <strong id="earnings-net">–</strong>
         </div>
-        <div>
+        <div id="earnings-tile-gross">
           <span class="label">Brutto</span>
           <strong id="earnings-gross">–</strong>
         </div>
-        <div>
+        <div id="earnings-tile-coins">
           <span class="label">Coins</span>
           <strong id="earnings-coins">–</strong>
         </div>
-        <div>
+        <div id="earnings-tile-gifts">
           <span class="label">Gifts</span>
           <strong id="earnings-gifts">–</strong>
         </div>
-        <div>
+        <div id="earnings-tile-gifters">
           <span class="label">Gifter</span>
           <strong id="earnings-gifters">–</strong>
+        </div>
+      </div>
+      <div id="earnings-extra" class="summary" hidden>
+        <div>
+          <span class="label">Session</span>
+          <strong id="earnings-session">–</strong>
+        </div>
+        <div>
+          <span class="label">Zuschauer</span>
+          <strong id="earnings-viewers">–</strong>
+        </div>
+        <div>
+          <span class="label">Follower</span>
+          <strong id="earnings-followers">–</strong>
+        </div>
+        <div>
+          <span class="label">Top-Gift</span>
+          <strong id="earnings-top-gift">–</strong>
+        </div>
+        <div>
+          <span class="label">Top-Gifter</span>
+          <strong id="earnings-top-gifter">–</strong>
+        </div>
+        <div>
+          <span class="label">Zuletzt gesehen</span>
+          <strong id="earnings-last-seen">–</strong>
         </div>
       </div>
       <p id="earnings-meta" class="hint"></p>
@@ -528,6 +554,14 @@
               </select>
             </label>
             <label class="field">
+              <span>Dashboard-Anzeigeform</span>
+              <select name="earnings_view">
+                <option value="compact">Kompakt (nur Netto)</option>
+                <option value="standard">Standard (Netto, Brutto, Coins)</option>
+                <option value="detailed">Ausführlich (inkl. Session, Zuschauer, Top-Gift)</option>
+              </select>
+            </label>
+            <label class="field">
               <span>Aktualisierungsintervall (Sekunden)</span>
               <input name="earnings_refresh_seconds" type="number" min="30" max="3600" step="1">
             </label>
@@ -539,7 +573,7 @@
               <span>Overlay-Text</span>
               <input name="earnings_overlay_template"
                      placeholder="{period}: {net} · Brutto {gross}">
-              <small class="hint">Platzhalter: {period}, {net}, {gross}, {coins}, {gifts}, {gifters}, {name}, {username}</small>
+              <small class="hint">Platzhalter: {period}, {net}, {gross}, {coins}, {gifts}, {gifters}, {session_net}, {session_gross}, {session_coins}, {viewers}, {followers}, {live}, {top_gift}, {top_gifter}, {display_name}, {last_seen}, {name}, {username}</small>
             </label>
             <label class="field">
               <span>Overlay-Position</span>

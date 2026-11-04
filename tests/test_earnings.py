@@ -59,6 +59,11 @@ def _settings(tmp_path: Path, **kwargs) -> Settings:
 def _entry(username: str = "alice", coins: float = 1234) -> EarningsEntry:
     return EarningsEntry(
         username=username,
+        display_name=username.title(),
+        is_live=True,
+        current_viewers=42,
+        follower_count=1234,
+        last_seen_at="2026-11-04T22:49:22",
         coins=coins,
         usd_net=6.17,
         eur_net=5.68,
@@ -67,6 +72,14 @@ def _entry(username: str = "alice", coins: float = 1234) -> EarningsEntry:
         gift_events=12,
         gifts_sent=20,
         unique_gifters=4,
+        top_gift={"gift_name": "TikTok Universe", "coins": 500, "count": 2},
+        top_gifter={"sender_username": "fan", "coins": 250},
+        session_info={"id": 12, "started_at": "2026-11-04T22:38:24"},
+        rates={
+            "usd_per_diamond": 0.005,
+            "gross_usd_per_coin": 0.0106,
+            "usd_to_eur_rate": 0.92,
+        },
         period="today",
     )
 
@@ -82,10 +95,30 @@ def test_parse_toktracker_overview_computes_money() -> None:
         "streamers": [
             {
                 "username": "alice",
+                "display_name": "Alice Live",
+                "is_live": 1,
+                "current_viewers": 42,
+                "follower_count": 1234,
+                "last_seen_at": "2026-11-04T22:49:22",
                 "total_coins": 1000,
                 "gift_events_count": 7,
                 "total_gifts_sent": 9,
                 "unique_gifters": 3,
+                "top_gift": {
+                    "gift_name": "TikTok Universe",
+                    "coins": 500,
+                    "count": 2,
+                },
+                "top_gifter": {
+                    "sender_username": "fan",
+                    "coins": 250,
+                },
+                "active_session": {
+                    "id": 12,
+                    "started_at": "2026-11-04T22:38:24",
+                    "peak_viewers": 55,
+                    "last_fan_tickets": 7000,
+                },
             },
             {
                 "username": "@Bob",
@@ -108,6 +141,28 @@ def test_parse_toktracker_overview_computes_money() -> None:
     assert alice.gifts_sent == 9
     assert alice.unique_gifters == 3
     assert alice.period == "today"
+    assert alice.display_name == "Alice Live"
+    assert alice.is_live is True
+    assert alice.current_viewers == 42
+    assert alice.follower_count == 1234
+    assert alice.last_seen_at == "2026-11-04T22:49:22"
+    assert alice.top_gift == {
+        "gift_name": "TikTok Universe",
+        "coins": 500,
+        "count": 2,
+    }
+    assert alice.top_gifter == {"sender_username": "fan", "coins": 250}
+    assert alice.session_info == {
+        "id": 12,
+        "started_at": "2026-11-04T22:38:24",
+        "peak_viewers": 55,
+        "last_fan_tickets": 7000,
+    }
+    assert alice.rates == {
+        "usd_per_diamond": 0.005,
+        "gross_usd_per_coin": 0.0106,
+        "usd_to_eur_rate": 0.92,
+    }
 
     bob = earnings["bob"]
     assert bob.usd_net == 10.0
@@ -132,8 +187,24 @@ def test_parse_detail_payload_includes_session_values() -> None:
                 "session_coins": 120,
                 "usd_net": 0.6,
                 "eur_net": 0.55,
+                "started_at": "2026-11-04T22:38:24",
+                "peak_viewers": 99,
             }
         ],
+        "worker_diagnostics": {
+            "state": "connected",
+            "connected_since": "2026-11-04T22:38:24",
+            "last_event_at": "2026-11-04T22:49:51",
+            "last_message": "Gift erfasst",
+            "reconnect_attempts": 0,
+            "current_viewers": 50,
+            "peak_viewers": 100,
+            "room_fan_tickets": 7000,
+            "gifts_received_session": 4,
+            "coins_received_session": 120,
+            "session_id": 12,
+            "active_battle": {"battle_id": "1"},
+        },
         "rates": {
             "usd_per_diamond": 0.005,
             "gross_usd_per_coin": 0.0106,
@@ -148,7 +219,32 @@ def test_parse_detail_payload_includes_session_values() -> None:
     assert entry.gross == 4.88
     assert entry.session_coins == 120
     assert entry.session_net == 0.55
-    assert entry.session_gifts is None
+    assert entry.session_gifts == 4
+    assert entry.session_info == {
+        "status": "active",
+        "started_at": "2026-11-04T22:38:24",
+        "peak_viewers": 99,
+        "session_coins": 120,
+        "usd_net": 0.6,
+        "eur_net": 0.55,
+        "id": 12,
+        "last_fan_tickets": 7000,
+        "gift_events": 4,
+    }
+    assert entry.diagnostics == {
+        "state": "connected",
+        "connected_since": "2026-11-04T22:38:24",
+        "last_event_at": "2026-11-04T22:49:51",
+        "last_message": "Gift erfasst",
+        "reconnect_attempts": 0,
+        "current_viewers": 50,
+        "peak_viewers": 100,
+        "room_fan_tickets": 7000,
+        "gifts_received_session": 4,
+        "coins_received_session": 120,
+        "session_id": 12,
+    }
+    assert "active_battle" not in (entry.diagnostics or {})
 
 
 def test_parse_skips_entries_without_username() -> None:
@@ -262,6 +358,32 @@ def test_render_overlay_text() -> None:
     )
 
 
+def test_render_overlay_text_exposes_extended_fields() -> None:
+    entry = EarningsEntry(
+        username="alice",
+        display_name="Alice Live",
+        is_live=True,
+        current_viewers=42,
+        follower_count=1234,
+        last_seen_at="2026-11-04T22:49:22",
+        session_coins=100,
+        session_eur_net=1.23,
+        top_gift={"gift_name": "TikTok Universe", "coins": 500, "count": 2},
+        top_gifter={"sender_username": "fan", "coins": 250},
+    )
+
+    text = render_overlay_text(
+        "{display_name}|{live}|{viewers}|{followers}|{top_gift}|"
+        "{top_gifter}|{session_net}|{session_coins}|{last_seen}",
+        entry,
+    )
+
+    assert text == (
+        "Alice Live|live|42|1.234|TikTok Universe · 2× · 500 Coins|"
+        "@fan · 250 Coins|1,23 €|100|2026-11-04T22:49:22"
+    )
+
+
 def test_render_overlay_text_handles_missing_values() -> None:
     entry = EarningsEntry(username="alice")
 
@@ -321,9 +443,16 @@ async def test_monitor_selects_active_streamer_and_switches(
     )
 
     await monitor._tick()
+    summary = monitor.summary()
     assert source.calls == ["alice"]
-    assert monitor.summary()["data"]["coins"] == 100
-    assert monitor.summary()["status"] == "ok"
+    assert summary["data"]["coins"] == 100
+    assert summary["status"] == "ok"
+    assert summary["view"] == "standard"
+    assert summary["rates"]["usd_to_eur_rate"] == 0.92
+    assert summary["data"]["display_name"] == "Alice"
+    assert summary["data"]["current_viewers"] == 42
+    assert summary["data"]["top_gift"]["gift_name"] == "TikTok Universe"
+    assert summary["data"]["session_info"]["id"] == 12
 
     active["id"] = "bob"
     await monitor._tick()
@@ -471,4 +600,5 @@ def test_default_summary_reflects_settings(tmp_path: Path) -> None:
     assert summary["period_label"] == "Letzte 7 Tage"
     assert summary["interval_seconds"] == 120
     assert summary["overlay_enabled"] is True
+    assert summary["view"] == "standard"
     assert summary["status"] == "inactive"

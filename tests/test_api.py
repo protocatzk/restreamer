@@ -29,14 +29,20 @@ def test_health_and_status(settings, streamers_file) -> None:
         assert all(item["online"] is None for item in payload["streamers"])
 
 
-def test_earnings_check_endpoint(settings, streamers_file) -> None:
+def test_earnings_endpoints(settings, streamers_file) -> None:
     app = create_app(replace(settings, streamers_file=streamers_file))
 
     with TestClient(app) as client:
-        response = client.post("/api/earnings/check")
+        response = client.get("/api/earnings")
         assert response.status_code == 200
         assert response.json()["ok"] is True
         assert response.json()["earnings"]["enabled"] is False
+        assert response.json()["earnings"]["view"] == "standard"
+
+        check = client.post("/api/earnings/check")
+        assert check.status_code == 200
+        assert check.json()["ok"] is True
+        assert check.json()["earnings"]["enabled"] is False
 
 
 def test_earnings_source_is_exposed_without_active_stream(
@@ -151,6 +157,7 @@ def test_index_page(settings, streamers_file) -> None:
         assert 'name="earnings_source_url"' in response.text
         assert 'name="earnings_source_api_key"' in response.text
         assert 'name="earnings_period"' in response.text
+        assert 'name="earnings_view"' in response.text
         assert 'name="earnings_refresh_seconds"' in response.text
         assert 'name="earnings_timeout_seconds"' in response.text
         assert 'name="earnings_overlay_enabled"' in response.text
@@ -159,6 +166,9 @@ def test_index_page(settings, streamers_file) -> None:
         assert 'id="earnings-key-hint"' in response.text
         assert 'id="earnings-refresh-btn"' in response.text
         assert 'id="earnings-net"' in response.text
+        assert 'id="earnings-extra"' in response.text
+        assert 'id="earnings-session"' in response.text
+        assert 'id="earnings-top-gift"' in response.text
         assert 'name="own_stream"' in response.text
         assert 'name="youtube_title_template"' in response.text
         assert 'id="now-title-row"' in response.text
@@ -186,6 +196,7 @@ def test_chat_settings_are_exposed(settings, streamers_file) -> None:
     assert payload["earnings_source_url"] == ""
     assert payload["earnings_source_api_key_set"] is False
     assert payload["earnings_period"] == "today"
+    assert payload["earnings_view"] == "standard"
     assert payload["earnings_refresh_seconds"] == 300
     assert payload["earnings_overlay_enabled"] is False
 
@@ -381,6 +392,7 @@ def test_update_settings(tmp_path, settings, streamers_file) -> None:
                 ),
                 "earnings_source_api_key": "earnings-secret",
                 "earnings_period": "7d",
+                "earnings_view": "detailed",
                 "earnings_refresh_seconds": 120,
                 "earnings_overlay_enabled": True,
                 "earnings_overlay_template": "{period}: {net}",
@@ -409,6 +421,7 @@ def test_update_settings(tmp_path, settings, streamers_file) -> None:
         )
         assert payload["earnings_source_api_key_set"] is True
         assert payload["earnings_period"] == "7d"
+        assert payload["earnings_view"] == "detailed"
         assert payload["earnings_refresh_seconds"] == 120
         assert payload["earnings_overlay_enabled"] is True
         assert payload["earnings_overlay_template"] == "{period}: {net}"

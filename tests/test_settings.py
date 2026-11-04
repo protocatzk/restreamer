@@ -86,6 +86,7 @@ def test_new_defaults_are_present(tmp_path: Path) -> None:
     assert data["earnings_source_url"] == ""
     assert data["earnings_source_api_key_set"] is False
     assert data["earnings_period"] == "today"
+    assert data["earnings_view"] == "standard"
     assert data["earnings_refresh_seconds"] == 300
     assert data["earnings_timeout_seconds"] == 20
     assert data["earnings_overlay_enabled"] is False
@@ -133,6 +134,8 @@ def test_earnings_values_are_validated(tmp_path: Path) -> None:
         settings.updated({"earnings_source_url": "toktracker.cc/api"})
     with pytest.raises(ValueError, match="earnings_period"):
         settings.updated({"earnings_period": "yesterday"})
+    with pytest.raises(ValueError, match="earnings_view"):
+        settings.updated({"earnings_view": "huge"})
     with pytest.raises(ValueError, match="earnings_refresh_seconds"):
         settings.updated({"earnings_refresh_seconds": 29})
     with pytest.raises(ValueError, match="earnings_timeout_seconds"):
@@ -150,6 +153,7 @@ def test_earnings_values_are_validated(tmp_path: Path) -> None:
             "earnings_source_url": "https://toktracker.cc/api/public/overview",
             "earnings_source_api_key": "secret-key",
             "earnings_period": "7d",
+            "earnings_view": "detailed",
             "earnings_refresh_seconds": 120,
             "earnings_timeout_seconds": 30,
             "earnings_overlay_enabled": True,
@@ -164,6 +168,7 @@ def test_earnings_values_are_validated(tmp_path: Path) -> None:
     )
     assert updated.earnings_source_api_key == "secret-key"
     assert updated.earnings_period == "7d"
+    assert updated.earnings_view == "detailed"
     assert updated.earnings_refresh_seconds == 120
     assert updated.earnings_timeout_seconds == 30
     assert updated.earnings_overlay_enabled is True

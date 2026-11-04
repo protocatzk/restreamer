@@ -110,6 +110,25 @@ function formatCount(value) {
   return new Intl.NumberFormat("de-DE").format(value);
 }
 
+function formatTopGift(value) {
+  if (!value) return "–";
+  const name = value.gift_name || value.name || value.gift || "?";
+  const parts = [name];
+  if (value.count != null) parts.push(`${value.count}×`);
+  if (value.coins != null) parts.push(`${formatCount(value.coins)} Coins`);
+  return parts.join(" · ");
+}
+
+function formatTopGifter(value) {
+  if (!value) return "–";
+  const username = value.sender_username || value.username || value.unique_id;
+  const nickname = value.sender_nickname || value.nickname || value.display_name;
+  const name = username ? `@${username}` : nickname || "?";
+  return value.coins == null
+    ? name
+    : `${name} · ${formatCount(value.coins)} Coins`;
+}
+
 function renderStatus(status) {
   app.status = status;
 
@@ -155,6 +174,8 @@ function renderStatus(status) {
   const earnings = status.earnings || {};
   const earningsData = earnings.data || {};
   const earningsStreamer = earnings.active_streamer;
+  const earningsView = earnings.view || "standard";
+  const earningsDetailed = earningsView === "detailed";
   $("earnings-streamer").textContent = earningsStreamer
     ? `· ${earningsStreamer.name} (@${earningsStreamer.tiktok})`
     : "";
@@ -173,6 +194,42 @@ function renderStatus(status) {
   $("earnings-gifters").textContent = formatCount(
     earningsData.unique_gifters
   );
+
+  const compact = earningsView === "compact";
+  $("earnings-tile-gross").hidden = compact;
+  $("earnings-tile-coins").hidden = compact;
+  $("earnings-tile-gifts").hidden = compact;
+  $("earnings-tile-gifters").hidden = compact;
+
+  const session = earningsData.session_info || {};
+  const sessionNet = earningsData.session_net;
+  $("earnings-session").textContent =
+    sessionNet == null
+      ? "–"
+      : `${formatMoney(sessionNet, earningsData.session_currency)}${
+          earningsData.session_coins == null
+            ? ""
+            : ` · ${formatCount(earningsData.session_coins)} Coins`
+        }`;
+  $("earnings-viewers").textContent = formatCount(
+    earningsData.current_viewers
+  );
+  $("earnings-followers").textContent = formatCount(
+    earningsData.follower_count
+  );
+  $("earnings-top-gift").textContent = formatTopGift(earningsData.top_gift);
+  $("earnings-top-gifter").textContent = formatTopGifter(
+    earningsData.top_gifter
+  );
+  $("earnings-last-seen").textContent = earningsData.last_seen_at || "–";
+  $("earnings-extra").hidden = !earningsDetailed;
+  $("earnings-session").title = session.started_at
+    ? `Session-Start: ${session.started_at}${
+        session.peak_viewers == null
+          ? ""
+          : ` · Peak: ${formatCount(session.peak_viewers)}`
+      }`
+    : "";
 
   const earningsMeta = $("earnings-meta");
   const earningsStatus =
@@ -198,6 +255,26 @@ function renderStatus(status) {
       )}`
     );
   }
+  if (earningsDetailed && earningsData.is_live != null) {
+    earningsDetails.push(earningsData.is_live ? "Live: ja" : "Live: nein");
+  }
+  if (earningsDetailed && earningsData.diagnostics?.state) {
+    earningsDetails.push(`Monitor: ${earningsData.diagnostics.state}`);
+  }
+  if (earningsDetailed && earnings.rates) {
+    const rates = earnings.rates;
+    const rateParts = [];
+    if (rates.usd_per_diamond != null) {
+      rateParts.push(`${rates.usd_per_diamond} USD/Diamond`);
+    }
+    if (rates.gross_usd_per_coin != null) {
+      rateParts.push(`${rates.gross_usd_per_coin} USD/Coin brutto`);
+    }
+    if (rates.usd_to_eur_rate != null) {
+      rateParts.push(`1 USD = ${rates.usd_to_eur_rate} EUR`);
+    }
+    if (rateParts.length) earningsDetails.push(`Kurse: ${rateParts.join(" · ")}`);
+  }
   if (earnings.last_run_at) {
     earningsDetails.push(`Zuletzt geprüft: ${earnings.last_run_at}`);
   }
@@ -211,7 +288,7 @@ function renderStatus(status) {
     ? "Einnahmenquelle in den Einstellungen eintragen."
     : `Intervall: ${earnings.interval_seconds || "–"} s · Zeitraum: ${
         earnings.period_label || earnings.period || "–"
-      }`;
+      } · Ansicht: ${earningsView}`;
 
   const earningsButton = $("earnings-refresh-btn");
   earningsButton.disabled =
