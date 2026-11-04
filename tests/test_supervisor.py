@@ -615,6 +615,26 @@ streamers:
     youtube_key: bob-key
 """
 
+PLAYLIST_PREFERRED_BOB = """
+playlist:
+  name: Abendprogramm
+  auto_advance: true
+  wrap: true
+  advance_delay_seconds: 0
+  end_after_minutes: 60
+  channels: [alice, bob]
+streamers:
+  - id: alice
+    name: Alice
+    tiktok: alice
+    youtube_key: alice-key
+  - id: bob
+    name: Bob
+    tiktok: bob
+    youtube_key: bob-key
+    preferred: true
+"""
+
 PLAYLIST_OWN_STREAM = """
 playlist:
   name: Abendprogramm
@@ -1181,5 +1201,106 @@ async def test_manual_switch_uses_pause_bridge_for_shared_output(settings) -> No
             and supervisor.status()["state"] == "live",
             timeout_s=10,
         )
+    finally:
+        await supervisor.stop()
+
+
+async def test_preferred_stream_returns_to_previous_when_finished(
+    settings, monkeypatch
+) -> None:
+    monkeypatch.setenv("ALICE_YT_KEY", "alice-key")
+    monkeypatch.setenv("BOB_YT_KEY", "bob-key")
+    store = make_store(settings, PREFERRED_BOB)
+    resolver = MapResolver({"alice": [LIVE, LIVE], "bob": [LIVE]})
+    spawn = SequenceSpawn(["60", "1.0"])
+    supervisor = Supervisor(settings, store, resolver, spawn=spawn)
+
+    try:
+        await supervisor.start("alice")
+        await wait_until(lambda: supervisor.status()["state"] == "live")
+
+        await supervisor.handle_online_statuses({"bob": True})
+        await wait_until(
+            lambda: supervisor.status()["active"] == "bob"
+            and supervisor.status()["state"] == "live"
+        )
+
+        pending = supervisor.status()["preferred_return"]
+        assert pending is not None
+        assert pending["name"] == "Alice"
+        assert pending["preferred_id"] == "bob"
+
+        await wait_until(
+            lambda: supervisor.status()["active"] == "alice"
+            and supervisor.status()["state"] == "live",
+            timeout_s=10,
+        )
+        status = supervisor.status()
+        assert status["active_playlist"] is None
+        assert status["preferred_return"] is None
+        assert resolver.calls == ["alice", "bob", "alice"]
+    finally:
+        await supervisor.stop()
+
+
+async def test_preferred_return_keeps_playlist_mode_and_end(settings) -> None:
+    store = make_store(settings, PLAYLIST_PREFERRED_BOB)
+    resolver = MapResolver({"alice": [LIVE, LIVE], "bob": [LIVE]})
+    spawn = SequenceSpawn(["60", "1.0"])
+    supervisor = Supervisor(settings, store, resolver, spawn=spawn)
+
+    try:
+        await supervisor.playlist_play("main")
+        await wait_until(lambda: supervisor.status()["state"] == "live")
+        ends_at = supervisor._playlist_end_at
+        deadline = supervisor._playlist_end_at_monotonic
+        assert ends_at is not None
+        assert deadline is not None
+
+        await supervisor.handle_online_statuses({"bob": True})
+        await wait_until(
+            lambda: supervisor.status()["active"] == "bob"
+            and supervisor.status()["state"] == "live"
+        )
+        assert supervisor._playlist_end_at == ends_at
+
+        await wait_until(
+            lambda: supervisor.status()["active"] == "alice"
+            and supervisor.status()["state"] == "live",
+            timeout_s=10,
+        )
+        status = supervisor.status()
+        assert status["active_playlist"] == "main"
+        assert playlist_view(status)["mode_active"] is True
+        assert supervisor._playlist_end_at == ends_at
+        assert supervisor._playlist_end_at_monotonic == pytest.approx(deadline)
+    finally:
+        await supervisor.stop()
+
+
+async def test_manual_switch_clears_preferred_return(
+    settings, monkeypatch
+) -> None:
+    monkeypatch.setenv("ALICE_YT_KEY", "alice-key")
+    monkeypatch.setenv("BOB_YT_KEY", "bob-key")
+    store = make_store(settings, PREFERRED_BOB)
+    resolver = MapResolver({"alice": [LIVE], "bob": [LIVE, LIVE]})
+    spawn = SequenceSpawn(["60", "60", "60"])
+    supervisor = Supervisor(settings, store, resolver, spawn=spawn)
+
+    try:
+        await supervisor.start("alice")
+        await wait_until(lambda: supervisor.status()["state"] == "live")
+
+        await supervisor.handle_online_statuses({"bob": True})
+        await wait_until(
+            lambda: supervisor.status()["active"] == "bob"
+            and supervisor.status()["state"] == "live"
+        )
+        assert supervisor.status()["preferred_return"] is not None
+
+        await supervisor.start("bob")
+
+        assert supervisor.status()["preferred_return"] is None
     finally:
         await supervisor.stop()

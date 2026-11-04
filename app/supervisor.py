@@ -8,6 +8,7 @@ import signal
 import time
 from collections.abc import Awaitable, Callable
 from contextlib import suppress
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -46,6 +47,18 @@ logger = logging.getLogger(__name__)
 Spawn = Callable[[list[str]], Awaitable[asyncio.subprocess.Process]]
 
 AUTO_SWITCH_RETRY_SECONDS = 300.0
+
+
+@dataclass(frozen=True)
+class _PreferredReturn:
+    """Session that was running before a preferred streamer took over."""
+
+    streamer_id: str
+    preferred_id: str
+    playlist_mode: bool = False
+    playlist_id: str | None = None
+    playlist_end_at: str | None = None
+    playlist_end_at_monotonic: float | None = None
 
 CODEC_ERROR_MARKERS = (
     "could not find tag for codec",
@@ -214,6 +227,7 @@ class Supervisor:
 
         self._online: OnlineStatusMonitor | None = None
         self._auto_switch_attempts: dict[str, float] = {}
+        self._preferred_return: _PreferredReturn | None = None
         self._chat: ChatWorker | None = None
         self._chat_filter_warned = False
         self._clock_filter_warned = False
@@ -299,7 +313,23 @@ class Supervisor:
         if target is None or self._state == StreamState.STOPPING:
             return
 
+        previous_id = self._active_id
+        if previous_id is None:
+            return
+
         self._auto_switch_attempts[target.id] = now
+        self._preferred_return = _PreferredReturn(
+            streamer_id=previous_id,
+            preferred_id=target.id,
+            playlist_mode=self._playlist_mode,
+            playlist_id=self._playlist_id if self._playlist_mode else None,
+            playlist_end_at=(
+                self._playlist_end_at if self._playlist_mode else None
+            ),
+            playlist_end_at_monotonic=(
+                self._playlist_end_at_monotonic if self._playlist_mode else None
+            ),
+        )
         self._record(
             f"[Restreamer] Bevorzugter Sender online: {target.name}"
         )
@@ -315,10 +345,12 @@ class Supervisor:
                         playlist_id=playlist_id,
                         keep_playlist_end=True,
                         bridge_pause=True,
+                        preferred_switch=True,
                     )
                     return
-            await self.start(target.id, watch=True)
+            await self.start(target.id, watch=True, preferred_switch=True)
         except Exception as exc:  # noqa: BLE001 - keep the monitor alive
+            self._preferred_return = None
             logger.warning(
                 "Automatischer Wechsel zu %s fehlgeschlagen: %s",
                 target.id,
@@ -460,6 +492,7 @@ class Supervisor:
             ),
             "playlists": self.playlists_view()["playlists"],
             "active_playlist": self.active_playlist_id(),
+            "preferred_return": self._preferred_return_view(),
             "streamers": [self._streamer_view(cfg) for cfg in self.store.streamers],
         }
 
@@ -574,6 +607,19 @@ class Supervisor:
             return "env"
         return "missing"
 
+    def _preferred_return_view(self) -> dict | None:
+        record = self._preferred_return
+        if record is None:
+            return None
+        streamer = self.store.get(record.streamer_id)
+        return {
+            "streamer_id": record.streamer_id,
+            "name": (
+                streamer.name if streamer is not None else record.streamer_id
+            ),
+            "preferred_id": record.preferred_id,
+        }
+
     def _streamer_view(self, cfg: StreamerConfig) -> dict:
         key_source = self._key_source(cfg.youtube_key, cfg.youtube_key_env)
         return {
@@ -652,6 +698,7 @@ class Supervisor:
         playlist_id: str | None = None,
         keep_playlist_end: bool = False,
         bridge_pause: bool = False,
+        preferred_switch: bool = False,
     ) -> dict:
         self.store.refresh()
         streamer = self.store.get(streamer_id)
@@ -676,6 +723,8 @@ class Supervisor:
         )
 
         async with self._lock:
+            if not preferred_switch:
+                self._preferred_return = None
             keep_end_at = None
             keep_end_monotonic = None
             if (
@@ -769,6 +818,7 @@ class Supervisor:
 
     async def stop(self) -> dict:
         async with self._lock:
+            self._preferred_return = None
             await self._stop_locked(reset_delay=True)
         return self.status()
 
@@ -961,6 +1011,7 @@ class Supervisor:
                 + (f" ({ends_at})" if ends_at else "")
                 + " – stoppe Stream"
             )
+            self._preferred_return = None
             await self._stop_locked(reset_delay=True)
 
     async def _cancel_playlist_end(self) -> None:
@@ -1487,6 +1538,79 @@ class Supervisor:
         self._activate_channel(target, new_key)
         return target, new_key
 
+    async def _restore_previous(
+        self, current: StreamerConfig, key: str
+    ) -> tuple[StreamerConfig, str] | None:
+        """Return to the streamer that ran before a preferred takeover."""
+        record = self._preferred_return
+        if record is None or record.preferred_id != current.id:
+            return None
+        self._preferred_return = None
+
+        self.store.refresh()
+        target = self.store.get(record.streamer_id)
+        if target is None or not target.enabled:
+            self._record(
+                "[Restreamer] Rückschaltung übersprungen: vorheriger Sender "
+                "ist nicht mehr verfügbar"
+            )
+            return None
+
+        playlist: PlaylistConfig | None = None
+        if record.playlist_mode and record.playlist_id:
+            playlist = self.store.playlist(record.playlist_id)
+            if playlist is not None and target.id not in playlist.channels:
+                playlist = None
+
+        try:
+            new_key = self._output_key(
+                target,
+                playlist_mode=playlist is not None,
+                playlist=playlist,
+            )
+        except KeyNotConfigured as exc:
+            self._record(
+                f"[Restreamer] Rückschaltung zu {target.name} nicht möglich: {exc}"
+            )
+            return None
+
+        await self._cancel_playlist_end()
+        if playlist is not None:
+            self._playlist_mode = True
+            self._playlist_id = playlist.id
+            self._playlist_end_at = record.playlist_end_at
+            self._playlist_end_at_monotonic = record.playlist_end_at_monotonic
+            if (
+                record.playlist_end_at is not None
+                and record.playlist_end_at_monotonic is not None
+            ):
+                self._start_playlist_end(
+                    playlist,
+                    self._session_token,
+                    keep_at=record.playlist_end_at,
+                    keep_monotonic=record.playlist_end_at_monotonic,
+                )
+            if (
+                self.settings.pause_screen_enabled
+                and self._shared_output_configured(playlist)
+            ):
+                await self._ensure_pause(key, "Rückschaltung")
+        else:
+            self._playlist_mode = False
+            self._playlist_id = None
+            self._playlist_end_at = None
+            self._playlist_end_at_monotonic = None
+
+        self._offline_cycle.discard(target.id)
+        self._switch_count += 1
+        self._last_switch_reason = "bevorzugt beendet"
+        self._record(
+            f"[Restreamer] Bevorzugter Sender beendet: {current.name} "
+            f"→ zurück zu {target.name}"
+        )
+        self._activate_channel(target, new_key)
+        return target, new_key
+
     async def _run(self, streamer: StreamerConfig, key: str, watch: bool) -> None:
         backoff = self.settings.backoff_initial_seconds
         force_reencode = False
@@ -1526,6 +1650,16 @@ class Supervisor:
                     self._offline_cycle.add(streamer.id)
                     if not watch:
                         break
+
+                    restored = await self._restore_previous(streamer, key)
+                    if self._stop_event.is_set():
+                        break
+                    if restored is not None:
+                        streamer, key = restored
+                        force_reencode = False
+                        await self._sync_output(key, streamer)
+                        backoff = self.settings.backoff_initial_seconds
+                        continue
 
                     advanced = await self._maybe_advance(
                         streamer, key, "offline", watch
@@ -1681,6 +1815,15 @@ class Supervisor:
 
                 if returncode == 0 and watch:
                     self._offline_cycle.add(streamer.id)
+                    restored = await self._restore_previous(streamer, key)
+                    if self._stop_event.is_set():
+                        break
+                    if restored is not None:
+                        streamer, key = restored
+                        force_reencode = False
+                        await self._sync_output(key, streamer)
+                        backoff = self.settings.backoff_initial_seconds
+                        continue
                     advanced = await self._maybe_advance(
                         streamer, key, "Stream beendet", watch
                     )
@@ -1739,6 +1882,7 @@ class Supervisor:
                 self._started_at = None
                 self._secrets = []
                 self._prefetched = None
+                self._preferred_return = None
                 self._playlist_mode = False
                 self._playlist_id = None
                 self._offline_cycle.clear()

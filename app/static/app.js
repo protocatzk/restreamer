@@ -608,6 +608,15 @@ function renderStreamers(status) {
     }
     if (streamer.auto_start) badges.append(badge("Auto-Start"));
     if (streamer.preferred) badges.append(badge("Bevorzugt", "ok"));
+    if (
+      streamer.active &&
+      status.preferred_return &&
+      status.preferred_return.preferred_id === streamer.id
+    ) {
+      badges.append(
+        badge(`Rückkehr zu ${status.preferred_return.name}`, "warn")
+      );
+    }
     if (streamer.own_stream) badges.append(badge("Eigener Stream", "ok"));
     if (!streamer.enabled) badges.append(badge("deaktiviert", "warn"));
     if (streamer.key_source === "config") badges.append(badge("Key gespeichert", "ok"));
