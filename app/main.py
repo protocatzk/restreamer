@@ -16,6 +16,7 @@ from app import __version__
 from app.chat import ensure_chat_overlay_file
 from app.cookies import write_tiktok_cookies
 from app.delay_buffer import DelayBuffer
+from app.earnings import EarningsMonitor, ensure_earnings_overlay_file
 from app.online import OnlineStatusMonitor
 from app.resolver import Resolver
 from app.settings import SECRET_FIELDS, Settings
@@ -89,6 +90,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         is_active=lambda: supervisor.active_id,
     )
     supervisor.set_online_monitor(online_monitor)
+    earnings_monitor = EarningsMonitor(
+        settings,
+        store,
+        is_active=lambda: supervisor.active_id,
+    )
+    supervisor.set_earnings_monitor(earnings_monitor)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -105,6 +112,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except OSError:
             logger.warning(
                 "Chat-Overlay-Datei konnte nicht angelegt werden", exc_info=True
+            )
+        try:
+            ensure_earnings_overlay_file(settings)
+        except OSError:
+            logger.warning(
+                "Einnahmen-Overlay-Datei konnte nicht angelegt werden",
+                exc_info=True,
             )
 
         if write_tiktok_cookies(
@@ -127,10 +141,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     break
 
         online_monitor.start()
+        earnings_monitor.start()
 
         yield
 
         await online_monitor.stop()
+        await earnings_monitor.stop()
         await supervisor.shutdown()
         await delay_buffer.stop()
         logger.info("Restreamer beendet")
@@ -147,6 +163,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.supervisor = supervisor
     app.state.delay_buffer = delay_buffer
     app.state.online_monitor = online_monitor
+    app.state.earnings_monitor = earnings_monitor
 
     @app.middleware("http")
     async def basic_auth_middleware(request: Request, call_next):
@@ -191,6 +208,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         online_monitor.request_check()
         return {"ok": True, "online_check": online_monitor.summary()}
 
+    @app.get("/api/earnings")
+    async def api_earnings():
+        return {"ok": True, "earnings": earnings_monitor.summary()}
+
+    @app.post("/api/earnings/check")
+    async def api_earnings_check():
+        earnings_monitor.request_check()
+        return {"ok": True, "earnings": earnings_monitor.summary()}
+
     # ------------------------------------------------------------- Einstellungen
 
     @app.get("/api/settings")
@@ -207,6 +233,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         clear_online_key = bool(
             payload.pop("clear_online_source_api_key", False)
         )
+        clear_earnings_key = bool(
+            payload.pop("clear_earnings_source_api_key", False)
+        )
 
         updates = dict(payload)
         for field in SECRET_FIELDS:
@@ -220,6 +249,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             updates["chat_source_api_key"] = ""
         if clear_online_key:
             updates["online_source_api_key"] = ""
+        if clear_earnings_key:
+            updates["earnings_source_api_key"] = ""
 
         try:
             candidate = settings.updated(updates)
@@ -240,6 +271,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             != settings.chat_overlay_font_size
             or candidate.chat_overlay_width != settings.chat_overlay_width
             or candidate.chat_overlay_font != settings.chat_overlay_font
+            or candidate.earnings_overlay_enabled
+            != settings.earnings_overlay_enabled
+            or candidate.earnings_overlay_position
+            != settings.earnings_overlay_position
+            or candidate.earnings_overlay_font_size
+            != settings.earnings_overlay_font_size
+            or candidate.earnings_overlay_font
+            != settings.earnings_overlay_font
             or candidate.clock_enabled != settings.clock_enabled
             or candidate.clock_position != settings.clock_position
             or candidate.clock_show_seconds != settings.clock_show_seconds
@@ -263,6 +302,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             logger.warning(
                 "Chat-Overlay-Datei konnte nicht angelegt werden", exc_info=True
             )
+        try:
+            ensure_earnings_overlay_file(candidate)
+        except OSError:
+            logger.warning(
+                "Einnahmen-Overlay-Datei konnte nicht angelegt werden",
+                exc_info=True,
+            )
 
         try:
             candidate.save_runtime()
@@ -273,6 +319,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         settings.apply_from(candidate)
         online_monitor.request_check()
+        earnings_monitor.request_check()
 
         if output_needs_reload:
             await supervisor.reload_output()

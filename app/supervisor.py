@@ -19,6 +19,15 @@ from app.chat import (
 )
 from app.clock import build_clock_filter
 from app.delay_buffer import DelayBuffer
+from app.earnings import (
+    EarningsMonitor,
+)
+from app.earnings import (
+    build_overlay_filter as build_earnings_overlay_filter,
+)
+from app.earnings import (
+    default_summary as default_earnings_summary,
+)
 from app.ffmpeg_cmd import (
     bitrate_to_kbps,
     build_output_command,
@@ -226,10 +235,12 @@ class Supervisor:
         self._pause_retry_monotonic = 0.0
 
         self._online: OnlineStatusMonitor | None = None
+        self._earnings: EarningsMonitor | None = None
         self._auto_switch_attempts: dict[str, float] = {}
         self._preferred_return: _PreferredReturn | None = None
         self._chat: ChatWorker | None = None
         self._chat_filter_warned = False
+        self._earnings_filter_warned = False
         self._clock_filter_warned = False
         self._version_filter_warned = False
         self._text_filter_warned = False
@@ -256,6 +267,9 @@ class Supervisor:
         self._online = monitor
         if monitor is not None:
             monitor.set_status_handler(self.handle_online_statuses)
+
+    def set_earnings_monitor(self, monitor: EarningsMonitor | None) -> None:
+        self._earnings = monitor
 
     @property
     def active_id(self) -> str | None:
@@ -450,6 +464,11 @@ class Supervisor:
                     "errors": 0,
                     "error": "",
                 }
+            ),
+            "earnings": (
+                self._earnings.summary()
+                if self._earnings is not None
+                else default_earnings_summary(self.settings)
             ),
             "cookies_configured": self.settings.cookies_file.exists(),
             "auto_refresh_minutes": self.settings.auto_refresh_minutes,
@@ -782,6 +801,7 @@ class Supervisor:
             self._log.clear()
             self._open_log_file(streamer.id)
             self._chat_filter_warned = False
+            self._earnings_filter_warned = False
             self._clock_filter_warned = False
             self._version_filter_warned = False
             self._text_filter_warned = False
@@ -1207,6 +1227,18 @@ class Supervisor:
                     "[Chat] Keine Schrift oder Overlay-Datei gefunden – "
                     "Chat-Overlay deaktiviert"
                 )
+            earnings_filter = build_earnings_overlay_filter(self.settings)
+            if earnings_filter is not None:
+                video_filters.append(earnings_filter)
+            elif (
+                self.settings.earnings_overlay_enabled
+                and not self._earnings_filter_warned
+            ):
+                self._earnings_filter_warned = True
+                self._record(
+                    "[Einnahmen] Keine Schrift oder Overlay-Datei gefunden – "
+                    "Einnahmen-Overlay deaktiviert"
+                )
             clock_filter = build_clock_filter(self.settings)
             if clock_filter is not None:
                 video_filters.append(clock_filter)
@@ -1415,6 +1447,7 @@ class Supervisor:
                 "YouTube-Ausgang wird für kurze Zeit neu aufgebaut"
             )
             self._chat_filter_warned = False
+            self._earnings_filter_warned = False
             self._clock_filter_warned = False
             self._version_filter_warned = False
             self._text_filter_warned = False

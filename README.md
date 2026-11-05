@@ -23,6 +23,7 @@ Restream einzelner TikTok-Live-Streamer auf YouTube – aufgelöst mit **yt-dlp*
 - **Stall-Watchdog**: 30 s ohne Fortschritt → Quelle wird neu gestartet, Pausenscreen überbrückt, RTMP bleibt bestehen
 - Offline-Polling, Reconnect-Backoff 5 s → 5 min, Watch-Modus
 - **Online-Status aller Streamer im Dashboard**: modulare HTTP-JSON-Quelle (z. B. TokTracker), LIVE/offline auch ohne aktiven Stream, einstellbares Intervall und „Status prüfen“-Button; bevorzugte Streamer werden bei Online automatisch übernommen
+- **Einnahmen des aktiven Streamers**: generische TokTracker-kompatible HTTP-JSON-Quelle, drei Dashboard-Anzeigeformen (kompakt/standard/ausführlich), Netto/Brutto/Coins sowie Session-, Zuschauer- und Top-Gift-Infos, standardmäßig alle 5 Minuten aktualisiert (einstellbar bis 30 s) und optional als Overlay im Stream
 - **Pausenscreen**: Bei Stream-Ende/Offline wird automatisch ein generierter Pausenscreen (Text + stille Audiospur) in denselben YouTube-Stream eingespielt, bis der Streamer zurück ist
 - **Optionales Chat-Overlay**: liest eine HTTP-JSON-Chatquelle (z. B. TokTracker `/api/chat-logs`), verzögert die Nachrichten um den Relay-Delay und rendert sie per `drawtext` im laufenden Output – ohne zusätzlichen Encoder
 - **Optionales Uhrzeit-Overlay**: aktuelle Uhrzeit (HH:MM oder HH:MM:SS) an einer frei wählbaren Ecke, direkt von ffmpeg gerendert; optional mit Versionsanzeige oben rechts
@@ -183,6 +184,7 @@ Alle Optionen sind in [`.env.example`](.env.example) dokumentiert.
 - YouTube-RTMP-URL und Backup-RTMP
 - Offline-Poll, Backoff, **Auto-Refresh-Intervall**, **Stall-Timeout**, **Watchdog-Intervall**
 - **Online-Status**: Ein/Aus, HTTP-JSON-Quelle, optionaler API-Key, Prüfintervall und Timeout; der Live-Status aller aktivierten Streamer wird im Hintergrund aus einer TokTracker-kompatiblen API gelesen
+- **Einnahmen**: Ein/Aus, HTTP-JSON-Quelle, optionaler API-Key, Zeitraum, Dashboard-Anzeigeform (kompakt/standard/ausführlich), Aktualisierungsintervall, Timeout sowie optionales Overlay mit Template, Position und Schrift
 - **YouTube-Titel-Template**: lokale Vorschau mit Platzhaltern und Kopierbutton im Dashboard
 - Auto-Start, Reencode-Fallback
 - **Pausenscreen**: Ein/Aus, Texte, Hintergrundfarbe, Schriftdatei und Maximaldauer
@@ -227,6 +229,83 @@ Akzeptiert werden auch eine reine Liste sowie die Felder `isLive`, `live`, `onli
 Fehlt ein Streamer oder ein Live-Status in der Antwort, bleibt sein Status „unbekannt“ – er wird weder als offline gewertet noch bricht die Prüfung ab. Ist die Quelle insgesamt nicht erreichbar, bleiben die zuletzt bekannten Status erhalten; das Dashboard zeigt die Fehlermeldung im Tooltip. Der Restream läuft unabhängig davon weiter.
 
 Mit `preferred: true` (Dashboard: **Bevorzugt**) schaltet der Restreamer automatisch auf diesen Streamer um, sobald der Online-Check ihn als live meldet – auch aus dem Einzelmodus und wenn gerade ein anderer Sender läuft. Läuft bereits ein bevorzugter Sender, bleibt er aktiv; sind mehrere bevorzugte Sender live, gewinnt der erste in der Streamer-Reihenfolge. Ist ein bevorzugter Sender Teil der aktiven Senderliste, bleibt der Playlist-Modus erhalten. Endet der bevorzugte Stream (sauberes Stream-Ende oder „offline“), schaltet der Restreamer automatisch zu dem Sender zurück, der vor der Übernahme lief. War dieser Teil einer Senderliste, werden Playlist-Modus und das gespeicherte Playlist-Ende wiederhergestellt. Ein manueller Start oder Wechsel löscht diese Rückschaltung.
+
+### Einnahmen (optional)
+
+Das Dashboard zeigt für den jeweils aktiven Streamer die Einnahmen aus einer beliebigen HTTP-JSON-Quelle im TokTracker-Format. Standardmäßig wird der Zeitraum **Heute** verwendet und alle **5 Minuten** aktualisiert; das Intervall ist bis auf 30 Sekunden herunter einstellbar. Ein Streamerwechsel löst sofort eine neue Abfrage aus.
+
+```dotenv
+EARNINGS_ENABLED=true
+EARNINGS_SOURCE_URL=https://toktracker.cc/api/public/overview
+EARNINGS_SOURCE_API_KEY=
+EARNINGS_PERIOD=today
+EARNINGS_VIEW=standard
+EARNINGS_REFRESH_SECONDS=300
+EARNINGS_TIMEOUT_SECONDS=20
+```
+
+Dashboard-Anzeigeformen:
+
+- `compact`: nur Zeitraum und Netto
+- `standard`: Netto, Brutto, Coins, Gifts und Gifter
+- `detailed`: zusätzlich Session, Zuschauer, Follower, Top-Gift, Top-Gifter, zuletzt gesehen sowie Monitor-/Kursinfos
+
+Die Quelle erwartet eine TokTracker-kompatible Antwort. Die öffentliche Übersicht liefert z. B.:
+
+```json
+{
+  "period": "today",
+  "rates": {
+    "usd_per_diamond": 0.005,
+    "gross_usd_per_coin": 0.0106,
+    "usd_to_eur_rate": 0.92
+  },
+  "streamers": [
+    {
+      "username": "supergirl0584",
+      "display_name": "Supergirl",
+      "is_live": true,
+      "current_viewers": 2739,
+      "follower_count": 76800,
+      "last_seen_at": "2026-11-04T22:49:22",
+      "total_coins": 123456,
+      "usd_net": 617.28,
+      "eur_net": 567.90,
+      "usd_gross": 1308.63,
+      "eur_gross": 1203.94,
+      "gift_events_count": 42,
+      "total_gifts_sent": 77,
+      "unique_gifters": 12,
+      "top_gift": {"gift_name": "TikTok Universe", "coins": 179996, "count": 4},
+      "top_gifter": {"sender_username": "ness_1983_", "coins": 112407},
+      "active_session": {
+        "id": 812,
+        "started_at": "2026-11-04T22:38:24",
+        "peak_viewers": 2765,
+        "last_fan_tickets": 7000
+      }
+    }
+  ]
+}
+```
+
+Der `period`-Parameter wird automatisch als `?period=today|24h|7d|30d|all` angehängt, sofern er nicht bereits in der URL steht. Ein API-Key wird optional als `X-API-Key`-Header gesendet. Für den Detail-Endpunkt einer Quelle kann `{username}` in der URL verwendet werden:
+
+```dotenv
+EARNINGS_SOURCE_URL=https://toktracker.cc/api/public/streamers/{username}
+```
+
+Akzeptiert werden die Übersicht (`streamers`-Liste), eine reine Liste sowie die Detail-Antwort (`streamer` + `summary`). Fehlen Netto-/Bruttowerte, werden sie aus `total_coins` und den mitgelieferten `rates` berechnet. Ist ein Streamer nicht in der Antwort enthalten, zeigt das Dashboard „keine Daten“; bei einem temporären Quellenfehler bleiben die letzten Werte sichtbar und werden als veraltet markiert.
+
+Zusätzlich zu den Beträgen übernimmt der Restreamer Live-Status, Zuschauer, Follower, letzte Aktivität, Top-Gift, Top-Gifter, Session-Infos (`active_session`, `sessions`, `worker_diagnostics`) und die verwendeten Wechselkurse. Diese Informationen stehen gebündelt unter `GET /api/earnings` bzw. im `earnings`-Block von `GET /api/status` bereit.
+
+Das optionale Overlay wird wie der Chat über eine Textdatei und `drawtext` mit `reload=1` eingebunden, benötigt also keinen zusätzlichen Encoder. Standardtemplate:
+
+```text
+{period}: {net} · Brutto {gross}
+```
+
+Verfügbare Platzhalter: `{period}`, `{net}`, `{gross}`, `{coins}`, `{gifts}`, `{gifters}`, `{session_net}`, `{session_gross}`, `{session_coins}`, `{viewers}`, `{followers}`, `{live}`, `{top_gift}`, `{top_gifter}`, `{display_name}`, `{last_seen}`, `{name}`, `{username}`. Währung ist EUR, sofern die Quelle EUR liefert, sonst USD. Änderungen an Aktivierung, Position oder Schriftgröße bauen den YouTube-Output einmal kurz neu auf; Wertänderungen erscheinen ohne Neustart.
 
 ### Eigene YouTube-Streams und Titel
 

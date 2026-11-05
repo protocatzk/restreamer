@@ -8,6 +8,23 @@ const STATE_LABELS = {
   error: "Fehler",
 };
 
+const EARNINGS_STATUS_LABELS = {
+  ok: "aktuell",
+  checking: "prüfe …",
+  inactive: "kein aktiver Streamer",
+  missing: "keine Daten",
+  error: "Fehler",
+  disabled: "aus",
+  unconfigured: "nicht konfiguriert",
+};
+
+const EARNINGS_POSITION_LABELS = {
+  "top-left": "oben links",
+  "top-right": "oben rechts",
+  "bottom-left": "unten links",
+  "bottom-right": "unten rechts",
+};
+
 const SWITCH_REASONS = {
   "playlist-start": "Playlist gestartet",
   offline: "Sender offline",
@@ -85,6 +102,40 @@ async function copyText(text) {
   area.remove();
 }
 
+function formatMoney(value, currency) {
+  if (value == null) return "–";
+  return new Intl.NumberFormat("de-DE", {
+    style: "currency",
+    currency: currency || "EUR",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value);
+}
+
+function formatCount(value) {
+  if (value == null) return "–";
+  return new Intl.NumberFormat("de-DE").format(value);
+}
+
+function formatTopGift(value) {
+  if (!value) return "–";
+  const name = value.gift_name || value.name || value.gift || "?";
+  const parts = [name];
+  if (value.count != null) parts.push(`${value.count}×`);
+  if (value.coins != null) parts.push(`${formatCount(value.coins)} Coins`);
+  return parts.join(" · ");
+}
+
+function formatTopGifter(value) {
+  if (!value) return "–";
+  const username = value.sender_username || value.username || value.unique_id;
+  const nickname = value.sender_nickname || value.nickname || value.display_name;
+  const name = username ? `@${username}` : nickname || "?";
+  return value.coins == null
+    ? name
+    : `${name} · ${formatCount(value.coins)} Coins`;
+}
+
 function renderStatus(status) {
   app.status = status;
 
@@ -126,6 +177,145 @@ function renderStatus(status) {
     : onlineDisabled
       ? "Online-Prüfung ist in den Einstellungen deaktiviert."
       : "Online-Status aller Streamer sofort prüfen";
+
+  const earnings = status.earnings || {};
+  const earningsData = earnings.data || {};
+  const earningsStreamer = earnings.active_streamer;
+  const earningsView = earnings.view || "standard";
+  const earningsDetailed = earningsView === "detailed";
+  $("earnings-streamer").textContent = earningsStreamer
+    ? `· ${earningsStreamer.name} (@${earningsStreamer.tiktok})`
+    : "";
+  $("earnings-period").textContent =
+    earnings.period_label || earnings.period || "–";
+  $("earnings-net").textContent = formatMoney(
+    earningsData.net,
+    earningsData.currency
+  );
+  $("earnings-gross").textContent = formatMoney(
+    earningsData.gross,
+    earningsData.currency
+  );
+  $("earnings-coins").textContent = formatCount(earningsData.coins);
+  $("earnings-gifts").textContent = formatCount(earningsData.gift_events);
+  $("earnings-gifters").textContent = formatCount(
+    earningsData.unique_gifters
+  );
+
+  const compact = earningsView === "compact";
+  $("earnings-tile-gross").hidden = compact;
+  $("earnings-tile-coins").hidden = compact;
+  $("earnings-tile-gifts").hidden = compact;
+  $("earnings-tile-gifters").hidden = compact;
+
+  const session = earningsData.session_info || {};
+  const sessionNet = earningsData.session_net;
+  $("earnings-session").textContent =
+    sessionNet == null
+      ? "–"
+      : `${formatMoney(sessionNet, earningsData.session_currency)}${
+          earningsData.session_coins == null
+            ? ""
+            : ` · ${formatCount(earningsData.session_coins)} Coins`
+        }`;
+  $("earnings-viewers").textContent = formatCount(
+    earningsData.current_viewers
+  );
+  $("earnings-followers").textContent = formatCount(
+    earningsData.follower_count
+  );
+  $("earnings-top-gift").textContent = formatTopGift(earningsData.top_gift);
+  $("earnings-top-gifter").textContent = formatTopGifter(
+    earningsData.top_gifter
+  );
+  $("earnings-last-seen").textContent = earningsData.last_seen_at || "–";
+  $("earnings-extra").hidden = !earningsDetailed;
+  $("earnings-session").title = session.started_at
+    ? `Session-Start: ${session.started_at}${
+        session.peak_viewers == null
+          ? ""
+          : ` · Peak: ${formatCount(session.peak_viewers)}`
+      }`
+    : "";
+
+  const earningsMeta = $("earnings-meta");
+  const earningsStatus =
+    EARNINGS_STATUS_LABELS[earnings.status] || earnings.status || "";
+  const earningsDetails = [];
+  if (earnings.configured === false) {
+    earningsDetails.push("Keine Einnahmenquelle konfiguriert.");
+  } else if (earnings.enabled === false) {
+    earningsDetails.push("Einnahmen-Anzeige ist in den Einstellungen deaktiviert.");
+  } else if (earnings.status === "inactive") {
+    earningsDetails.push("Kein aktiver Streamer.");
+  } else if (earnings.missing) {
+    const handle = earningsStreamer ? `@${earningsStreamer.tiktok}` : "den Streamer";
+    earningsDetails.push(`Keine Einnahmen-Daten für ${handle} in der Quelle.`);
+  } else if (earnings.error) {
+    earningsDetails.push(`Fehler: ${earnings.error}`);
+  }
+  if (earningsData.session_net != null) {
+    earningsDetails.push(
+      `Session: ${formatMoney(
+        earningsData.session_net,
+        earningsData.session_currency
+      )}`
+    );
+  }
+  if (earningsDetailed && earningsData.is_live != null) {
+    earningsDetails.push(earningsData.is_live ? "Live: ja" : "Live: nein");
+  }
+  if (earningsDetailed && earningsData.diagnostics?.state) {
+    earningsDetails.push(`Monitor: ${earningsData.diagnostics.state}`);
+  }
+  if (earningsDetailed && earnings.rates) {
+    const rates = earnings.rates;
+    const rateParts = [];
+    if (rates.usd_per_diamond != null) {
+      rateParts.push(`${rates.usd_per_diamond} USD/Diamond`);
+    }
+    if (rates.gross_usd_per_coin != null) {
+      rateParts.push(`${rates.gross_usd_per_coin} USD/Coin brutto`);
+    }
+    if (rates.usd_to_eur_rate != null) {
+      rateParts.push(`1 USD = ${rates.usd_to_eur_rate} EUR`);
+    }
+    if (rateParts.length) earningsDetails.push(`Kurse: ${rateParts.join(" · ")}`);
+  }
+  if (earnings.last_run_at) {
+    earningsDetails.push(`Zuletzt geprüft: ${earnings.last_run_at}`);
+  }
+  if (earnings.source) {
+    earningsDetails.push(`Quelle: ${earnings.source}`);
+  }
+  if (earnings.overlay_enabled) {
+    const position =
+      EARNINGS_POSITION_LABELS[earnings.overlay_position] ||
+      earnings.overlay_position ||
+      "–";
+    const font = earnings.overlay_font_size
+      ? `${earnings.overlay_font_size} px`
+      : "auto";
+    earningsDetails.push(`Overlay: ${position} · ${font}`);
+  }
+  if (earningsStatus) earningsDetails.push(`Status: ${earningsStatus}`);
+  earningsMeta.textContent = earningsDetails.join(" · ");
+  earningsMeta.className = earnings.error ? "hint warn-text" : "hint";
+  earningsMeta.title = earnings.configured === false
+    ? "Einnahmenquelle in den Einstellungen eintragen."
+    : `Intervall: ${earnings.interval_seconds || "–"} s · Zeitraum: ${
+        earnings.period_label || earnings.period || "–"
+      } · Ansicht: ${earningsView}`;
+
+  const earningsButton = $("earnings-refresh-btn");
+  earningsButton.disabled =
+    earnings.configured === false || earnings.enabled === false;
+  earningsButton.title =
+    earnings.configured === false
+      ? "Keine Einnahmenquelle konfiguriert."
+      : earnings.enabled === false
+        ? "Einnahmen-Anzeige ist in den Einstellungen deaktiviert."
+        : "Einnahmen des aktiven Streamers sofort aktualisieren";
 
   $("cookies-state").textContent = status.cookies_configured ? "vorhanden" : "fehlen";
   const progressAge = status.progress_age_seconds;
@@ -1294,6 +1484,9 @@ function populateSettings(settings) {
   $("online-key-hint").textContent = settings.online_source_api_key_set
     ? "Ein API-Key ist gespeichert. Leer lassen, um ihn zu behalten."
     : "Noch kein API-Key gespeichert.";
+  $("earnings-key-hint").textContent = settings.earnings_source_api_key_set
+    ? "Ein API-Key ist gespeichert. Leer lassen, um ihn zu behalten."
+    : "Noch kein API-Key gespeichert.";
   $("path-streamers").textContent = settings.streamers_file;
   $("path-settings").textContent = settings.settings_file;
   $("path-cookies").textContent = `${settings.cookies_file}${
@@ -1412,6 +1605,16 @@ $("online-check-btn").addEventListener("click", async () => {
   try {
     await api("/api/online/check", { method: "POST", body: "{}" });
     setBanner("Online-Status wird geprüft …", "ok");
+    await refreshStatus();
+  } catch (error) {
+    setBanner(error.message, "error");
+  }
+});
+$("earnings-refresh-btn").addEventListener("click", async () => {
+  setBanner("");
+  try {
+    await api("/api/earnings/check", { method: "POST", body: "{}" });
+    setBanner("Einnahmen werden aktualisiert …", "ok");
     await refreshStatus();
   } catch (error) {
     setBanner(error.message, "error");
