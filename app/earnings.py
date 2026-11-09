@@ -1126,21 +1126,24 @@ class EarningsMonitor:
             )
             self._write_overlay()
 
-    def _write_overlay(self) -> None:
+    def overlay_text(self) -> str:
+        """Return the text for the image overlay engine."""
         if (
             not self.settings.earnings_overlay_enabled
             or self._entry is None
             or self._streamer_id is None
         ):
-            text = ""
-        else:
-            text = render_overlay_text(
-                self.settings.earnings_overlay_template,
-                self._entry,
-                name=self._streamer_name,
-                username=self._streamer_handle,
-                period=self._entry.period or self.settings.earnings_period,
-            )
+            return ""
+        return render_overlay_text(
+            self.settings.earnings_overlay_template,
+            self._entry,
+            name=self._streamer_name,
+            username=self._streamer_handle,
+            period=self._entry.period or self.settings.earnings_period,
+        )
+
+    def _write_overlay(self) -> None:
+        text = self.overlay_text()
         if text == self._last_overlay_text:
             return
         self._last_overlay_text = text

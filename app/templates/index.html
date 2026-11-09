@@ -599,7 +599,8 @@
           <p class="hint">Die Quelle wird für den aktiven Streamer abgefragt und liefert
             TokTracker-kompatible Einnahmen (z. B. <code>/api/public/overview</code>).
             Ein Streamerwechsel löst sofort eine neue Abfrage aus. Das Overlay wird
-            wie der Chat per <code>drawtext</code> aktualisiert.</p>
+            von der Overlay-Engine gerendert (im Fallback wie bisher per
+            <code>drawtext</code>).</p>
         </fieldset>
 
         <fieldset>
@@ -676,6 +677,31 @@
         </fieldset>
 
         <fieldset>
+          <legend>Overlay-Engine</legend>
+          <div class="check-row">
+            <label class="check"><input type="checkbox" name="overlay_engine_enabled"> Neue PNG-Overlay-Engine verwenden</label>
+            <label class="check"><input type="checkbox" name="overlay_emoji_enabled"> Farb-Emoji anzeigen</label>
+          </div>
+          <div class="form-grid">
+            <label class="field">
+              <span>Overlay-Bildrate (FPS)</span>
+              <input name="overlay_render_fps" type="number" min="5" max="30" step="1">
+            </label>
+          </div>
+          <div class="overlay-preview-header">
+            <span>Vorschau (gespeicherte Einstellungen)</span>
+            <label class="check"><input type="checkbox" id="overlay-preview-sample" checked> Beispielinhalte</label>
+          </div>
+          <div class="overlay-preview-wrap">
+            <img id="overlay-preview" class="overlay-preview" alt="Overlay-Vorschau">
+          </div>
+          <p class="hint">Die PNG-Engine rendert Chat, Einnahmen, Uhrzeit, Version und Laufschrift
+            gemeinsam und benötigt keinen zusätzlichen Encoder. Änderungen an Stil, Deckkraft und
+            Inhalten wirken live; nur Aktivierung, Bildrate und Ausgabeformat starten den
+            YouTube-Ausgang neu. Ohne Engine werden weiterhin die bisherigen drawtext-Filter genutzt.</p>
+        </fieldset>
+
+        <fieldset>
           <legend>Chat-Overlay</legend>
           <div class="check-row">
             <label class="check"><input type="checkbox" name="chat_enabled"> Chat im Stream anzeigen</label>
@@ -724,12 +750,31 @@
               <span>Schriftdatei (optional)</span>
               <input name="chat_overlay_font" placeholder="leer = automatisch">
             </label>
+            <label class="field">
+              <span>Chat-Stil</span>
+              <select name="chat_overlay_style">
+                <option value="bubbles">Blasen</option>
+                <option value="panel">Ein Panel</option>
+                <option value="minimal">Minimal</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Deckkraft der Blasen (%)</span>
+              <input name="chat_overlay_opacity" type="number" min="0" max="100" step="1">
+            </label>
+            <label class="field">
+              <span>Max. Zeilen pro Nachricht</span>
+              <input name="chat_overlay_max_lines" type="number" min="1" max="6" step="1">
+            </label>
           </div>
           <div class="check-row">
+            <label class="check"><input type="checkbox" name="chat_overlay_name_colors"> Namen farbig hervorheben</label>
+            <label class="check"><input type="checkbox" name="chat_overlay_show_timestamps"> Uhrzeit der Nachricht anzeigen</label>
             <label class="check"><input type="checkbox" name="clear_chat_source_api_key"> Chat-API-Key entfernen</label>
           </div>
           <p class="hint">Nachrichten werden um den Relay-Delay verzögert, damit sie zum Bild passen.
-            Änderungen an Aktivierung, Position oder Schriftgröße starten den YouTube-Ausgang kurz neu.</p>
+            Mit der PNG-Engine wirken Aktivierung, Stil, Position und Schriftgröße live;
+            im drawtext-Fallback startet der YouTube-Ausgang dafür kurz neu.</p>
         </fieldset>
 
         <fieldset>
