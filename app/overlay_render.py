@@ -81,6 +81,26 @@ def _name_color(username: str) -> tuple[int, int, int]:
     return _NAME_PALETTE[digest[0] % len(_NAME_PALETTE)]
 
 
+def _fit_text(text: str, font, max_width: float) -> str:
+    """Truncate text to ``max_width`` pixels and append an ellipsis."""
+    if max_width <= 0:
+        return ""
+    if font.getlength(text) <= max_width:
+        return text
+    ellipsis = "…"
+    if font.getlength(ellipsis) > max_width:
+        return ""
+    low, high = 0, len(text)
+    while low < high:
+        middle = (low + high + 1) // 2
+        candidate = text[:middle].rstrip() + ellipsis
+        if font.getlength(candidate) <= max_width:
+            low = middle
+        else:
+            high = middle - 1
+    return text[:low].rstrip() + ellipsis
+
+
 @dataclass(frozen=True)
 class OverlaySnapshot:
     """Everything the renderer needs for one frame."""
@@ -371,8 +391,21 @@ class OverlayRenderer:
             if timestamp and timestamp_fonts is not None
             else 0.0
         )
+        star_width = (
+            name_fonts.bold.getlength("★") + section_gap
+            if message.is_whale
+            else 0.0
+        )
+        header_available = (
+            max_width
+            - padding * 2
+            - timestamp_width
+            - (section_gap if timestamp_width else 0.0)
+            - star_width
+        )
+        name = _fit_text(name, name_fonts.bold, header_available)
         name_width = name_fonts.bold.getlength(name)
-        header_width = name_width + (
+        header_width = star_width + name_width + (
             timestamp_width + section_gap if timestamp_width else 0.0
         )
         content_max = max(1, max_width - padding * 2)
@@ -416,11 +449,9 @@ class OverlayRenderer:
 
         name_x = base_x
         if message.is_whale:
-            star = "★"
-            star_width = name_fonts.bold.getlength(star) + section_gap
             drawer.text(
                 (name_x, base_y),
-                star,
+                "★",
                 font=name_fonts.bold,
                 fill=(255, 205, 86, 255),
             )

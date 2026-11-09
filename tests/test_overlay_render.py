@@ -6,7 +6,13 @@ from pathlib import Path
 import pytest
 
 from app.chat import ChatMessage
-from app.overlay_render import OverlayRenderer, OverlaySnapshot, _name_color
+from app.overlay_render import (
+    OverlayRenderer,
+    OverlaySnapshot,
+    _fit_text,
+    _name_color,
+)
+from app.overlay_text import load_font_set
 from app.pause import find_pause_font
 from app.settings import Settings
 
@@ -85,6 +91,19 @@ def test_style_changes_output(tmp_path: Path) -> None:
 def test_name_colors_are_stable(tmp_path: Path) -> None:
     assert _name_color("Alice") == _name_color("alice")
     assert _name_color("alice") != _name_color("bob")
+
+
+def test_long_names_are_ellipsized_to_fit() -> None:
+    _requires_font()
+    path = find_pause_font()
+    assert path is not None
+    fonts = load_font_set(path, 26)
+    assert fonts is not None
+
+    fitted = _fit_text("i_am_the_blackyunicorn" * 2, fonts.bold, 120)
+
+    assert fitted.endswith("…")
+    assert fonts.bold.getlength(fitted) <= 120
 
 
 def test_clock_version_and_earnings_are_drawn(tmp_path: Path) -> None:
