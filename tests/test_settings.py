@@ -97,47 +97,6 @@ def test_new_defaults_are_present(tmp_path: Path) -> None:
     assert data["youtube_title_template"] == "{name} live: {title}"
 
 
-def test_overlay_engine_defaults_and_validation(tmp_path: Path) -> None:
-    settings = Settings(runtime_file=tmp_path / "settings.yml")
-    data = settings.to_public_dict()
-
-    assert data["overlay_engine_enabled"] is True
-    assert data["overlay_render_fps"] == 15
-    assert data["overlay_emoji_enabled"] is True
-    assert data["chat_overlay_style"] == "bubbles"
-    assert data["chat_overlay_opacity"] == 78
-    assert data["chat_overlay_name_colors"] is True
-    assert data["chat_overlay_show_timestamps"] is False
-    assert data["chat_overlay_max_lines"] == 3
-
-    updated = settings.updated(
-        {
-            "overlay_engine_enabled": False,
-            "overlay_render_fps": 24,
-            "overlay_emoji_enabled": False,
-            "chat_overlay_style": "minimal",
-            "chat_overlay_opacity": 42,
-            "chat_overlay_name_colors": False,
-            "chat_overlay_show_timestamps": True,
-            "chat_overlay_max_lines": 5,
-        }
-    )
-    assert updated.overlay_engine_enabled is False
-    assert updated.overlay_render_fps == 24
-    assert updated.chat_overlay_style == "minimal"
-    assert updated.chat_overlay_opacity == 42
-    assert updated.chat_overlay_max_lines == 5
-
-    with pytest.raises(ValueError, match="chat_overlay_style"):
-        settings.updated({"chat_overlay_style": "fancy"})
-    with pytest.raises(ValueError, match="chat_overlay_opacity"):
-        settings.updated({"chat_overlay_opacity": 101})
-    with pytest.raises(ValueError, match="chat_overlay_max_lines"):
-        settings.updated({"chat_overlay_max_lines": 7})
-    with pytest.raises(ValueError, match="overlay_render_fps"):
-        settings.updated({"overlay_render_fps": 4})
-
-
 def test_online_check_values_are_validated(tmp_path: Path) -> None:
     settings = Settings(runtime_file=tmp_path / "settings.yml")
 

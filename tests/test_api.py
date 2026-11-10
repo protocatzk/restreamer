@@ -69,25 +69,6 @@ def test_earnings_source_is_exposed_without_active_stream(
     assert payload["data"] is None
 
 
-def test_overlay_preview_endpoint(settings, streamers_file) -> None:
-    app = create_app(
-        replace(
-            settings,
-            streamers_file=streamers_file,
-            chat_enabled=True,
-            overlay_engine_enabled=True,
-        )
-    )
-
-    with TestClient(app) as client:
-        response = client.get("/api/overlay/preview.png?sample=1")
-
-    assert response.status_code == 200
-    assert response.headers["content-type"] == "image/png"
-    assert response.headers["cache-control"] == "no-store"
-    assert response.content.startswith(b"\x89PNG\r\n\x1a\n")
-
-
 def test_online_check_endpoint(settings, streamers_file) -> None:
     app = create_app(replace(settings, streamers_file=streamers_file))
 

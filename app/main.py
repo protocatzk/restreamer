@@ -217,21 +217,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         earnings_monitor.request_check()
         return {"ok": True, "earnings": earnings_monitor.summary()}
 
-    @app.get("/api/overlay/preview.png")
-    async def api_overlay_preview(sample: bool = Query(False)):
-        try:
-            content = supervisor.overlay_preview_png(sample=sample)
-        except Exception as exc:  # noqa: BLE001 - preview must not kill the app
-            logger.exception("Overlay-Vorschau fehlgeschlagen")
-            raise HTTPException(
-                status_code=500, detail=f"Overlay-Vorschau fehlgeschlagen: {exc}"
-            ) from exc
-        return Response(
-            content=content,
-            media_type="image/png",
-            headers={"Cache-Control": "no-store"},
-        )
-
     # ------------------------------------------------------------- Einstellungen
 
     @app.get("/api/settings")
@@ -272,8 +257,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-        legacy_overlay_changed = (
-            candidate.chat_enabled != settings.chat_enabled
+        output_needs_reload = (
+            candidate.output_orientation != settings.output_orientation
+            or candidate.reencode_video_bitrate != settings.reencode_video_bitrate
+            or candidate.audio_bitrate != settings.audio_bitrate
+            or candidate.output_fps != settings.output_fps
+            or candidate.output_stretch_percent
+            != settings.output_stretch_percent
+            or candidate.chat_enabled != settings.chat_enabled
             or candidate.chat_overlay_position
             != settings.chat_overlay_position
             or candidate.chat_overlay_font_size
@@ -303,25 +294,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             or candidate.text_overlay_speed != settings.text_overlay_speed
             or candidate.version_overlay_enabled
             != settings.version_overlay_enabled
-        )
-        engine_changed = (
-            candidate.overlay_engine_enabled
-            != settings.overlay_engine_enabled
-            or candidate.overlay_render_fps != settings.overlay_render_fps
-        )
-        output_needs_reload = (
-            candidate.output_orientation != settings.output_orientation
-            or candidate.reencode_video_bitrate != settings.reencode_video_bitrate
-            or candidate.audio_bitrate != settings.audio_bitrate
-            or candidate.output_fps != settings.output_fps
-            or candidate.output_stretch_percent
-            != settings.output_stretch_percent
-            or engine_changed
-            or (
-                not candidate.overlay_engine_enabled
-                and not settings.overlay_engine_enabled
-                and legacy_overlay_changed
-            )
         )
 
         try:

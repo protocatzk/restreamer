@@ -213,35 +213,3 @@ def test_empty_stream_url_rejected(settings: Settings) -> None:
     empty = replace(STREAM, url="")
     with pytest.raises(ValueError, match="Stream-URL"):
         build_source_command(STREAMER, empty, settings)
-
-
-def test_output_uses_image_overlay_filter_complex(settings: Settings) -> None:
-    args = build_output_command(
-        settings,
-        "key-123",
-        overlay_input_args=(
-            "-f",
-            "image2pipe",
-            "-framerate",
-            "15",
-            "-i",
-            "/app/logs/.overlay-test.pipe",
-        ),
-    )
-
-    assert "-filter_complex" in args
-    assert "-vf" not in args
-    graph = args[args.index("-filter_complex") + 1]
-    assert "[1:v]overlay=0:0" in graph
-    assert "eof_action=repeat" in graph
-    assert "format=yuv420p[vout]" in graph
-    assert args[args.index("-map") + 1] == "[vout]"
-    assert "/app/logs/.overlay-test.pipe" in args
-
-
-def test_output_without_overlay_keeps_vf(settings: Settings) -> None:
-    args = build_output_command(settings, "key-123")
-
-    assert "-vf" in args
-    assert "-filter_complex" not in args
-    assert args[args.index("-map") + 1] == "0:v:0?"

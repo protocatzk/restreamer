@@ -12,7 +12,6 @@ RUN apt-get update \
         curl \
         ffmpeg \
         fonts-dejavu-core \
-        fonts-noto-color-emoji \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

@@ -712,43 +712,8 @@ legend {
   overflow-wrap: anywhere;
 }
 
-.overlay-preview-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin: 16px 0 8px;
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.overlay-preview-wrap {
-  display: flex;
-  justify-content: center;
-  padding: 12px;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background-color: #0c0f13;
-  background-image:
-    linear-gradient(45deg, #171b21 25%, transparent 25%),
-    linear-gradient(-45deg, #171b21 25%, transparent 25%),
-    linear-gradient(45deg, transparent 75%, #171b21 75%),
-    linear-gradient(-45deg, transparent 75%, #171b21 75%);
-  background-size: 20px 20px;
-  background-position: 0 0, 0 10px, 10px -10px, -10px 0;
-}
-
-.overlay-preview {
-  display: block;
-  max-width: 100%;
-  max-height: 58vh;
-  border-radius: 8px;
-  background: rgba(0, 0, 0, 0.25);
-}
-
 @media (max-width: 640px) {
   .modal form { padding: 16px; }
   .modal-actions { flex-direction: column-reverse; }
   .modal-actions .btn { width: 100%; }
-  .overlay-preview-header { flex-direction: column; align-items: flex-start; }
 }

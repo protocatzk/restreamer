@@ -177,7 +177,6 @@ def build_output_command(
     key: str,
     ffmpeg_args: tuple[str, ...] = (),
     extra_video_filters: tuple[str, ...] = (),
-    overlay_input_args: tuple[str, ...] = (),
 ) -> list[str]:
     """Build the long-lived ffmpeg that pushes the relay to YouTube.
 
@@ -185,10 +184,6 @@ def build_output_command(
     This gives YouTube a continuous, monotonic timeline even when the
     underlying TikTok source reconnects, changes resolution, or delivers
     non-monotonic DTS values.
-
-    ``overlay_input_args`` optionally adds a second (image2pipe) input and
-    composites it full-frame with the ``overlay`` filter.  The rest of the
-    video chain, including the fixed canvas and framerate, runs first.
     """
     args = [
         settings.ffmpeg_bin,
@@ -214,8 +209,6 @@ def build_output_command(
         "-i",
         build_relay_input_url(settings),
     ]
-    if overlay_input_args:
-        args += list(overlay_input_args)
 
     width = settings.output_width
     height = settings.output_height
@@ -233,28 +226,13 @@ def build_output_command(
 
     bitrate = settings.reencode_video_bitrate
     gop = max(1, settings.output_fps * 2)
-    if overlay_input_args:
-        if extras:
-            graph = (
-                f"[0:v]{video_filter}[base];"
-                "[base][1:v]overlay=0:0:eof_action=repeat:repeatlast=1:"
-                "format=auto[overlay];"
-                f"[overlay]{','.join(extras)},format=yuv420p[vout]"
-            )
-        else:
-            graph = (
-                f"[0:v]{video_filter}[base];"
-                "[base][1:v]overlay=0:0:eof_action=repeat:repeatlast=1:"
-                "format=auto,format=yuv420p[vout]"
-            )
-        map_args = ["-map", "[vout]", "-map", "0:a:0?"]
-        filter_args = ["-filter_complex", graph]
-    else:
-        map_args = ["-map", "0:v:0?", "-map", "0:a:0?"]
-        filter_args = ["-vf", video_filter]
     output_options = [
-        *map_args,
-        *filter_args,
+        "-map",
+        "0:v:0?",
+        "-map",
+        "0:a:0?",
+        "-vf",
+        video_filter,
         "-fps_mode",
         "cfr",
         "-c:v",
