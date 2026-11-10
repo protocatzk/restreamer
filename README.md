@@ -25,7 +25,7 @@ Restream einzelner TikTok-Live-Streamer auf YouTube – aufgelöst mit **yt-dlp*
 - **Online-Status aller Streamer im Dashboard**: modulare HTTP-JSON-Quelle (z. B. TokTracker), LIVE/offline auch ohne aktiven Stream, einstellbares Intervall und „Status prüfen“-Button; bevorzugte Streamer werden bei Online automatisch übernommen
 - **Einnahmen des aktiven Streamers**: generische TokTracker-kompatible HTTP-JSON-Quelle, drei Dashboard-Anzeigeformen (kompakt/standard/ausführlich), Netto/Brutto/Coins sowie Session-, Zuschauer- und Top-Gift-Infos, standardmäßig alle 5 Minuten aktualisiert (einstellbar bis 30 s) und optional als Overlay im Stream
 - **Pausenscreen**: Bei Stream-Ende/Offline wird automatisch ein generierter Pausenscreen (Text + stille Audiospur) in denselben YouTube-Stream eingespielt, bis der Streamer zurück ist
-- **Optionales Chat-Overlay**: liest eine HTTP-JSON-Chatquelle (z. B. TokTracker `/api/chat-logs`), verzögert die Nachrichten um den Relay-Delay und rendert sie per `drawtext` im laufenden Output – ohne zusätzlichen Encoder
+- **Gemeinsame PNG-Overlay-Engine**: rendert Chat, Einnahmen, Uhrzeit, Version und Laufschrift mit Pillow als transparentes Overlay und speist es über eine FIFO in den laufenden Output – inklusive farbiger Emoji, Chat-Blasen und Live-Vorschau im Dashboard
 - **Optionales Uhrzeit-Overlay**: aktuelle Uhrzeit (HH:MM oder HH:MM:SS) an einer frei wählbaren Ecke, direkt von ffmpeg gerendert; optional mit Versionsanzeige oben rechts
 - **Optionales Text-Overlay (Laufschrift)**: frei wählbarer Text oben oder unten; passt er nicht in die Ausgabebreite, scrollt er automatisch als Laufschrift
 - **Mehrere Senderlisten (Playlists)**: Streamer in festen Reihenfolgen wie TV-Sender durchschalten – automatisch bei Stream-Ende/Offline oder manuell per Vor/Zurück
@@ -188,7 +188,8 @@ Alle Optionen sind in [`.env.example`](.env.example) dokumentiert.
 - **YouTube-Titel-Template**: lokale Vorschau mit Platzhaltern und Kopierbutton im Dashboard
 - Auto-Start, Reencode-Fallback
 - **Pausenscreen**: Ein/Aus, Texte, Hintergrundfarbe, Schriftdatei und Maximaldauer
-- **Chat-Overlay**: Ein/Aus, HTTP-JSON-Quelle, API-Key, Poll-Intervall, Position, Schriftgröße, Chatbreite und maximale Nachrichtenzahl
+- **Overlay-Engine**: PNG-Rendering aller Overlays, Bildrate, Farb-Emoji, Fallback auf die alten drawtext-Filter
+- **Chat-Overlay**: Ein/Aus, HTTP-JSON-Quelle, API-Key, Poll-Intervall, Position, Schriftgröße, Chatbreite, maximale Nachrichtenzahl, Stil (Blasen/Panel/Minimal), Deckkraft, Namensfarben, Zeitstempel und maximale Zeilen
 - **Uhrzeit-Overlay**: Ein/Aus, Position, Sekunden, Schriftgröße und Schriftdatei; zusätzlich Versionsanzeige oben rechts
 - **Text-Overlay (Laufschrift)**: Ein/Aus, Text, Position oben/unten, Schriftgröße, Schriftdatei und Scroll-Geschwindigkeit
 - **Ausgabeformat**: 720p Hochformat (720×1280) oder Querformat (1280×720). Beim Umschalten im laufenden Betrieb wird nur der YouTube-Output kurz neu aufgebaut; die TikTok-Quelle läuft weiter.
@@ -299,7 +300,7 @@ Akzeptiert werden die Übersicht (`streamers`-Liste), eine reine Liste sowie die
 
 Zusätzlich zu den Beträgen übernimmt der Restreamer Live-Status, Zuschauer, Follower, letzte Aktivität, Top-Gift, Top-Gifter, Session-Infos (`active_session`, `sessions`, `worker_diagnostics`) und die verwendeten Wechselkurse. Diese Informationen stehen gebündelt unter `GET /api/earnings` bzw. im `earnings`-Block von `GET /api/status` bereit.
 
-Das optionale Overlay wird wie der Chat über eine Textdatei und `drawtext` mit `reload=1` eingebunden, benötigt also keinen zusätzlichen Encoder. Standardtemplate:
+Das optionale Overlay wird von der Overlay-Engine gerendert (im Fallback wie bisher über eine Textdatei und `drawtext` mit `reload=1`), benötigt also keinen zusätzlichen Encoder. Standardtemplate:
 
 ```text
 {period}: {net} · Brutto {gross}
@@ -330,6 +331,39 @@ YOUTUBE_TITLE_TEMPLATE={name} live: {title}
 
 Verfügbare Platzhalter: `{name}`, `{tiktok}`, `{title}`, `{date}`, `{time}`. Der Titel wird auf 100 Zeichen begrenzt. Änderungen am Template wirken sofort auf die nächste Statusanzeige.
 
+### Overlay-Engine (PNG, Standard)
+
+Seit `0.13.0` rendert der Restreamer alle Overlays gemeinsam mit Pillow als
+transparentes PNG und speist es über eine lokale FIFO als zweiten Input in den
+bestehenden Output-ffmpeg. Dadurch bleiben die Overlays unabhängig vom
+Quellvideo, benötigen keinen zusätzlichen Encoder und unterstützen Farb-Emoji,
+runde Chat-Blasen, Schatten sowie eine Live-Vorschau im Dashboard.
+
+```dotenv
+OVERLAY_ENGINE_ENABLED=true   # false = bisherige drawtext-Filter
+OVERLAY_RENDER_FPS=15         # 5-30, passend zu OUTPUT_FPS
+OVERLAY_EMOJI_ENABLED=true    # Noto Color Emoji verwenden
+```
+
+Eigenschaften:
+
+- Alle Overlays werden auf eine feste Ausgabefläche (`OUTPUT_ORIENTATION`)
+  gerendert. Neu gerendert wird nur bei inhaltlichen Änderungen; an ffmpeg
+  wird trotzdem kontinuierlich das aktuelle Frame geschickt, damit die
+  Overlay-Zeitachse nicht stehen bleibt. Die Laufschrift wird mit
+  `OVERLAY_RENDER_FPS` bewegt.
+- Chat, Einnahmen, Uhrzeit, Version und Laufschrift weichen sich gegenseitig
+  aus, statt dieselbe Ecke zu überdecken.
+- Im Dashboard unter **Einstellungen → Overlay-Engine** gibt es eine
+  Live-Vorschau (`/api/overlay/preview.png`). Für die Vorschau werden bei
+  Bedarf Beispielnachrichten und Beispieldaten gerendert.
+- Änderungen an Stil, Deckkraft, Farben, Texten und aktivierten Overlays wirken
+  live. Nur `OVERLAY_ENGINE_ENABLED`, `OVERLAY_RENDER_FPS` sowie Ausgabeformat,
+  FPS und Bitrate bauen den YouTube-Output einmal kurz neu auf.
+- Fehlt `fonts-noto-color-emoji` oder schlägt das Rendering fehl, läuft der
+  Stream unverändert weiter. Mit `OVERLAY_ENGINE_ENABLED=false` kann jederzeit
+  auf die bisherigen `drawtext`-Filter zurückgeschaltet werden.
+
 ### Chat-Overlay (optional)
 
 Der Chat kann aus einer beliebigen HTTP-JSON-Quelle eingeblendet werden. Der Restreamer kennt TokTracker nicht direkt: Er pollt nur die konfigurierte URL und erwartet eine Antwort wie:
@@ -358,15 +392,36 @@ CHAT_SOURCE_API_KEY=<TIKTOK_API_KEY aus TokTracker>
 CHAT_POLL_SECONDS=5
 ```
 
-Das Overlay läuft im bestehenden Output-ffmpeg (`drawtext` mit `reload=1`), braucht also keinen zusätzlichen Encoder. Nachrichten werden um `CHAT_DELAY_SECONDS` verzögert; `-1` übernimmt automatisch `RELAY_DELAY_SECONDS`, damit der Chat zum 30-Sekunden-delayten Bild passt. Bei Senderwechsel oder Pausenscreen wird der alte Chat erst nach demselben Delay ausgeblendet.
+Der Chat wird von der Overlay-Engine gerendert und als PNG in den bestehenden Output-ffmpeg eingeblendet; ein zusätzlicher Encoder ist nicht nötig. Nachrichten werden um `CHAT_DELAY_SECONDS` verzögert; `-1` übernimmt automatisch `RELAY_DELAY_SECONDS`, damit der Chat zum 30-Sekunden-delayten Bild passt. Bei Senderwechsel oder Pausenscreen wird der alte Chat erst nach demselben Delay ausgeblendet.
 
-Mit `CHAT_OVERLAY_WIDTH` lässt sich der Chat auf eine feste Breite begrenzen. Bei einer 9:16-Quelle in der Querformat-Ausgabe (1280×720) bleibt links ein schwarzer Balken von ca. 387 px; mit `CHAT_OVERLAY_WIDTH=320` und Schriftgröße 20 bleibt der Chat komplett in diesem Balken. Der Umbruch wird in Python berechnet, `drawtext` zeichnet nur die fertigen Zeilen.
+Mit `CHAT_OVERLAY_WIDTH` lässt sich der Chat auf eine feste Breite begrenzen. Bei einer 9:16-Quelle in der Querformat-Ausgabe (1280×720) bleibt links ein schwarzer Balken von ca. 387 px; mit `CHAT_OVERLAY_WIDTH=320` und Schriftgröße 20 bleibt der Chat komplett in diesem Balken. Der Umbruch inklusive Emoji wird in Python berechnet.
 
-Wenn die Chatquelle nicht erreichbar ist, läuft der Stream normal weiter – es wird nur kein Chat angezeigt. Aktivierung, Position und Schriftgröße können im Dashboard gepflegt werden; Änderungen daran bauen den YouTube-Output einmal kurz neu auf.
+Der Stil ist über `CHAT_OVERLAY_STYLE` wählbar:
+
+```dotenv
+CHAT_OVERLAY_STYLE=bubbles   # bubbles | panel | minimal
+CHAT_OVERLAY_OPACITY=78      # Deckkraft der Blasen in Prozent
+CHAT_OVERLAY_NAME_COLORS=true
+CHAT_OVERLAY_SHOW_TIMESTAMPS=false
+CHAT_OVERLAY_MAX_LINES=3
+```
+
+- `bubbles`: pro Nachricht eine abgerundete, halbtransparente Blase.
+- `panel`: eine gemeinsame Box für alle Nachrichten.
+- `minimal`: nur farbiger Name und Text mit Schatten.
+
+Farb-Emoji werden über Noto Color Emoji gerendert (auch ZWJ-Sequenzen, Hauttöne
+und Flaggen). Wenn die Schrift im Image fehlt, werden Emoji notfalls mit der
+normalen Schrift dargestellt.
+
+Wenn die Chatquelle nicht erreichbar ist, läuft der Stream normal weiter – es
+wird nur kein Chat angezeigt. Mit der PNG-Engine wirken Änderungen an Stil,
+Deckkraft, Position und Schriftgröße live; im drawtext-Fallback bauen sie den
+YouTube-Output einmal kurz neu auf.
 
 ### Uhrzeit-Overlay
 
-Optional kann die aktuelle Uhrzeit im Stream angezeigt werden. Das erledigt ffmpeg direkt über `drawtext` mit `%{localtime}` – ohne zusätzliche Datei und ohne Neustart pro Minute:
+Optional kann die aktuelle Uhrzeit im Stream angezeigt werden. Die Overlay-Engine rendert sie aus der Systemzeit; im drawtext-Fallback übernimmt ffmpeg `%{localtime}`:
 
 ```dotenv
 CLOCK_ENABLED=true
@@ -376,9 +431,9 @@ CLOCK_FONT_SIZE=0            # 0 = automatisch
 CLOCK_FONT=                 # optional, sonst DejaVu
 ```
 
-Bei der Querformat-Ausgabe liegt `top-left` im linken schwarzen Balken, oberhalb des Chats. Die Uhrzeit wird bei jeder Änderung von Position/Größe/Sekunden einmalig mit dem Output neu aufgebaut; der laufende Minutenwechsel selbst braucht keinen Neustart.
+Bei der Querformat-Ausgabe liegt `top-left` im linken schwarzen Balken, oberhalb des Chats. Mit der PNG-Engine wirken Positions-/Größenänderungen live; der laufende Minuten- oder Sekundenwechsel braucht ohnehin keinen Neustart. Im drawtext-Fallback wird der Output bei Änderungen einmal neu aufgebaut.
 
-Zusätzlich wird oben rechts standardmäßig die App-Version als `v0.8.0` eingeblendet. Abschalten:
+Zusätzlich wird oben rechts standardmäßig die App-Version eingeblendet. Abschalten:
 
 ```dotenv
 VERSION_OVERLAY_ENABLED=false
@@ -386,7 +441,7 @@ VERSION_OVERLAY_ENABLED=false
 
 ### Text-Overlay / Laufschrift
 
-Ein frei wählbarer Text kann oben oder unten im Bild eingeblendet werden. Passt er in die Ausgabebreite, bleibt er an Ort und Stelle; ist er breiter, läuft er automatisch als Laufschrift von rechts nach links. Die Entscheidung trifft ffmpeg anhand der tatsächlich gerenderten Textbreite (`text_w`), es ist also keine manuelle Zeichenzählung nötig.
+Ein frei wählbarer Text kann oben oder unten im Bild eingeblendet werden. Passt er in die Ausgabebreite, bleibt er an Ort und Stelle; ist er breiter, läuft er automatisch als Laufschrift von rechts nach links. Die PNG-Engine misst die gerenderte Breite in Python und bewegt den Text mit `OVERLAY_RENDER_FPS`; im drawtext-Fallback entscheidet ffmpeg anhand von `text_w`. Eine manuelle Zeichenzählung ist in beiden Fällen nicht nötig.
 
 ```dotenv
 TEXT_OVERLAY_ENABLED=true
@@ -397,7 +452,7 @@ TEXT_OVERLAY_FONT=             # optional, sonst DejaVu
 TEXT_OVERLAY_SPEED=100         # Scroll-Geschwindigkeit in px/s
 ```
 
-Änderungen an Text, Position, Größe, Schrift oder Geschwindigkeit bauen den YouTube-Output einmal kurz neu auf; die TikTok-Quelle läuft weiter.
+Mit der PNG-Engine wirken Änderungen an Text, Position, Größe, Schrift oder Geschwindigkeit live; im drawtext-Fallback bauen sie den YouTube-Output einmal kurz neu auf. Die TikTok-Quelle läuft in beiden Fällen weiter.
 
 ### YouTube-Key
 

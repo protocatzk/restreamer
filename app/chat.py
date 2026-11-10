@@ -264,6 +264,21 @@ def _chat_max_width(settings: Settings) -> int:
     return min(configured, available) if configured > 0 else available
 
 
+def chat_margin(settings: Settings) -> int:
+    """Public helper used by the image overlay engine."""
+    return _chat_margin(settings)
+
+
+def chat_font_size(settings: Settings) -> int:
+    """Public helper used by the image overlay engine."""
+    return _chat_font_size(settings)
+
+
+def chat_max_width(settings: Settings) -> int:
+    """Public helper used by the image overlay engine."""
+    return _chat_max_width(settings)
+
+
 def build_overlay_filter(settings: Settings) -> str | None:
     """Build the ffmpeg drawtext filter for the active chat overlay."""
     if not settings.chat_enabled:
@@ -403,7 +418,12 @@ class ChatOverlay:
         self._clear_at = None
         self._write("")
 
-    def render(self, now: float | None = None) -> None:
+    def visible_messages(self, now: float | None = None) -> list[ChatMessage]:
+        """Return the currently visible messages, oldest first.
+
+        The image overlay engine uses this directly; the legacy drawtext
+        overlay formats the same list into its text file.
+        """
         now = time.monotonic() if now is None else now
         if self._clear_at is not None and now >= self._clear_at:
             clear_at = self._clear_at
@@ -419,7 +439,10 @@ class ChatOverlay:
         ]
         visible.sort(key=lambda item: item.show_at)
         limit = max(1, self.settings.chat_overlay_max_messages)
-        text = self._format([item.message for item in visible[-limit:]])
+        return [item.message for item in visible[-limit:]]
+
+    def render(self, now: float | None = None) -> None:
+        text = self._format(self.visible_messages(now))
         if text != self._last_text:
             self._write(text)
 

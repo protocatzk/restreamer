@@ -1455,6 +1455,31 @@ $("playlist-add-btn").addEventListener("click", () => {
 
 const settingsDialog = $("settings-dialog");
 const settingsForm = $("settings-form");
+let overlayPreviewTimer = null;
+
+function refreshOverlayPreview() {
+  const image = $("overlay-preview");
+  if (!image) return;
+  const sample = $("overlay-preview-sample")?.checked ? "1" : "0";
+  image.src = `/api/overlay/preview.png?sample=${sample}&t=${Date.now()}`;
+}
+
+function startOverlayPreview() {
+  stopOverlayPreview();
+  refreshOverlayPreview();
+  overlayPreviewTimer = setInterval(refreshOverlayPreview, 2500);
+}
+
+function stopOverlayPreview() {
+  if (overlayPreviewTimer) clearInterval(overlayPreviewTimer);
+  overlayPreviewTimer = null;
+}
+
+const overlayPreviewSample = $("overlay-preview-sample");
+if (overlayPreviewSample) {
+  overlayPreviewSample.addEventListener("change", refreshOverlayPreview);
+}
+settingsDialog.addEventListener("close", stopOverlayPreview);
 
 function populateSettings(settings) {
   app.settings = settings;
@@ -1501,6 +1526,7 @@ async function openSettingsDialog() {
     populateSettings(settings);
     $("settings-error").hidden = true;
     settingsDialog.showModal();
+    startOverlayPreview();
   } catch (error) {
     setBanner(`Einstellungen nicht abrufbar: ${error.message}`, "error");
   }

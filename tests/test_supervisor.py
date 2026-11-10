@@ -1231,7 +1231,8 @@ async def test_preferred_stream_returns_to_previous_when_finished(
         assert pending["preferred_id"] == "bob"
 
         await wait_until(
-            lambda: supervisor.status()["active"] == "alice"
+            lambda: len(resolver.calls) >= 3
+            and supervisor.status()["active"] == "alice"
             and supervisor.status()["state"] == "live",
             timeout_s=10,
         )
