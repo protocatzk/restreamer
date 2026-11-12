@@ -1,148 +1,176 @@
 <!doctype html>
-<html lang="de">
+<html lang="de" data-theme="dark">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0b0e13" id="metaThemeColor">
+  <meta name="color-scheme" content="dark light">
   <title>Restreamer</title>
-  <link rel="stylesheet" href="/static/style.css">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%230b0e13'/%3E%3Cpath d='M11 7l14 9-14 9z' fill='%233fb950'/%3E%3C/svg%3E">
+  <link rel="preload" href="/static/fonts/inter-latin-var.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/static/fonts/jetbrains-mono-latin-var.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/static/brand.css?v=2.0.0">
+  <link rel="stylesheet" href="/static/dashboard.css?v=2.0.0">
+  <script src="/static/theme.js?v=1.0.0"></script>
 </head>
 <body>
-  <header class="topbar">
-    <div class="brand">
-      <span class="logo">▶</span>
-      <div>
-        <h1>Restreamer</h1>
-        <p class="sub">TikTok Live → YouTube · yt-dlp + ffmpeg copy</p>
+  <a class="skip-link" href="#main">Zum Inhalt springen</a>
+
+  <header class="app-header">
+    <div class="header-inner">
+      <a href="/" class="brand-block">
+        <span class="brand-logo brand-logo-mark" aria-hidden="true">▶</span>
+        <span class="brand-text">
+          <span class="brand-title-row">
+            <span class="brand-title">Restreamer</span>
+            <span class="brand-mode-tag">Control</span>
+          </span>
+          <span class="brand-subtitle">TikTok Live → YouTube · yt-dlp + ffmpeg copy</span>
+        </span>
+      </a>
+      <div class="header-side">
+        <div class="status-strip">
+          <span class="pill">
+            <span id="global-dot" class="dot idle"></span>
+            <span id="global-state">bereit</span>
+          </span>
+          <span class="pill">Version <strong>v{{ version }}</strong></span>
+          {% if password_required %}
+          <span class="pill">Zugang <strong>geschützt</strong></span>
+          {% endif %}
+          <button type="button" class="app-nav-link" data-theme-toggle>Theme: DARK</button>
+        </div>
       </div>
-    </div>
-    <div class="top-status">
-      <span id="global-dot" class="dot idle"></span>
-      <span id="global-state">bereit</span>
-      <span class="version">v{{ version }}</span>
     </div>
   </header>
 
-  <main>
+  <main id="main" class="container">
     <div id="banner" class="banner hidden"></div>
 
-    <section class="summary">
-      <div>
-        <span class="label">Aktiver Stream</span>
-        <strong id="active-name">–</strong>
+    <section class="box" aria-labelledby="status-title">
+      <div class="box-header">
+        <h2 id="status-title">Live-Status</h2>
+        <span class="eyebrow">// 01 / Relay</span>
       </div>
-      <div>
-        <span class="label">Status</span>
-        <strong id="active-state">–</strong>
-      </div>
-      <div>
-        <span class="label">PID</span>
-        <strong id="active-pid">–</strong>
-      </div>
-      <div>
-        <span class="label">YouTube-Sessions</span>
-        <strong id="active-sessions">0</strong>
-      </div>
-      <div>
-        <span class="label">Streamer live</span>
-        <strong id="online-count">–</strong>
-      </div>
-      <div>
-        <span class="label">Cookies</span>
-        <strong id="cookies-state">–</strong>
-      </div>
-      <div>
-        <span class="label">Fortschritt</span>
-        <strong id="progress-age">–</strong>
-      </div>
-      <div>
-        <span class="label">Bitrate</span>
-        <strong id="output-bitrate">–</strong>
-      </div>
-      <div>
-        <span class="label">Delay-Puffer</span>
-        <strong id="relay-buffer">–</strong>
-      </div>
-      <div>
-        <span class="label">Nächster Refresh</span>
-        <strong id="next-refresh">–</strong>
+      <div class="kpi-grid dense">
+        <div class="kpi-card wide">
+          <span class="kpi-label">Aktiver Stream</span>
+          <strong class="kpi-value" id="active-name">–</strong>
+        </div>
+        <div class="kpi-card">
+          <span class="kpi-label">Status</span>
+          <strong class="kpi-value" id="active-state">–</strong>
+        </div>
+        <div class="kpi-card">
+          <span class="kpi-label">PID</span>
+          <strong class="kpi-value" id="active-pid">–</strong>
+        </div>
+        <div class="kpi-card">
+          <span class="kpi-label">YouTube-Sessions</span>
+          <strong class="kpi-value" id="active-sessions">0</strong>
+        </div>
+        <div class="kpi-card">
+          <span class="kpi-label">Streamer live</span>
+          <strong class="kpi-value"><span id="online-count">–</span></strong>
+        </div>
+        <div class="kpi-card">
+          <span class="kpi-label">Cookies</span>
+          <strong class="kpi-value" id="cookies-state">–</strong>
+        </div>
+        <div class="kpi-card">
+          <span class="kpi-label">Fortschritt</span>
+          <strong class="kpi-value" id="progress-age">–</strong>
+        </div>
+        <div class="kpi-card">
+          <span class="kpi-label">Bitrate</span>
+          <strong class="kpi-value"><span id="output-bitrate">–</span></strong>
+        </div>
+        <div class="kpi-card">
+          <span class="kpi-label">Delay-Puffer</span>
+          <strong class="kpi-value" id="relay-buffer">–</strong>
+        </div>
+        <div class="kpi-card">
+          <span class="kpi-label">Nächster Refresh</span>
+          <strong class="kpi-value" id="next-refresh">–</strong>
+        </div>
       </div>
     </section>
 
-    <section>
-      <div class="section-head">
-        <h2>Einnahmen <span id="earnings-streamer" class="muted"></span></h2>
-        <div class="actions">
-          <button id="earnings-refresh-btn" class="btn ghost" type="button">Einnahmen aktualisieren</button>
+    <section class="box" aria-labelledby="earnings-title">
+      <div class="box-header">
+        <h2 id="earnings-title">Einnahmen <span id="earnings-streamer" class="muted"></span></h2>
+        <div class="toolbar-controls">
+          <button id="earnings-refresh-btn" class="btn ghost sm" type="button">Einnahmen aktualisieren</button>
         </div>
       </div>
-      <div class="summary">
-        <div id="earnings-tile-period">
-          <span class="label">Zeitraum</span>
-          <strong id="earnings-period">–</strong>
+      <div class="kpi-grid">
+        <div class="kpi-card" id="earnings-tile-period">
+          <span class="kpi-label">Zeitraum</span>
+          <strong class="kpi-value" id="earnings-period">–</strong>
         </div>
-        <div id="earnings-tile-net">
-          <span class="label">Netto</span>
-          <strong id="earnings-net">–</strong>
+        <div class="kpi-card accent" id="earnings-tile-net">
+          <span class="kpi-label">Netto</span>
+          <strong class="kpi-value" id="earnings-net">–</strong>
         </div>
-        <div id="earnings-tile-gross">
-          <span class="label">Brutto</span>
-          <strong id="earnings-gross">–</strong>
+        <div class="kpi-card" id="earnings-tile-gross">
+          <span class="kpi-label">Brutto</span>
+          <strong class="kpi-value" id="earnings-gross">–</strong>
         </div>
-        <div id="earnings-tile-coins">
-          <span class="label">Coins</span>
-          <strong id="earnings-coins">–</strong>
+        <div class="kpi-card" id="earnings-tile-coins">
+          <span class="kpi-label">Coins</span>
+          <strong class="kpi-value" id="earnings-coins">–</strong>
         </div>
-        <div id="earnings-tile-gifts">
-          <span class="label">Gifts</span>
-          <strong id="earnings-gifts">–</strong>
+        <div class="kpi-card" id="earnings-tile-gifts">
+          <span class="kpi-label">Gifts</span>
+          <strong class="kpi-value" id="earnings-gifts">–</strong>
         </div>
-        <div id="earnings-tile-gifters">
-          <span class="label">Gifter</span>
-          <strong id="earnings-gifters">–</strong>
+        <div class="kpi-card" id="earnings-tile-gifters">
+          <span class="kpi-label">Gifter</span>
+          <strong class="kpi-value" id="earnings-gifters">–</strong>
         </div>
       </div>
-      <div id="earnings-extra" class="summary" hidden>
-        <div>
-          <span class="label">Session</span>
-          <strong id="earnings-session">–</strong>
+      <div id="earnings-extra" class="spec-list" hidden>
+        <div class="spec-row">
+          <span class="spec-label">Session</span>
+          <span class="spec-value" id="earnings-session">–</span>
         </div>
-        <div>
-          <span class="label">Zuschauer</span>
-          <strong id="earnings-viewers">–</strong>
+        <div class="spec-row">
+          <span class="spec-label">Zuschauer</span>
+          <span class="spec-value" id="earnings-viewers">–</span>
         </div>
-        <div>
-          <span class="label">Follower</span>
-          <strong id="earnings-followers">–</strong>
+        <div class="spec-row">
+          <span class="spec-label">Follower</span>
+          <span class="spec-value" id="earnings-followers">–</span>
         </div>
-        <div>
-          <span class="label">Top-Gift</span>
-          <strong id="earnings-top-gift">–</strong>
+        <div class="spec-row">
+          <span class="spec-label">Top-Gift</span>
+          <span class="spec-value" id="earnings-top-gift">–</span>
         </div>
-        <div>
-          <span class="label">Top-Gifter</span>
-          <strong id="earnings-top-gifter">–</strong>
+        <div class="spec-row">
+          <span class="spec-label">Top-Gifter</span>
+          <span class="spec-value" id="earnings-top-gifter">–</span>
         </div>
-        <div>
-          <span class="label">Zuletzt gesehen</span>
-          <strong id="earnings-last-seen">–</strong>
+        <div class="spec-row">
+          <span class="spec-label">Zuletzt gesehen</span>
+          <span class="spec-value" id="earnings-last-seen">–</span>
         </div>
       </div>
       <p id="earnings-meta" class="hint"></p>
     </section>
 
-    <section>
-      <div class="section-head">
-        <h2>Sender</h2>
-        <div class="actions">
-          <button id="playlist-new-btn" class="btn ghost" type="button">+ Senderliste</button>
-          <button id="playlist-edit-btn" class="btn ghost" type="button">Senderliste bearbeiten</button>
+    <section class="box" aria-labelledby="sender-title">
+      <div class="box-header">
+        <h2 id="sender-title">Sender</h2>
+        <div class="toolbar-controls">
+          <button id="playlist-new-btn" class="btn ghost sm" type="button">+ Senderliste</button>
+          <button id="playlist-edit-btn" class="btn ghost sm" type="button">Senderliste bearbeiten</button>
         </div>
       </div>
       <div class="channel-mixer">
-        <div id="playlist-tabs" class="playlist-tabs"></div>
+        <div id="playlist-tabs" class="playlist-tabs" role="tablist" aria-label="Senderlisten"></div>
         <div class="now-playing">
           <div class="now-number">
-            <span class="label">Jetzt läuft</span>
+            <span class="kpi-label">Jetzt läuft</span>
             <strong id="now-number">–</strong>
           </div>
           <div class="now-info">
@@ -150,7 +178,7 @@
             <p id="now-meta" class="muted">Noch keine Senderliste angelegt.</p>
             <div id="now-title-row" class="now-title-row" hidden>
               <span id="now-title" class="now-title"></span>
-              <button id="copy-title-btn" class="btn ghost small" type="button">Titel kopieren</button>
+              <button id="copy-title-btn" class="btn ghost sm" type="button">Titel kopieren</button>
             </div>
           </div>
           <span id="now-badge" class="badge offline">bereit</span>
@@ -165,14 +193,14 @@
       </div>
     </section>
 
-    <section>
-      <div class="section-head">
-        <h2>Streamer</h2>
-        <div class="actions">
-          <button id="add-streamer-btn" class="btn primary" type="button">+ Streamer</button>
-          <button id="online-check-btn" class="btn ghost" type="button">Status prüfen</button>
-          <button id="settings-btn" class="btn ghost" type="button">Einstellungen</button>
-          <button id="reload-btn" class="btn ghost" type="button">Config neu laden</button>
+    <section class="box" aria-labelledby="streamer-title">
+      <div class="box-header">
+        <h2 id="streamer-title">Streamer</h2>
+        <div class="toolbar-controls">
+          <button id="add-streamer-btn" class="btn primary sm" type="button">+ Streamer</button>
+          <button id="online-check-btn" class="btn ghost sm" type="button">Status prüfen</button>
+          <button id="settings-btn" class="btn ghost sm" type="button">Einstellungen</button>
+          <button id="reload-btn" class="btn ghost sm" type="button">Config neu laden</button>
         </div>
       </div>
       <form id="quick-add-form" class="quick-add" novalidate>
@@ -202,21 +230,26 @@
       <div id="streamers" class="grid"></div>
     </section>
 
-    <section id="log-section" class="log-section">
-      <div class="section-head">
-        <h2>Log <span id="log-name" class="muted"></span></h2>
-        <div class="actions">
-          <button id="log-refresh" class="btn ghost" type="button">Aktualisieren</button>
-          <button id="log-close" class="btn ghost" type="button">Schließen</button>
+    <section id="log-section" class="box log-section" aria-labelledby="log-title">
+      <div class="box-header">
+        <h2 id="log-title">Log <span id="log-name" class="muted"></span></h2>
+        <div class="toolbar-controls">
+          <button id="log-refresh" class="btn ghost sm" type="button">Aktualisieren</button>
+          <button id="log-close" class="btn ghost sm" type="button">Schließen</button>
         </div>
       </div>
       <pre id="log" class="log">Kein Streamer ausgewählt.</pre>
     </section>
   </main>
 
-  <footer>
-    <span>Nur für Inhalte verwenden, für die du die Rechte hast.</span>
-    {% if password_required %}<span class="muted">· Dashboard geschützt</span>{% endif %}
+  <footer class="app-footer">
+    <div class="footer-inner">
+      <div>Restreamer · Nur für Inhalte verwenden, für die du die Rechte hast.</div>
+      <div class="footer-links">
+        <span>Version {{ version }}</span>
+        {% if password_required %}<span>Dashboard geschützt</span>{% endif %}
+      </div>
+    </div>
   </footer>
 
   <!-- Streamer bearbeiten / anlegen -->
