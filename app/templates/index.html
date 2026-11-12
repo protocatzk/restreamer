@@ -10,7 +10,7 @@
   <link rel="preload" href="/static/fonts/inter-latin-var.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="/static/fonts/jetbrains-mono-latin-var.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/static/brand.css?v=2.0.0">
-  <link rel="stylesheet" href="/static/dashboard.css?v=2.0.0">
+  <link rel="stylesheet" href="/static/dashboard.css?v=2.0.1">
   <script src="/static/theme.js?v=1.0.0"></script>
 </head>
 <body>
@@ -197,6 +197,14 @@
       <div class="box-header">
         <h2 id="streamer-title">Streamer</h2>
         <div class="toolbar-controls">
+          <div class="streamer-filter" role="group" aria-label="Streamer-Filter">
+            <button type="button" id="streamer-filter-live" class="filter-btn active" data-streamer-filter="live" aria-pressed="true">
+              Live <span class="tab-badge" id="streamer-live-count">0</span>
+            </button>
+            <button type="button" id="streamer-filter-all" class="filter-btn" data-streamer-filter="all" aria-pressed="false">
+              Alle <span class="tab-badge" id="streamer-all-count">0</span>
+            </button>
+          </div>
           <button id="add-streamer-btn" class="btn primary sm" type="button">+ Streamer</button>
           <button id="online-check-btn" class="btn ghost sm" type="button">Status prüfen</button>
           <button id="settings-btn" class="btn ghost sm" type="button">Einstellungen</button>
@@ -887,6 +895,6 @@
     </form>
   </dialog>
 
-  <script src="/static/app.js"></script>
+  <script src="/static/app.js?v=2.0.1"></script>
 </body>
 </html>

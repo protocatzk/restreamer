@@ -82,7 +82,7 @@
 .hint {
     margin: var(--space-2) 0 0;
     color: var(--muted);
-    font-size: 11px;
+    font-size: 11.5px;
 }
 
 .live-text,
@@ -195,12 +195,72 @@
     gap: 4px;
 }
 
+.badge {
+    font-size: 10px;
+}
+
+/* =========================================================
+   STREAMER-FILTER
+   ========================================================= */
+
+.streamer-filter {
+    display: inline-flex;
+    align-items: stretch;
+    border: var(--line);
+    background: var(--surface-2);
+}
+
+.streamer-filter .filter-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    min-height: 28px;
+    padding: 0 10px;
+    border: 0;
+    border-right: var(--line);
+    background: transparent;
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.streamer-filter .filter-btn:last-child {
+    border-right: 0;
+}
+
+.streamer-filter .filter-btn:hover {
+    color: var(--text-strong);
+    background: var(--surface-hover);
+}
+
+.streamer-filter .filter-btn.active {
+    color: var(--accent);
+    background: var(--accent-soft);
+    box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+.streamer-filter .tab-badge {
+    margin-left: 0;
+    font-size: 9.5px;
+}
+
+.streamer-filter .filter-btn.active .tab-badge {
+    border-color: var(--accent-border);
+    background: transparent;
+    color: var(--accent);
+}
+
 /* =========================================================
    KOMPAKTE KENNZAHLEN
    ========================================================= */
 
 .kpi-grid.dense {
-    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(165px, 1fr));
     gap: var(--space-2);
 }
 
@@ -210,7 +270,7 @@
 }
 
 .kpi-grid.dense .kpi-value {
-    font-size: 13px;
+    font-size: 14px;
     letter-spacing: 0;
     line-height: 1.35;
     overflow-wrap: anywhere;
@@ -253,7 +313,12 @@
 
 .spec-list .spec-value {
     text-align: left;
+    font-size: 12px;
     overflow-wrap: anywhere;
+}
+
+.spec-list .spec-label {
+    font-size: 10.5px;
 }
 
 /* =========================================================
@@ -284,7 +349,7 @@
     background: transparent;
     color: var(--muted);
     font-family: var(--mono);
-    font-size: 10.5px;
+    font-size: 11px;
     font-weight: 600;
     letter-spacing: 0.04em;
     text-transform: uppercase;
@@ -346,7 +411,7 @@
 }
 
 .now-info strong {
-    font-size: 16px;
+    font-size: 17px;
     font-weight: 700;
     color: var(--text-strong);
     overflow-wrap: anywhere;
@@ -355,7 +420,7 @@
 .now-info p {
     margin: 0;
     color: var(--muted);
-    font-size: 12px;
+    font-size: 12.5px;
 }
 
 .now-title-row {
@@ -370,7 +435,7 @@
     min-width: 0;
     color: var(--text);
     font-family: var(--mono);
-    font-size: 12px;
+    font-size: 12.5px;
     overflow-wrap: anywhere;
 }
 
@@ -451,7 +516,7 @@
 
 .channel-text small {
     color: var(--muted);
-    font-size: 10.5px;
+    font-size: 11px;
     overflow-wrap: anywhere;
 }
 
@@ -526,12 +591,12 @@
 }
 
 .playlist-row-text strong {
-    font-size: 13px;
+    font-size: 13.5px;
 }
 
 .playlist-row-text small {
     color: var(--muted);
-    font-size: 10.5px;
+    font-size: 11px;
 }
 
 .playlist-row-actions {
@@ -602,7 +667,7 @@
 
 .grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr));
     gap: var(--space-3);
 }
 
@@ -627,14 +692,14 @@
 }
 
 .card h3 {
-    font-size: 14px;
+    font-size: 15px;
 }
 
 .handle {
     margin: 2px 0 0;
     color: var(--muted);
     font-family: var(--mono);
-    font-size: 10.5px;
+    font-size: 11px;
 }
 
 .card-actions {
@@ -643,9 +708,10 @@
     gap: 6px;
 }
 
-/* Leere Zustände, die app.js als <p class="muted"> rendert. */
+/* Leere Zustände */
+#channel-strip > p.muted,
 #streamers > p.muted,
-#channel-strip > p.muted {
+.streamer-empty {
     margin: 0;
     padding: var(--space-5) var(--space-4);
     border: 1px dashed var(--border);
@@ -656,12 +722,26 @@
     text-align: center;
 }
 
-#streamers > p.muted {
+#streamers > p.muted,
+.streamer-empty {
     grid-column: 1 / -1;
 }
 
 #channel-strip > p.muted {
     flex: 1;
+}
+
+.streamer-empty {
+    display: grid;
+    justify-items: center;
+    gap: var(--space-3);
+}
+
+.streamer-empty p {
+    margin: 0;
+    color: var(--muted);
+    font-family: var(--sans);
+    font-size: 12.5px;
 }
 
 .playlist-tabs > p.muted {
@@ -694,7 +774,7 @@
     background: var(--bg);
     color: var(--text);
     font-family: var(--mono);
-    font-size: 11.5px;
+    font-size: 12px;
     line-height: 1.55;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
@@ -769,7 +849,7 @@
 .field > span {
     color: var(--muted);
     font-family: var(--mono);
-    font-size: 10px;
+    font-size: 10.5px;
     font-weight: 600;
     letter-spacing: 0.06em;
     text-transform: uppercase;
@@ -818,6 +898,10 @@ input[type="time"]:focus {
     box-shadow: 0 0 0 2px var(--accent-soft);
 }
 
+.form-grid {
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+}
+
 .form-sections {
     display: grid;
     gap: var(--space-4);
@@ -860,7 +944,7 @@ legend {
     align-items: center;
     gap: 8px;
     color: var(--text);
-    font-size: 12.5px;
+    font-size: 13px;
     cursor: pointer;
 }
 
@@ -922,13 +1006,13 @@ legend {
     grid-template-columns: max-content 1fr;
     gap: 4px 12px;
     margin: var(--space-3) 0 0;
-    font-size: 11px;
+    font-size: 11.5px;
 }
 
 .paths dt {
     color: var(--muted);
     font-family: var(--mono);
-    font-size: 10px;
+    font-size: 10.5px;
     letter-spacing: 0.06em;
     text-transform: uppercase;
 }

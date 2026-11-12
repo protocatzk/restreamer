@@ -31,6 +31,18 @@ const SWITCH_REASONS = {
   "Stream beendet": "Stream beendet",
 };
 
+const STREAMER_FILTER_KEY = "restreamer_streamer_filter";
+
+function loadStreamerFilter() {
+  try {
+    const stored = localStorage.getItem(STREAMER_FILTER_KEY);
+    if (stored === "all" || stored === "live") return stored;
+  } catch (_) {
+    /* Speicher nicht verfügbar: Standard verwenden. */
+  }
+  return "live";
+}
+
 const app = {
   status: null,
   settings: null,
@@ -44,6 +56,7 @@ const app = {
   logStreamer: null,
   logTimer: null,
   statusTimer: null,
+  streamerFilter: loadStreamerFilter(),
 };
 
 const $ = (id) => document.getElementById(id);
@@ -715,6 +728,48 @@ function renderQuickAdd(status) {
   updateQuickKeyVisibility();
 }
 
+function isStreamerLive(streamer) {
+  return Boolean(streamer && (streamer.active || streamer.online === true));
+}
+
+function streamerEmptyState(message) {
+  const empty = document.createElement("div");
+  empty.className = "streamer-empty";
+  const text = document.createElement("p");
+  text.className = "muted";
+  text.textContent = message;
+  empty.append(text);
+  return empty;
+}
+
+function updateStreamerFilter(allStreamers, liveStreamers) {
+  const liveButton = $("streamer-filter-live");
+  const allButton = $("streamer-filter-all");
+  if (!liveButton || !allButton) return;
+
+  $("streamer-live-count").textContent = String(liveStreamers.length);
+  $("streamer-all-count").textContent = String(allStreamers.length);
+
+  const liveActive = app.streamerFilter === "live";
+  liveButton.classList.toggle("active", liveActive);
+  allButton.classList.toggle("active", !liveActive);
+  liveButton.setAttribute("aria-pressed", String(liveActive));
+  allButton.setAttribute("aria-pressed", String(!liveActive));
+}
+
+function setStreamerFilter(filter, persist = true) {
+  const next = filter === "all" ? "all" : "live";
+  app.streamerFilter = next;
+  if (persist) {
+    try {
+      localStorage.setItem(STREAMER_FILTER_KEY, next);
+    } catch (_) {
+      /* Speicher nicht verfügbar: Filter gilt nur für diese Seite. */
+    }
+  }
+  if (app.status) renderStreamers(app.status);
+}
+
 function renderStreamers(status) {
   const container = $("streamers");
   container.replaceChildren();
@@ -727,16 +782,41 @@ function renderStreamers(status) {
     }
   }
 
-  if (!status.streamers || status.streamers.length === 0) {
-    const empty = document.createElement("p");
-    empty.className = "muted";
-    empty.textContent =
-      "Noch keine Streamer angelegt. Oben einen Handle einfügen oder „+ Streamer“ für alle Optionen nutzen.";
+  const allStreamers = status.streamers || [];
+  const liveStreamers = allStreamers.filter(isStreamerLive);
+  updateStreamerFilter(allStreamers, liveStreamers);
+
+  if (allStreamers.length === 0) {
+    container.append(
+      streamerEmptyState(
+        "Noch keine Streamer angelegt. Oben einen Handle einfügen oder „+ Streamer“ für alle Optionen nutzen."
+      )
+    );
+    return;
+  }
+
+  const visible =
+    app.streamerFilter === "live" ? liveStreamers : allStreamers;
+  if (visible.length === 0) {
+    const onlineCheck = status.online_check || {};
+    const onlineUnavailable =
+      onlineCheck.configured === false || onlineCheck.enabled === false;
+    const empty = streamerEmptyState(
+      onlineUnavailable
+        ? "Keine Streamer live – die Online-Prüfung ist nicht konfiguriert oder deaktiviert."
+        : `Keine Streamer gerade live. ${allStreamers.length} Streamer sind angelegt.`
+    );
+    const showAll = document.createElement("button");
+    showAll.type = "button";
+    showAll.className = "btn ghost sm";
+    showAll.textContent = "Alle anzeigen";
+    showAll.addEventListener("click", () => setStreamerFilter("all"));
+    empty.append(showAll);
     container.append(empty);
     return;
   }
 
-  for (const streamer of status.streamers) {
+  for (const streamer of visible) {
     const card = document.createElement("article");
     card.className = `card${streamer.active ? " active" : ""}`;
 
@@ -1062,6 +1142,11 @@ streamerForm.addEventListener("submit", async (event) => {
       });
     }
     streamerDialog.close();
+    if (!originalId && app.streamerFilter === "live") {
+      // Neue Streamer sind oft noch offline: einmalig alle zeigen, ohne den
+      // gespeicherten Live-Default zu verändern.
+      app.streamerFilter = "all";
+    }
     await refreshStatus();
     setBanner("Streamer gespeichert.", "ok");
   } catch (error) {
@@ -1105,9 +1190,14 @@ quickAddForm.addEventListener("submit", async (event) => {
     });
     input.value = "";
     $("quick-key").value = "";
+    const created = result.created?.length || 0;
+    if (created && app.streamerFilter === "live") {
+      // Neue Streamer sind oft noch offline: einmalig alle zeigen, ohne den
+      // gespeicherten Live-Default zu verändern.
+      app.streamerFilter = "all";
+    }
     await refreshStatus();
 
-    const created = result.created?.length || 0;
     const skipped = result.skipped || [];
     const parts = [`${created} Streamer angelegt`];
     if (skipped.length) {
@@ -1677,5 +1767,12 @@ document.querySelectorAll("dialog").forEach((dialog) => {
   });
 });
 
+document.querySelectorAll("[data-streamer-filter]").forEach((element) => {
+  element.addEventListener("click", () =>
+    setStreamerFilter(element.dataset.streamerFilter)
+  );
+});
+
+updateStreamerFilter([], []);
 refreshStatus();
 app.statusTimer = setInterval(refreshStatus, 2000);
