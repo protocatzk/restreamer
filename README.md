@@ -428,6 +428,59 @@ Eine eigene `data/cookies.txt` (Netscape-Format, z. B. per Browser-Export) funkt
 - **Wechseln**: beendet den aktiven Stream und startet den ausgewählten Streamer.
 - **Log**: letzte 400 Zeilen, aktualisiert alle 1,5 s.
 
+### Telegram-Steuerung (optional)
+
+Der Restreamer kann zusätzlich über einen Telegram-Bot gesteuert werden. Der Bot nutzt **Long-Polling**: Er verbindet sich ausgehend zu Telegram und benötigt **keinen offenen Port** und keine öffentliche Erreichbarkeit des Dashboards.
+
+1. Bei [@BotFather](https://t.me/BotFather) `/newbot` ausführen und den Token kopieren.
+2. Den Bot im privaten Chat öffnen und `/id` senden – die Antwort enthält die numerische User-ID.
+3. In `.env` eintragen:
+
+```dotenv
+TELEGRAM_BOT_TOKEN=123456:ABC...
+TELEGRAM_ALLOWED_USER_IDS=123456789
+TELEGRAM_NOTIFY_CHAT_ID=123456789   # optional
+TELEGRAM_NOTIFICATIONS=true
+```
+
+4. Container neu starten: `docker compose up -d --build`.
+5. Im Chat `/start` senden – das Menü öffnet sich. Die Bedienung läuft danach **ausschließlich über Buttons**. Optional bei BotFather nur `/start` und `/id` als Befehlsliste hinterlegen.
+
+**Button-Bedienung (wie im TokTracker-Bot):**
+
+| Button | Funktion |
+| :--- | :--- |
+| `📊 STATUS` / `🎛 SENDER` / `📺 LISTEN` / `📄 LOGS` | Ansicht umschalten; die aktive Ansicht ist mit `✅` markiert |
+| `01 ▶` / `01 ⏹` | Sender starten bzw. laufenden Stream stoppen (nummeriert wie in der Liste) |
+| `▶ NAME` / `⏹ NAME` | Senderliste starten bzw. stoppen |
+| `◀ ZURÜCK` / `WEITER ▶` | Seiten blättern (Sender 10 pro Seite, Listen 8 pro Seite) |
+| `🔄 AKTUALISIEREN` | Ansicht neu laden |
+| `◀ ÄLTER` / `NEUER ▶` | Log-Seiten blättern (40 Zeilen pro Seite) |
+| `⏹ STREAM STOPPEN` | Aktiven Stream von jeder Ansicht aus beenden |
+
+Die Ausgaben folgen dem TokTracker-Stil: Eyebrow-Header (`// RESTREAMER · 02 / 🎛 SENDER`), ausgerichtete Kennzahlen im `<pre>`-Block, Trennlinie und Footer mit Zeitstempel. Die Übersichten werden über Telegrams `sendRichMessage` als Rich HTML gesendet. Unterstützt ein Client oder API-Endpunkt Rich Messages nicht, fällt der Bot automatisch auf normales HTML (`parse_mode=HTML`) zurück.
+
+**Slash-Befehle als Shortcuts:** `/status`, `/streamers`, `/playlists`, `/logs`, `/start <id>`, `/stop`, `/switch <id>`, `/playlist <id>`, `/next`, `/prev`, `/reload` funktionieren weiterhin – für die normale Bedienung sind sie nicht nötig.
+
+**Thread-/Topics-Modus deaktivieren:** Zeigt der Chat Themen („Threads“) an, ist das eine BotFather-Einstellung und keine Funktion des Restreamers. In **@BotFather** → `/mybots` → Bot auswählen → **Bot Settings** → **Topics** (in manchen Clients „Threads“) → **Disable**. Der Bot selbst sendet keine `message_thread_id`; die Einstellung lässt sich nicht per Bot-API ändern. Der Bot schreibt beim Start eine Warnung ins Log, wenn der Modus aktiv ist.
+
+### Web-Login per Telegram
+
+Das Dashboard ist unter **https://restreamer.positronium.dev** erreichbar (nginx-proxy + Let's Encrypt). Zusätzlich zum optionalen Basic-Auth-Passwort kann man sich per Telegram anmelden:
+
+1. `https://restreamer.positronium.dev/auth` öffnen.
+2. **Mit Telegram anmelden** → der Bot öffnet sich mit einem Login-Token.
+3. Im Bot **✅ ANMELDEN FREIGEBEN** drücken.
+4. Der Browser erhält ein Session-Cookie (`restreamer_session`, HttpOnly, `SameSite=Lax`, 30 Tage) und lädt das Dashboard.
+
+Ablauf: `POST /auth/request` → Deep-Link `t.me/<bot>?start=login_<token>` → Freigabe im Bot → `POST /auth/check` → Cookie. Tokens sind einmalig und 10 Minuten gültig. Sessions liegen im RAM und enden mit einem Neustart. `DASHBOARD_PASSWORD` funktioniert weiterhin parallel; ohne Passwort und ohne Telegram-Login bleibt der Zugriff offen (nur für lokale Entwicklung gedacht). Der **Logout**-Button im Dashboard ruft `POST /auth/logout` auf.
+
+Die Subdomain wird über den vorhandenen `nginx-proxy`/`acme-companion` im Netz `toktrackerapp_toktracker_net` bereitgestellt; der DNS-A-Record `restreamer.positronium.dev` zeigt auf den Server. Bei einer anderen Domain die `VIRTUAL_HOST`/`LETSENCRYPT_HOST`-Werte in `docker-compose.yml` anpassen.
+
+**Sicherheit:** Der Bot akzeptiert nur Private Chats von numerischen IDs aus `TELEGRAM_ALLOWED_USER_IDS`. Ist die Liste leer, startet der Bot nicht (fail-closed). `@username` werden bewusst nicht verwendet, weil sie sich ändern lassen. Der Token gehört nur in `.env`; `httpx`/`httpcore`-Logging ist gedrosselt, damit er nicht in den Container-Logs landet.
+
+**Benachrichtigungen:** Bei aktivierten `TELEGRAM_NOTIFICATIONS` meldet der Bot Statuswechsel (`LIVE`, `offline`, Fehler, Reconnect), Senderwechsel und das Stream-Ende an `TELEGRAM_NOTIFY_CHAT_ID` bzw. an alle erlaubten Nutzer. Auto-Refresh und Stall-Neustarts lösen keine Meldung aus.
+
 ### API
 
 | Methode | Pfad | Beschreibung |
@@ -522,9 +575,11 @@ Logs: `logs/<streamer>-<zeitstempel>.log` auf dem Host, zusätzlich im Dashboard
 
 ## Sicherheit
 
-- Dashboard standardmäßig nur auf `127.0.0.1:8000`.
-- `DASHBOARD_PASSWORD` (oder das Dashboard-Feld) aktiviert HTTP-Basic-Auth (Benutzername beliebig).
+- Dashboard lokal auf `127.0.0.1:8000`; öffentlich über `https://restreamer.positronium.dev` (nginx-proxy + Let's Encrypt).
+- Anmeldung per Telegram-Freigabe (`/auth`); `DASHBOARD_PASSWORD` (oder das Dashboard-Feld) aktiviert zusätzlich HTTP-Basic-Auth (Benutzername beliebig). Ohne Passwort und ohne Telegram-Login ist der Zugriff offen – nur für lokale Entwicklung gedacht.
+- Session-Cookie `restreamer_session`: HttpOnly, `SameSite=Lax`, hinter HTTPS `Secure`, 30 Tage; CSRF-Origin-Check für schreibende API-Aufrufe. Sessions liegen im RAM und enden mit einem Neustart.
 - `.env`, `config/streamers.yml`, `config/settings.yml`, `data/` und `logs/` sind gitignored.
+- Der Telegram-Bot benötigt keinen offenen Port (Long-Polling) und akzeptiert nur die numerischen IDs aus `TELEGRAM_ALLOWED_USER_IDS`. Der Bot-Token ist ein Secret und gehört nur in `.env`.
 - `config/streamers.yml` und `config/settings.yml` werden mit Modus `600` geschrieben und enthalten Secrets (YouTube-Keys, TikTok-Cookie, Passwort).
 - Stream-Keys erscheinen in der ffmpeg-Kommandozeile (Prozessliste). Auf Mehrbenutzersystemen entsprechend absichern.
 

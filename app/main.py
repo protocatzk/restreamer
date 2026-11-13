@@ -6,13 +6,15 @@ import secrets
 from contextlib import asynccontextmanager
 from dataclasses import replace
 from pathlib import Path
+from urllib.parse import quote, urlsplit
 
 from fastapi import FastAPI, HTTPException, Query, Request
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from app import __version__
+from app.auth import AuthManager
 from app.chat import ensure_chat_overlay_file
 from app.cookies import write_tiktok_cookies
 from app.delay_buffer import DelayBuffer
@@ -38,6 +40,7 @@ from app.supervisor import (
     StreamerNotFound,
     Supervisor,
 )
+from app.telegram_bot import RestreamerBot
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +48,64 @@ BASE_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
 PUBLIC_PATHS = {"/healthz"}
+AUTH_PATHS = {
+    "/auth",
+    "/auth/request",
+    "/auth/check",
+    "/auth/logout",
+}
+
+
+def _is_public_path(path: str) -> bool:
+    return (
+        path in PUBLIC_PATHS
+        or path in AUTH_PATHS
+        or path.startswith("/static/")
+    )
+
+
+def _wants_html(request: Request) -> bool:
+    return "text/html" in request.headers.get("accept", "").lower()
+
+
+def _is_secure_request(request: Request) -> bool:
+    proto = request.headers.get("x-forwarded-proto", "")
+    if proto:
+        return proto.split(",")[0].strip().lower() == "https"
+    return request.url.scheme == "https"
+
+
+def _safe_next(value: str) -> str:
+    if not value or not value.startswith("/") or value.startswith("//"):
+        return "/"
+    return value
+
+
+def _client_info(request: Request) -> str:
+    forwarded = request.headers.get("x-forwarded-for", "")
+    ip = (
+        forwarded.split(",")[0].strip()
+        if forwarded
+        else (request.client.host if request.client else "?")
+    )
+    agent = request.headers.get("user-agent", "").strip()
+    return f"{ip} · {agent[:80]}" if agent else ip
+
+
+def _same_origin(request: Request, origin: str) -> bool:
+    try:
+        origin_host = urlsplit(origin).netloc
+    except ValueError:
+        return False
+    if not origin_host:
+        return False
+    host = (
+        request.headers.get("x-forwarded-host")
+        or request.headers.get("host")
+        or ""
+    )
+    host = host.split(",")[0].strip()
+    return bool(host) and origin_host == host
 
 
 def _unauthorized() -> Response:
@@ -96,6 +157,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         is_active=lambda: supervisor.active_id,
     )
     supervisor.set_earnings_monitor(earnings_monitor)
+    auth_manager = AuthManager(
+        telegram_enabled=bool(
+            settings.telegram_bot_token.strip()
+            and settings.telegram_allowed_user_ids
+        )
+    )
+    telegram_bot = RestreamerBot(
+        settings, supervisor, store, auth_manager=auth_manager
+    )
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -142,9 +212,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         online_monitor.start()
         earnings_monitor.start()
+        await telegram_bot.start()
 
         yield
 
+        await telegram_bot.stop()
         await online_monitor.stop()
         await earnings_monitor.stop()
         await supervisor.shutdown()
@@ -164,17 +236,54 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.delay_buffer = delay_buffer
     app.state.online_monitor = online_monitor
     app.state.earnings_monitor = earnings_monitor
+    app.state.telegram_bot = telegram_bot
+    app.state.auth_manager = auth_manager
 
     @app.middleware("http")
-    async def basic_auth_middleware(request: Request, call_next):
-        password = settings.dashboard_password
+    async def auth_middleware(request: Request, call_next):
         path = request.url.path
-        if not password or path in PUBLIC_PATHS or path.startswith("/static/"):
+        if _is_public_path(path):
             return await call_next(request)
 
-        if not _basic_auth_ok(request.headers.get("authorization"), password):
+        password = settings.dashboard_password
+        if password and _basic_auth_ok(
+            request.headers.get("authorization"), password
+        ):
+            return await call_next(request)
+
+        session = auth_manager.get_session(
+            request.cookies.get(AuthManager.COOKIE_NAME)
+        )
+        if session is not None:
+            if request.method not in {"GET", "HEAD", "OPTIONS"}:
+                origin = (
+                    request.headers.get("origin")
+                    or request.headers.get("referer")
+                )
+                if origin and not _same_origin(request, origin):
+                    return JSONResponse(
+                        {"detail": "CSRF-Schutz: ungültige Origin"},
+                        status_code=403,
+                    )
+            return await call_next(request)
+
+        if not password and not auth_manager.telegram_enabled:
+            return await call_next(request)
+
+        if _wants_html(request):
+            target = path
+            if request.url.query:
+                target += "?" + request.url.query
+            return RedirectResponse(
+                f"/auth?next={quote(target, safe='')}",
+                status_code=303,
+            )
+
+        if password and not auth_manager.telegram_enabled:
             return _unauthorized()
-        return await call_next(request)
+        return JSONResponse(
+            {"detail": "Authentifizierung erforderlich"}, status_code=401
+        )
 
     app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 
@@ -186,8 +295,83 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             context={
                 "version": __version__,
                 "password_required": bool(settings.dashboard_password),
+                "telegram_auth_enabled": auth_manager.telegram_enabled,
             },
         )
+
+    # ------------------------------------------------------- Telegram login
+
+    @app.get("/auth", include_in_schema=False)
+    async def auth_page(request: Request, next: str = "/"):
+        target = _safe_next(next)
+        session = auth_manager.get_session(
+            request.cookies.get(AuthManager.COOKIE_NAME)
+        )
+        if session is not None:
+            return RedirectResponse(target, status_code=303)
+        return templates.TemplateResponse(
+            request=request,
+            name="login.html",
+            context={
+                "next": target,
+                "telegram_enabled": auth_manager.telegram_enabled,
+            },
+        )
+
+    @app.post("/auth/request")
+    async def auth_request(request: Request):
+        if not auth_manager.telegram_enabled:
+            raise HTTPException(
+                status_code=503,
+                detail="Telegram-Login ist nicht konfiguriert",
+            )
+        bot = request.app.state.telegram_bot
+        bot_username = getattr(bot, "bot_username", "")
+        if not bot_username:
+            raise HTTPException(
+                status_code=503,
+                detail="Telegram-Bot ist noch nicht verbunden",
+            )
+        token = auth_manager.create_token(_client_info(request))
+        return {
+            "token": token,
+            "bot_username": bot_username,
+            "deep_link": f"https://t.me/{bot_username}?start=login_{token}",
+        }
+
+    @app.post("/auth/check")
+    async def auth_check(request: Request):
+        payload = await _json_object(request)
+        token = str(payload.get("token") or "")
+        info = auth_manager.get_token(token)
+        if info is None:
+            return {"status": "expired"}
+        if info.status == "approved":
+            session_id = auth_manager.create_session(info.user)
+            auth_manager.delete_token(token)
+            response = JSONResponse(
+                {"status": "approved", "user": info.user}
+            )
+            response.set_cookie(
+                AuthManager.COOKIE_NAME,
+                session_id,
+                max_age=AuthManager.SESSION_TTL_SECONDS,
+                httponly=True,
+                secure=_is_secure_request(request),
+                samesite="lax",
+                path="/",
+            )
+            return response
+        return {"status": info.status}
+
+    @app.post("/auth/logout")
+    async def auth_logout(request: Request):
+        auth_manager.delete_session(
+            request.cookies.get(AuthManager.COOKIE_NAME)
+        )
+        response = JSONResponse({"ok": True})
+        response.delete_cookie(AuthManager.COOKIE_NAME, path="/")
+        return response
 
     @app.get("/healthz")
     async def healthz():

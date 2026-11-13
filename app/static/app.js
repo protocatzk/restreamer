@@ -75,6 +75,9 @@ async function api(path, options = {}) {
   } catch (_) {
     payload = null;
   }
+  if (response.status === 401) {
+    window.location.href = "/auth";
+  }
   if (!response.ok) {
     const detail = payload && payload.detail ? payload.detail : response.statusText;
     throw new Error(detail || `HTTP ${response.status}`);

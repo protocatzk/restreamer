@@ -148,6 +148,41 @@ def _env_int(name: str, default: int) -> int:
         raise ValueError(f"{name} muss eine Ganzzahl sein, ist aber {raw!r}") from exc
 
 
+def _env_id_tuple(name: str) -> tuple[int, ...]:
+    """Parse a comma/semicolon separated list of numeric Telegram IDs.
+
+    Invalid entries are ignored with a warning so a typo in an optional bot
+    setting cannot prevent the restreamer itself from starting.
+    """
+    raw = os.getenv(name, "")
+    if not raw.strip():
+        return ()
+    ids: list[int] = []
+    for part in raw.replace(";", ",").split(","):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            value = int(part)
+        except ValueError:
+            logger.warning("%s: ungültige Telegram-ID ignoriert: %r", name, part)
+            continue
+        if value != 0 and value not in ids:
+            ids.append(value)
+    return tuple(ids)
+
+
+def _env_optional_int(name: str) -> int | None:
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        return None
+    try:
+        return int(raw.strip())
+    except ValueError:
+        logger.warning("%s: ungültige Ganzzahl ignoriert: %r", name, raw)
+        return None
+
+
 def _as_bool(value: object) -> bool:
     if isinstance(value, bool):
         return value
@@ -299,6 +334,14 @@ class Settings:
     terminate_timeout_seconds: int = 10
     log_buffer_lines: int = 500
 
+    # Telegram bot control. These values are env-only and deliberately not
+    # part of EDITABLE_FIELDS: they are secrets/admin settings, not dashboard
+    # options, and must never be written to the runtime settings file.
+    telegram_bot_token: str = ""
+    telegram_allowed_user_ids: tuple[int, ...] = ()
+    telegram_notify_chat_id: int | None = None
+    telegram_notifications: bool = True
+
     @classmethod
     def from_env(cls) -> Settings:
         runtime_file = Path(
@@ -416,6 +459,10 @@ class Settings:
             resolve_timeout_seconds=_env_int("RESOLVE_TIMEOUT_SECONDS", 90),
             terminate_timeout_seconds=_env_int("TERMINATE_TIMEOUT_SECONDS", 10),
             log_buffer_lines=_env_int("LOG_BUFFER_LINES", 500),
+            telegram_bot_token=os.getenv("TELEGRAM_BOT_TOKEN", "").strip(),
+            telegram_allowed_user_ids=_env_id_tuple("TELEGRAM_ALLOWED_USER_IDS"),
+            telegram_notify_chat_id=_env_optional_int("TELEGRAM_NOTIFY_CHAT_ID"),
+            telegram_notifications=_env_bool("TELEGRAM_NOTIFICATIONS", True),
         )
         settings._load_runtime()
         return settings

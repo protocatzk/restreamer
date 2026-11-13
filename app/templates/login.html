@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="de" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0b0e13" id="metaThemeColor">
+  <meta name="color-scheme" content="dark light">
+  <title>Restreamer · Anmeldung</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%230b0e13'/%3E%3Cpath d='M11 7l14 9-14 9z' fill='%233fb950'/%3E%3C/svg%3E">
+  <link rel="preload" href="/static/fonts/inter-latin-var.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/static/fonts/jetbrains-mono-latin-var.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/static/brand.css?v=2.0.0">
+  <script src="/static/theme.js?v=1.0.0"></script>
+  <style>
+    body { margin: 0; }
+    .login-shell {
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      padding: var(--space-5);
+    }
+    .login-card {
+      width: min(480px, 100%);
+      margin: 0;
+    }
+    .login-card .box-header {
+      align-items: baseline;
+    }
+    .login-brand {
+      font-family: var(--mono);
+      font-size: 10.5px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+    .login-card h1 {
+      margin: 4px 0 0;
+      font-size: clamp(22px, 4vw, 30px);
+      letter-spacing: 0.02em;
+    }
+    .login-copy {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.55;
+    }
+    .login-actions {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-3);
+      margin-top: var(--space-4);
+    }
+    .login-card .btn {
+      width: 100%;
+    }
+    .login-status {
+      min-height: 18px;
+      margin: 0;
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--muted);
+    }
+    .login-hint {
+      margin: var(--space-4) 0 0;
+      font-size: 12px;
+      line-height: 1.5;
+      color: var(--muted);
+    }
+  </style>
+</head>
+<body>
+  <main class="login-shell">
+    <section class="box login-card">
+      <div class="box-header">
+        <div>
+          <div class="login-brand">Restreamer · Control</div>
+          <h1>Anmeldung</h1>
+        </div>
+        <span class="eyebrow">// Auth</span>
+      </div>
+
+      {% if telegram_enabled %}
+      <p class="login-copy">
+        Melde dich mit deinem Telegram-Account an. Der Bot fragt dich dort
+        nach einer Freigabe – kein Passwort, kein Code.
+      </p>
+      <div class="login-actions">
+        <a id="telegram-link" class="btn primary" href="#" target="_blank" rel="noopener">
+          Mit Telegram anmelden
+        </a>
+        <p id="login-status" class="login-status">Bereite Anmeldung vor…</p>
+      </div>
+      <p class="login-hint">
+        Der Link öffnet den privaten Chat mit dem Bot. Nach „Anmelden
+        freigeben“ geht es hier automatisch weiter.
+      </p>
+      {% else %}
+      <p class="login-copy">
+        Telegram-Login ist nicht konfiguriert. Bitte
+        <code>TELEGRAM_BOT_TOKEN</code> und
+        <code>TELEGRAM_ALLOWED_USER_IDS</code> setzen.
+      </p>
+      {% endif %}
+    </section>
+  </main>
+
+  {% if telegram_enabled %}
+  <script>
+    const nextPath = {{ next|tojson }};
+    const link = document.getElementById('telegram-link');
+    const statusText = document.getElementById('login-status');
+    let token = null;
+    let pollTimer = null;
+
+    function setStatus(text) {
+      statusText.textContent = text;
+    }
+
+    async function requestToken() {
+      try {
+        const response = await fetch('/auth/request', { method: 'POST' });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          setStatus(data.detail || 'Telegram-Login ist nicht verfügbar.');
+          link.setAttribute('aria-disabled', 'true');
+          link.style.pointerEvents = 'none';
+          link.style.opacity = '0.5';
+          return;
+        }
+        token = data.token;
+        link.href = data.deep_link;
+        link.removeAttribute('aria-disabled');
+        link.style.pointerEvents = '';
+        link.style.opacity = '';
+        setStatus('Warte auf Freigabe in Telegram…');
+        pollTimer = setInterval(checkStatus, 2000);
+      } catch (error) {
+        setStatus('Verbindung fehlgeschlagen. Seite neu laden.');
+      }
+    }
+
+    async function checkStatus() {
+      if (!token) {
+        return;
+      }
+      try {
+        const response = await fetch('/auth/check', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token }),
+        });
+        const data = await response.json();
+        if (data.status === 'approved') {
+          clearInterval(pollTimer);
+          setStatus('Angemeldet. Weiterleitung…');
+          window.location.href = nextPath || '/';
+        } else if (data.status === 'denied') {
+          clearInterval(pollTimer);
+          setStatus('Anmeldung abgelehnt. Seite neu laden für einen neuen Versuch.');
+        } else if (data.status === 'expired') {
+          clearInterval(pollTimer);
+          setStatus('Anfrage abgelaufen. Seite neu laden für einen neuen Versuch.');
+        }
+      } catch (error) {
+        /* transient error: keep polling */
+      }
+    }
+
+    link.addEventListener('click', (event) => {
+      if (!token) {
+        event.preventDefault();
+        setStatus('Anfrage wird noch vorbereitet…');
+      }
+    });
+
+    requestToken();
+  </script>
+  {% endif %}
+</body>
+</html>

@@ -38,7 +38,13 @@
           {% if password_required %}
           <span class="pill">Zugang <strong>geschützt</strong></span>
           {% endif %}
+          {% if telegram_auth_enabled %}
+          <span class="pill">Zugang <strong>Telegram</strong></span>
+          {% endif %}
           <button type="button" class="app-nav-link" data-theme-toggle>Theme: DARK</button>
+          {% if telegram_auth_enabled %}
+          <button type="button" class="app-nav-link danger" id="logout-button">Logout</button>
+          {% endif %}
         </div>
       </div>
     </div>
@@ -896,5 +902,16 @@
   </dialog>
 
   <script src="/static/app.js?v=2.0.1"></script>
+  {% if telegram_auth_enabled %}
+  <script>
+    document.getElementById('logout-button')?.addEventListener('click', async () => {
+      try {
+        await fetch('/auth/logout', { method: 'POST' });
+      } finally {
+        window.location.href = '/auth';
+      }
+    });
+  </script>
+  {% endif %}
 </body>
 </html>

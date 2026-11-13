@@ -2,4 +2,6 @@ fastapi==0.162.0
 uvicorn[standard]==0.54.0
 jinja2==3.1.6
 PyYAML==6.0.3
+python-telegram-bot==22.8
+httpx==0.28.1
 yt-dlp==2026.10.26
