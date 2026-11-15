@@ -187,6 +187,20 @@ async def test_switch_replaces_active_stream(settings, store, monkeypatch) -> No
         await supervisor.stop()
 
 
+def test_first_preferred_switch_allowed_on_fresh_clock(settings) -> None:
+    store = make_store(settings, PREFERRED_BOB)
+    supervisor = Supervisor(settings, store, FakeResolver(LIVE))
+    bob = store.get("bob")
+    assert bob is not None
+
+    # A fresh runner may have time.monotonic() < AUTO_SWITCH_RETRY_SECONDS.
+    assert supervisor._next_preferred_target([bob], now=1.0) is bob
+
+    supervisor._auto_switch_attempts["bob"] = 100.0
+    assert supervisor._next_preferred_target([bob], now=110.0) is None
+    assert supervisor._next_preferred_target([bob], now=400.0) is bob
+
+
 async def test_preferred_online_streamer_is_switched_to(
     settings, monkeypatch
 ) -> None:

@@ -324,15 +324,7 @@ class Supervisor:
             return
 
         now = time.monotonic()
-        target = next(
-            (
-                streamer
-                for streamer in live
-                if now - self._auto_switch_attempts.get(streamer.id, 0.0)
-                >= AUTO_SWITCH_RETRY_SECONDS
-            ),
-            None,
-        )
+        target = self._next_preferred_target(live, now)
         if target is None or self._state == StreamState.STOPPING:
             return
 
@@ -383,6 +375,24 @@ class Supervisor:
                 "[Restreamer] Automatischer Wechsel zu "
                 f"{target.name} fehlgeschlagen: {self._redact(str(exc))}"
             )
+
+    def _next_preferred_target(
+        self, live: list[StreamerConfig], now: float
+    ) -> StreamerConfig | None:
+        """Return the first preferred streamer whose retry cooldown expired.
+
+        ``_auto_switch_attempts`` starts empty.  The previous default of 0.0
+        accidentally blocked the very first switch on hosts whose monotonic
+        clock is younger than the retry interval (e.g. fresh CI runners).
+        """
+        for streamer in live:
+            last_attempt = self._auto_switch_attempts.get(streamer.id)
+            if (
+                last_attempt is None
+                or now - last_attempt >= AUTO_SWITCH_RETRY_SECONDS
+            ):
+                return streamer
+        return None
 
     def status(self) -> dict:
         self.store.refresh()
