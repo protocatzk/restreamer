@@ -92,6 +92,7 @@ async def wait_until(
     *,
     label: str = "",
     status: Callable[[], object] | None = None,
+    log: Callable[[], list[str]] | None = None,
 ) -> None:
     loop = asyncio.get_running_loop()
     deadline = loop.time() + timeout_s
@@ -103,6 +104,11 @@ async def wait_until(
     if status is not None:
         try:
             detail += f" last={status()}"
+        except Exception:  # noqa: BLE001 - diagnostics only
+            pass
+    if log is not None:
+        try:
+            detail += " log=" + " | ".join(log())
         except Exception:  # noqa: BLE001 - diagnostics only
             pass
     raise AssertionError("Bedingung wurde nicht rechtzeitig erfüllt" + detail)
@@ -206,7 +212,7 @@ async def test_preferred_online_streamer_is_switched_to(
             and supervisor.status()["state"] == "live",
             timeout_s=20,
             label="bob live",
-            status=supervisor.status,
+            log=lambda: supervisor._log.tail(40),
         )
     finally:
         await supervisor.stop()
@@ -1250,7 +1256,7 @@ async def test_preferred_stream_returns_to_previous_when_finished(
             and supervisor.status()["state"] == "live",
             timeout_s=20,
             label="bob live",
-            status=supervisor.status,
+            log=lambda: supervisor._log.tail(40),
         )
 
         pending = supervisor.status()["preferred_return"]
@@ -1301,7 +1307,7 @@ async def test_preferred_return_keeps_playlist_mode_and_end(settings) -> None:
             and supervisor.status()["state"] == "live",
             timeout_s=20,
             label="bob live",
-            status=supervisor.status,
+            log=lambda: supervisor._log.tail(40),
         )
         assert supervisor._playlist_end_at == ends_at
 
@@ -1345,7 +1351,7 @@ async def test_manual_switch_clears_preferred_return(
             and supervisor.status()["state"] == "live",
             timeout_s=20,
             label="bob live",
-            status=supervisor.status,
+            log=lambda: supervisor._log.tail(40),
         )
         assert supervisor.status()["preferred_return"] is not None
 
