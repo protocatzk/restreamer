@@ -1232,9 +1232,13 @@ async def test_preferred_stream_returns_to_previous_when_finished(
         assert pending["name"] == "Alice"
         assert pending["preferred_id"] == "bob"
 
+        # _activate_channel updates the active id before the runner starts the
+        # next lookup. Waiting for the third resolve keeps this deterministic
+        # even when the previous LIVE state is briefly still visible.
         await wait_until(
             lambda: supervisor.status()["active"] == "alice"
-            and supervisor.status()["state"] == "live",
+            and supervisor.status()["state"] == "live"
+            and resolver.calls == ["alice", "bob", "alice"],
             timeout_s=10,
         )
         status = supervisor.status()
@@ -1350,7 +1354,11 @@ async def test_png_chat_pipeline_requires_active_chat(settings, store) -> None:
 
 
 async def test_legacy_filters_can_skip_chat(settings, store) -> None:
-    settings = replace(settings, chat_enabled=True)
+    font = settings.logs_dir / "font.ttf"
+    font.write_bytes(b"fake-font")
+    settings = replace(
+        settings, chat_enabled=True, chat_overlay_font=str(font)
+    )
     ensure_chat_overlay_file(settings)
     supervisor = Supervisor(settings, store, FakeResolver(LIVE))
 

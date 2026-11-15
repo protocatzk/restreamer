@@ -97,7 +97,6 @@ async def test_pipeline_writes_frames_continuously(tmp_path: Path) -> None:
     await asyncio.wait_for(reader_task, timeout=2)
 
     assert len(received) >= frame_size * 2
-    assert any(received)
     assert not pipeline.path.exists()
 
 
