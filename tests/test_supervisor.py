@@ -5,9 +5,11 @@ import time
 from collections.abc import Callable
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 
 import pytest
 
+from app.chat import ensure_chat_overlay_file
 from app.models import PlaylistConfig, ResolvedStream
 from app.store import StreamerStore
 from app.supervisor import (
@@ -1304,3 +1306,56 @@ async def test_manual_switch_clears_preferred_return(
         assert supervisor.status()["preferred_return"] is None
     finally:
         await supervisor.stop()
+
+
+def _chat_stub():
+    return SimpleNamespace(
+        overlay=SimpleNamespace(visible_messages=lambda: [])
+    )
+
+
+async def test_png_chat_pipeline_is_created_when_enabled(settings, store) -> None:
+    settings = replace(
+        settings, chat_enabled=True, chat_overlay_engine_enabled=True
+    )
+    supervisor = Supervisor(settings, store, FakeResolver(LIVE))
+    supervisor._chat = _chat_stub()
+
+    pipeline = supervisor._start_chat_pipeline()
+
+    assert pipeline is not None
+    args = pipeline.input_args()
+    assert args[args.index("-f") + 1] == "rawvideo"
+    assert args[args.index("-pixel_format") + 1] == "rgba"
+    await pipeline.stop()
+
+
+async def test_png_chat_pipeline_is_disabled_by_flag(settings, store) -> None:
+    settings = replace(
+        settings, chat_enabled=True, chat_overlay_engine_enabled=False
+    )
+    supervisor = Supervisor(settings, store, FakeResolver(LIVE))
+    supervisor._chat = _chat_stub()
+
+    assert supervisor._start_chat_pipeline() is None
+
+
+async def test_png_chat_pipeline_requires_active_chat(settings, store) -> None:
+    settings = replace(
+        settings, chat_enabled=True, chat_overlay_engine_enabled=True
+    )
+    supervisor = Supervisor(settings, store, FakeResolver(LIVE))
+
+    assert supervisor._start_chat_pipeline() is None
+
+
+async def test_legacy_filters_can_skip_chat(settings, store) -> None:
+    settings = replace(settings, chat_enabled=True)
+    ensure_chat_overlay_file(settings)
+    supervisor = Supervisor(settings, store, FakeResolver(LIVE))
+
+    with_chat = supervisor._legacy_overlay_filters()
+    without_chat = supervisor._legacy_overlay_filters(include_chat=False)
+
+    assert any("textfile=" in item for item in with_chat)
+    assert not any("textfile=" in item for item in without_chat)

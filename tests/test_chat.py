@@ -310,3 +310,21 @@ async def test_chat_worker_does_not_fetch_when_disabled(tmp_path: Path) -> None:
     await worker.stop()
 
     assert source.calls == []
+
+
+def test_visible_messages_returns_delayed_messages(tmp_path: Path) -> None:
+    settings = _settings(tmp_path)
+    overlay = ChatOverlay(settings)
+    now_wall = datetime.now()
+    overlay.enqueue(
+        [_message("1", "hello", created_at=now_wall)],
+        now_mono=100.0,
+        now_wall=now_wall,
+    )
+
+    assert overlay.visible_messages(100.0) == []
+    assert overlay.visible_messages(129.9) == []
+
+    visible = overlay.visible_messages(130.1)
+
+    assert [message.text for message in visible] == ["hello"]

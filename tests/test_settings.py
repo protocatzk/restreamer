@@ -94,6 +94,14 @@ def test_new_defaults_are_present(tmp_path: Path) -> None:
     assert data["earnings_overlay_position"] == "top-left"
     assert data["earnings_overlay_font_size"] == 0
     assert data["earnings_overlay_font"] == ""
+    assert data["chat_overlay_engine_enabled"] is False
+    assert data["chat_overlay_render_fps"] == 15
+    assert data["chat_overlay_emoji_enabled"] is True
+    assert data["chat_overlay_style"] == "bubbles"
+    assert data["chat_overlay_opacity"] == 78
+    assert data["chat_overlay_name_colors"] is True
+    assert data["chat_overlay_show_timestamps"] is False
+    assert data["chat_overlay_max_lines"] == 3
     assert data["youtube_title_template"] == "{name} live: {title}"
 
 
@@ -444,3 +452,42 @@ def test_text_overlay_values_are_validated(tmp_path: Path) -> None:
     assert updated.text_overlay_font_size == 32
     assert updated.text_overlay_font == "/tmp/font.ttf"
     assert updated.text_overlay_speed == 240
+
+
+def test_chat_overlay_engine_values_are_validated(tmp_path: Path) -> None:
+    settings = Settings(runtime_file=tmp_path / "settings.yml")
+
+    updated = settings.updated(
+        {
+            "chat_overlay_engine_enabled": True,
+            "chat_overlay_render_fps": 20,
+            "chat_overlay_emoji_enabled": False,
+            "chat_overlay_style": "panel",
+            "chat_overlay_opacity": 60,
+            "chat_overlay_name_colors": False,
+            "chat_overlay_show_timestamps": True,
+            "chat_overlay_max_lines": 5,
+        }
+    )
+
+    assert updated.chat_overlay_engine_enabled is True
+    assert updated.chat_overlay_render_fps == 20
+    assert updated.chat_overlay_emoji_enabled is False
+    assert updated.chat_overlay_style == "panel"
+    assert updated.chat_overlay_opacity == 60
+    assert updated.chat_overlay_name_colors is False
+    assert updated.chat_overlay_show_timestamps is True
+    assert updated.chat_overlay_max_lines == 5
+
+    with pytest.raises(ValueError, match="chat_overlay_render_fps"):
+        settings.updated({"chat_overlay_render_fps": 4})
+    with pytest.raises(ValueError, match="chat_overlay_render_fps"):
+        settings.updated({"chat_overlay_render_fps": 31})
+    with pytest.raises(ValueError, match="chat_overlay_opacity"):
+        settings.updated({"chat_overlay_opacity": 101})
+    with pytest.raises(ValueError, match="chat_overlay_max_lines"):
+        settings.updated({"chat_overlay_max_lines": 0})
+    with pytest.raises(ValueError, match="chat_overlay_max_lines"):
+        settings.updated({"chat_overlay_max_lines": 7})
+    with pytest.raises(ValueError, match="chat_overlay_style"):
+        settings.updated({"chat_overlay_style": "huge"})

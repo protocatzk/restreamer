@@ -780,6 +780,51 @@
         </fieldset>
 
         <fieldset>
+          <legend>PNG-Chat-Engine</legend>
+          <div class="check-row">
+            <label class="check"><input type="checkbox" name="chat_overlay_engine_enabled"> Chat als PNG-Overlay rendern</label>
+            <label class="check"><input type="checkbox" name="chat_overlay_emoji_enabled"> Farb-Emoji anzeigen</label>
+          </div>
+          <div class="form-grid">
+            <label class="field">
+              <span>Bildrate (FPS)</span>
+              <input name="chat_overlay_render_fps" type="number" min="5" max="30" step="1">
+            </label>
+            <label class="field">
+              <span>Stil</span>
+              <select name="chat_overlay_style">
+                <option value="bubbles">Blasen</option>
+                <option value="panel">Ein Panel</option>
+                <option value="minimal">Minimal</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Deckkraft (%)</span>
+              <input name="chat_overlay_opacity" type="number" min="0" max="100" step="1">
+            </label>
+            <label class="field">
+              <span>Max. Zeilen pro Nachricht</span>
+              <input name="chat_overlay_max_lines" type="number" min="1" max="6" step="1">
+            </label>
+          </div>
+          <div class="check-row">
+            <label class="check"><input type="checkbox" name="chat_overlay_name_colors"> Namen farbig hervorheben</label>
+            <label class="check"><input type="checkbox" name="chat_overlay_show_timestamps"> Uhrzeit der Nachricht anzeigen</label>
+          </div>
+          <div class="overlay-preview-header">
+            <span>Vorschau</span>
+            <label class="check"><input type="checkbox" id="chat-overlay-preview-sample" checked> Beispielnachrichten</label>
+          </div>
+          <div class="overlay-preview-wrap">
+            <img id="chat-overlay-preview" class="overlay-preview" alt="Chat-Overlay-Vorschau">
+          </div>
+          <p class="hint">Die PNG-Engine rendert nur den Chat und benötigt keinen zusätzlichen Encoder.
+            Alle Blasen verwenden immer die eingestellte Chatbreite, damit das Overlay nicht „wobbelt“.
+            Stil, Deckkraft, Farben und Inhalte wirken live; Aktivierung, Bildrate, Breite, Position und
+            Schriftgröße bauen den YouTube-Ausgang einmal kurz neu auf.</p>
+        </fieldset>
+
+        <fieldset>
           <legend>Uhrzeit</legend>
           <div class="check-row">
             <label class="check"><input type="checkbox" name="clock_enabled"> Aktuelle Uhrzeit im Stream anzeigen</label>

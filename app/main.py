@@ -401,6 +401,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         earnings_monitor.request_check()
         return {"ok": True, "earnings": earnings_monitor.summary()}
 
+    @app.get("/api/overlay/preview.png")
+    async def api_overlay_preview(sample: bool = Query(False)):
+        try:
+            content = supervisor.overlay_preview_png(sample=sample)
+        except Exception as exc:  # noqa: BLE001 - preview must not kill the app
+            logger.exception("Overlay-Vorschau fehlgeschlagen")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Overlay-Vorschau fehlgeschlagen: {exc}",
+            ) from exc
+        return Response(
+            content=content,
+            media_type="image/png",
+            headers={"Cache-Control": "no-store"},
+        )
+
     # ------------------------------------------------------------- Einstellungen
 
     @app.get("/api/settings")
@@ -449,6 +465,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             or candidate.output_stretch_percent
             != settings.output_stretch_percent
             or candidate.chat_enabled != settings.chat_enabled
+            or candidate.chat_overlay_engine_enabled
+            != settings.chat_overlay_engine_enabled
+            or candidate.chat_overlay_render_fps
+            != settings.chat_overlay_render_fps
             or candidate.chat_overlay_position
             != settings.chat_overlay_position
             or candidate.chat_overlay_font_size

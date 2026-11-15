@@ -51,6 +51,14 @@ from app.text_overlay import build_text_overlay_filter
 from app.titles import render_title
 from app.version import build_version_filter
 
+try:  # Pillow is optional; the drawtext overlay remains the fallback.
+    from app import chat_engine as _chat_engine_module
+except Exception as _chat_engine_exc:  # pragma: no cover - dependency guard
+    _chat_engine_module = None
+    _chat_engine_import_error = str(_chat_engine_exc)
+else:
+    _chat_engine_import_error = ""
+
 logger = logging.getLogger(__name__)
 
 Spawn = Callable[[list[str]], Awaitable[asyncio.subprocess.Process]]
@@ -240,6 +248,7 @@ class Supervisor:
         self._preferred_return: _PreferredReturn | None = None
         self._chat: ChatWorker | None = None
         self._chat_filter_warned = False
+        self._chat_engine_warned = False
         self._earnings_filter_warned = False
         self._clock_filter_warned = False
         self._version_filter_warned = False
@@ -801,6 +810,7 @@ class Supervisor:
             self._log.clear()
             self._open_log_file(streamer.id)
             self._chat_filter_warned = False
+            self._chat_engine_warned = False
             self._earnings_filter_warned = False
             self._clock_filter_warned = False
             self._version_filter_warned = False
@@ -1145,6 +1155,120 @@ class Supervisor:
             with suppress(Exception):
                 await chat.stop()
 
+    def _start_chat_pipeline(self):
+        """Create the PNG chat FIFO for the next output process."""
+        if not self.settings.chat_overlay_engine_enabled:
+            return None
+        if not self.settings.chat_enabled or self._chat is None:
+            return None
+        if _chat_engine_module is None:
+            if not self._chat_engine_warned:
+                self._chat_engine_warned = True
+                detail = (
+                    f": {_chat_engine_import_error}"
+                    if _chat_engine_import_error
+                    else ""
+                )
+                self._record(
+                    "[Chat] PNG-Engine nicht verfügbar"
+                    + detail
+                    + " – drawtext-Fallback"
+                )
+            return None
+        try:
+            pipe = _chat_engine_module.ChatPipeline(
+                _chat_engine_module.ChatOverlaySources(
+                    self.settings,
+                    messages=self._chat.overlay.visible_messages,
+                ),
+                log=self._record,
+            )
+            pipe.prepare()
+        except Exception as exc:  # noqa: BLE001 - fallback to drawtext
+            if not self._chat_engine_warned:
+                self._chat_engine_warned = True
+                self._record(
+                    f"[Chat] PNG-Engine nicht startbar: {exc} – "
+                    "drawtext-Fallback"
+                )
+            return None
+        self._record(
+            "[Chat] PNG-Engine aktiv "
+            f"({pipe.geometry.width}x{pipe.geometry.height} "
+            f"@ {pipe.fps} fps)"
+        )
+        return pipe
+
+    def overlay_preview_png(self, *, sample: bool = False) -> bytes:
+        """Render the current (or sample) chat overlay for the dashboard."""
+        if _chat_engine_module is None:
+            detail = (
+                f": {_chat_engine_import_error}"
+                if _chat_engine_import_error
+                else ""
+            )
+            raise RuntimeError(f"PNG-Chat-Engine nicht verfügbar{detail}")
+        messages = ()
+        if not sample and self._chat is not None:
+            messages = tuple(self._chat.overlay.visible_messages())
+        return _chat_engine_module.preview_png(
+            self.settings, messages, sample=sample
+        )
+
+    def _legacy_overlay_filters(self, *, include_chat: bool = True) -> list[str]:
+        """Build the drawtext filters used outside the PNG chat engine."""
+        video_filters: list[str] = []
+        if include_chat:
+            chat_filter = build_overlay_filter(self.settings)
+            if chat_filter is not None:
+                video_filters.append(chat_filter)
+            elif self.settings.chat_enabled and not self._chat_filter_warned:
+                self._chat_filter_warned = True
+                self._record(
+                    "[Chat] Keine Schrift oder Overlay-Datei gefunden – "
+                    "Chat-Overlay deaktiviert"
+                )
+        earnings_filter = build_earnings_overlay_filter(self.settings)
+        if earnings_filter is not None:
+            video_filters.append(earnings_filter)
+        elif (
+            self.settings.earnings_overlay_enabled
+            and not self._earnings_filter_warned
+        ):
+            self._earnings_filter_warned = True
+            self._record(
+                "[Einnahmen] Keine Schrift oder Overlay-Datei gefunden – "
+                "Einnahmen-Overlay deaktiviert"
+            )
+        clock_filter = build_clock_filter(self.settings)
+        if clock_filter is not None:
+            video_filters.append(clock_filter)
+        elif self.settings.clock_enabled and not self._clock_filter_warned:
+            self._clock_filter_warned = True
+            self._record("[Clock] Keine Schrift gefunden – Uhrzeit deaktiviert")
+        text_filter = build_text_overlay_filter(self.settings)
+        if text_filter is not None:
+            video_filters.append(text_filter)
+        elif self.settings.text_overlay_enabled and not self._text_filter_warned:
+            self._text_filter_warned = True
+            self._record(
+                "[Text] Keine Schrift oder Textdatei gefunden – "
+                "Text-Overlay deaktiviert"
+            )
+        version_filter = build_version_filter(self.settings)
+        if version_filter is not None:
+            video_filters.append(version_filter)
+        elif (
+            self.settings.version_overlay_enabled
+            and not self._version_filter_warned
+        ):
+            self._version_filter_warned = True
+            self._record(
+                "[Version] Keine Schrift gefunden – "
+                "Versionsanzeige deaktiviert"
+            )
+        return video_filters
+
     def _activate_channel(self, streamer: StreamerConfig, key: str) -> None:
         """Switch the worker to another channel without restarting the task."""
         self._active_id = streamer.id
@@ -1217,68 +1341,30 @@ class Supervisor:
         """Keep one YouTube RTMP connection alive across source changes."""
         backoff = self.settings.backoff_initial_seconds
         while not self._stop_event.is_set():
-            video_filters: list[str] = []
-            chat_filter = build_overlay_filter(self.settings)
-            if chat_filter is not None:
-                video_filters.append(chat_filter)
-            elif self.settings.chat_enabled and not self._chat_filter_warned:
-                self._chat_filter_warned = True
-                self._record(
-                    "[Chat] Keine Schrift oder Overlay-Datei gefunden – "
-                    "Chat-Overlay deaktiviert"
-                )
-            earnings_filter = build_earnings_overlay_filter(self.settings)
-            if earnings_filter is not None:
-                video_filters.append(earnings_filter)
-            elif (
-                self.settings.earnings_overlay_enabled
-                and not self._earnings_filter_warned
-            ):
-                self._earnings_filter_warned = True
-                self._record(
-                    "[Einnahmen] Keine Schrift oder Overlay-Datei gefunden – "
-                    "Einnahmen-Overlay deaktiviert"
-                )
-            clock_filter = build_clock_filter(self.settings)
-            if clock_filter is not None:
-                video_filters.append(clock_filter)
-            elif self.settings.clock_enabled and not self._clock_filter_warned:
-                self._clock_filter_warned = True
-                self._record(
-                    "[Clock] Keine Schrift gefunden – Uhrzeit deaktiviert"
-                )
-            text_filter = build_text_overlay_filter(self.settings)
-            if text_filter is not None:
-                video_filters.append(text_filter)
-            elif (
-                self.settings.text_overlay_enabled
-                and not self._text_filter_warned
-            ):
-                self._text_filter_warned = True
-                self._record(
-                    "[Text] Keine Schrift oder Textdatei gefunden – "
-                    "Text-Overlay deaktiviert"
-                )
-            version_filter = build_version_filter(self.settings)
-            if version_filter is not None:
-                video_filters.append(version_filter)
-            elif (
-                self.settings.version_overlay_enabled
-                and not self._version_filter_warned
-            ):
-                self._version_filter_warned = True
-                self._record(
-                    "[Version] Keine Schrift gefunden – "
-                    "Versionsanzeige deaktiviert"
-                )
+            overlay_pipe = self._start_chat_pipeline()
+            video_filters = self._legacy_overlay_filters(
+                include_chat=overlay_pipe is None
+            )
             try:
                 args = build_output_command(
                     self.settings,
                     key,
                     self._output_args,
                     extra_video_filters=tuple(video_filters),
+                    overlay_input_args=(
+                        tuple(overlay_pipe.input_args())
+                        if overlay_pipe is not None
+                        else ()
+                    ),
+                    overlay_position=(
+                        overlay_pipe.position()
+                        if overlay_pipe is not None
+                        else None
+                    ),
                 )
             except ValueError as exc:
+                if overlay_pipe is not None:
+                    await overlay_pipe.stop()
                 self._output_error = self._redact(str(exc))
                 self._record(
                     f"[Restreamer] YouTube-Ausgang nicht startbar: {exc}"
@@ -1289,10 +1375,16 @@ class Supervisor:
                 "[Restreamer] YouTube-Ausgang: "
                 + self._redact(" ".join(args))
             )
-            await self._wait_for_delay_buffer()
             try:
+                await self._wait_for_delay_buffer()
                 process = await self._spawn(args)
+            except asyncio.CancelledError:
+                if overlay_pipe is not None:
+                    await overlay_pipe.stop()
+                raise
             except OSError as exc:
+                if overlay_pipe is not None:
+                    await overlay_pipe.stop()
                 self._output_error = self._redact(str(exc))
                 self._record(
                     f"[Restreamer] YouTube-Ausgang Start fehlgeschlagen: {exc}"
@@ -1305,6 +1397,8 @@ class Supervisor:
                 continue
 
             self._output_proc = process
+            if overlay_pipe is not None:
+                overlay_pipe.start()
             self._output_sessions += 1
             self._output_error = ""
             started = time.monotonic()
@@ -1329,6 +1423,8 @@ class Supervisor:
                 await self._terminate(process)
                 raise
             finally:
+                if overlay_pipe is not None:
+                    await overlay_pipe.stop()
                 for task in (watchdog, log_task, progress_task):
                     task.cancel()
                     with suppress(asyncio.CancelledError):
@@ -1447,6 +1543,7 @@ class Supervisor:
                 "YouTube-Ausgang wird für kurze Zeit neu aufgebaut"
             )
             self._chat_filter_warned = False
+            self._chat_engine_warned = False
             self._earnings_filter_warned = False
             self._clock_filter_warned = False
             self._version_filter_warned = False
