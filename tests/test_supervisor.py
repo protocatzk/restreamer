@@ -86,14 +86,26 @@ async def spawn_sleep(args: list[str]) -> asyncio.subprocess.Process:
     )
 
 
-async def wait_until(predicate: Callable[[], bool], timeout_s: float = 5.0) -> None:
+async def wait_until(
+    predicate: Callable[[], bool],
+    timeout_s: float = 5.0,
+    *,
+    label: str = "",
+    status: Callable[[], object] | None = None,
+) -> None:
     loop = asyncio.get_running_loop()
     deadline = loop.time() + timeout_s
     while loop.time() < deadline:
         if predicate():
             return
         await asyncio.sleep(0.02)
-    raise AssertionError("Bedingung wurde nicht rechtzeitig erfüllt")
+    detail = f" ({label})" if label else ""
+    if status is not None:
+        try:
+            detail += f" last={status()}"
+        except Exception:  # noqa: BLE001 - diagnostics only
+            pass
+    raise AssertionError("Bedingung wurde nicht rechtzeitig erfüllt" + detail)
 
 
 LIVE = ResolvedStream(
@@ -181,7 +193,11 @@ async def test_preferred_online_streamer_is_switched_to(
 
     try:
         await supervisor.start("alice")
-        await wait_until(lambda: supervisor.status()["state"] == "live")
+        await wait_until(
+            lambda: supervisor.status()["state"] == "live",
+            label="initial live",
+            status=supervisor.status,
+        )
 
         await supervisor.handle_online_statuses({"bob": True})
 
@@ -189,6 +205,8 @@ async def test_preferred_online_streamer_is_switched_to(
             lambda: supervisor.status()["active"] == "bob"
             and supervisor.status()["state"] == "live",
             timeout_s=20,
+            label="bob live",
+            status=supervisor.status,
         )
     finally:
         await supervisor.stop()
@@ -1220,13 +1238,19 @@ async def test_preferred_stream_returns_to_previous_when_finished(
 
     try:
         await supervisor.start("alice")
-        await wait_until(lambda: supervisor.status()["state"] == "live")
+        await wait_until(
+            lambda: supervisor.status()["state"] == "live",
+            label="initial live",
+            status=supervisor.status,
+        )
 
         await supervisor.handle_online_statuses({"bob": True})
         await wait_until(
             lambda: supervisor.status()["active"] == "bob"
             and supervisor.status()["state"] == "live",
             timeout_s=20,
+            label="bob live",
+            status=supervisor.status,
         )
 
         pending = supervisor.status()["preferred_return"]
@@ -1242,6 +1266,8 @@ async def test_preferred_stream_returns_to_previous_when_finished(
             and supervisor.status()["state"] == "live"
             and resolver.calls == ["alice", "bob", "alice"],
             timeout_s=20,
+            label="alice live",
+            status=supervisor.status,
         )
         status = supervisor.status()
         assert status["active_playlist"] is None
@@ -1259,7 +1285,11 @@ async def test_preferred_return_keeps_playlist_mode_and_end(settings) -> None:
 
     try:
         await supervisor.playlist_play("main")
-        await wait_until(lambda: supervisor.status()["state"] == "live")
+        await wait_until(
+            lambda: supervisor.status()["state"] == "live",
+            label="initial live",
+            status=supervisor.status,
+        )
         ends_at = supervisor._playlist_end_at
         deadline = supervisor._playlist_end_at_monotonic
         assert ends_at is not None
@@ -1270,6 +1300,8 @@ async def test_preferred_return_keeps_playlist_mode_and_end(settings) -> None:
             lambda: supervisor.status()["active"] == "bob"
             and supervisor.status()["state"] == "live",
             timeout_s=20,
+            label="bob live",
+            status=supervisor.status,
         )
         assert supervisor._playlist_end_at == ends_at
 
@@ -1277,6 +1309,8 @@ async def test_preferred_return_keeps_playlist_mode_and_end(settings) -> None:
             lambda: supervisor.status()["active"] == "alice"
             and supervisor.status()["state"] == "live",
             timeout_s=20,
+            label="alice live",
+            status=supervisor.status,
         )
         status = supervisor.status()
         assert status["active_playlist"] == "main"
@@ -1299,13 +1333,19 @@ async def test_manual_switch_clears_preferred_return(
 
     try:
         await supervisor.start("alice")
-        await wait_until(lambda: supervisor.status()["state"] == "live")
+        await wait_until(
+            lambda: supervisor.status()["state"] == "live",
+            label="initial live",
+            status=supervisor.status,
+        )
 
         await supervisor.handle_online_statuses({"bob": True})
         await wait_until(
             lambda: supervisor.status()["active"] == "bob"
             and supervisor.status()["state"] == "live",
             timeout_s=20,
+            label="bob live",
+            status=supervisor.status,
         )
         assert supervisor.status()["preferred_return"] is not None
 
