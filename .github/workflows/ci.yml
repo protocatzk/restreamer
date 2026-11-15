@@ -39,12 +39,15 @@ jobs:
                   continue
               message = (failure.get("message") or "Test fehlgeschlagen").strip()
               first_line = message.splitlines()[0]
+              trace = (failure.text or "").strip().splitlines()
+              trace_hint = " | ".join(trace[-4:]) if trace else ""
               path = case.get("file") or case.get("classname", "")
               line = case.get("line")
               location = f"file={path}" + (f",line={line}" if line else "")
               print(
                   f"::error {location}::"
-                  f"{case.get('classname')}::{case.get('name')}: {first_line}"
+                  f"{case.get('classname')}::{case.get('name')}: "
+                  f"{first_line} [{trace_hint}]"
               )
           PY
           fi
