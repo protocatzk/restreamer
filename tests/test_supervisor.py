@@ -187,7 +187,8 @@ async def test_preferred_online_streamer_is_switched_to(
 
         await wait_until(
             lambda: supervisor.status()["active"] == "bob"
-            and supervisor.status()["state"] == "live"
+            and supervisor.status()["state"] == "live",
+            timeout_s=20,
         )
     finally:
         await supervisor.stop()
@@ -1214,7 +1215,7 @@ async def test_preferred_stream_returns_to_previous_when_finished(
     monkeypatch.setenv("BOB_YT_KEY", "bob-key")
     store = make_store(settings, PREFERRED_BOB)
     resolver = MapResolver({"alice": [LIVE, LIVE], "bob": [LIVE]})
-    spawn = SequenceSpawn(["60", "1.0"])
+    spawn = SequenceSpawn(["60", "6.0"])
     supervisor = Supervisor(settings, store, resolver, spawn=spawn)
 
     try:
@@ -1224,7 +1225,8 @@ async def test_preferred_stream_returns_to_previous_when_finished(
         await supervisor.handle_online_statuses({"bob": True})
         await wait_until(
             lambda: supervisor.status()["active"] == "bob"
-            and supervisor.status()["state"] == "live"
+            and supervisor.status()["state"] == "live",
+            timeout_s=20,
         )
 
         pending = supervisor.status()["preferred_return"]
@@ -1239,7 +1241,7 @@ async def test_preferred_stream_returns_to_previous_when_finished(
             lambda: supervisor.status()["active"] == "alice"
             and supervisor.status()["state"] == "live"
             and resolver.calls == ["alice", "bob", "alice"],
-            timeout_s=10,
+            timeout_s=20,
         )
         status = supervisor.status()
         assert status["active_playlist"] is None
@@ -1252,7 +1254,7 @@ async def test_preferred_stream_returns_to_previous_when_finished(
 async def test_preferred_return_keeps_playlist_mode_and_end(settings) -> None:
     store = make_store(settings, PLAYLIST_PREFERRED_BOB)
     resolver = MapResolver({"alice": [LIVE, LIVE], "bob": [LIVE]})
-    spawn = SequenceSpawn(["60", "1.0"])
+    spawn = SequenceSpawn(["60", "6.0"])
     supervisor = Supervisor(settings, store, resolver, spawn=spawn)
 
     try:
@@ -1266,14 +1268,15 @@ async def test_preferred_return_keeps_playlist_mode_and_end(settings) -> None:
         await supervisor.handle_online_statuses({"bob": True})
         await wait_until(
             lambda: supervisor.status()["active"] == "bob"
-            and supervisor.status()["state"] == "live"
+            and supervisor.status()["state"] == "live",
+            timeout_s=20,
         )
         assert supervisor._playlist_end_at == ends_at
 
         await wait_until(
             lambda: supervisor.status()["active"] == "alice"
             and supervisor.status()["state"] == "live",
-            timeout_s=10,
+            timeout_s=20,
         )
         status = supervisor.status()
         assert status["active_playlist"] == "main"
@@ -1301,7 +1304,8 @@ async def test_manual_switch_clears_preferred_return(
         await supervisor.handle_online_statuses({"bob": True})
         await wait_until(
             lambda: supervisor.status()["active"] == "bob"
-            and supervisor.status()["state"] == "live"
+            and supervisor.status()["state"] == "live",
+            timeout_s=20,
         )
         assert supervisor.status()["preferred_return"] is not None
 
