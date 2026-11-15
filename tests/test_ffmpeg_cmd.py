@@ -213,3 +213,46 @@ def test_empty_stream_url_rejected(settings: Settings) -> None:
     empty = replace(STREAM, url="")
     with pytest.raises(ValueError, match="Stream-URL"):
         build_source_command(STREAMER, empty, settings)
+
+
+def test_output_with_overlay_uses_filter_complex(settings: Settings) -> None:
+    overlay_args = (
+        "-f",
+        "rawvideo",
+        "-pixel_format",
+        "rgba",
+        "-video_size",
+        "336x1248",
+        "-framerate",
+        "15",
+        "-i",
+        "/tmp/chat.pipe",
+    )
+    args = build_output_command(
+        settings,
+        "key-123",
+        extra_video_filters=("drawtext=text='v':reload=1",),
+        overlay_input_args=overlay_args,
+        overlay_position=(16, 16),
+    )
+
+    assert args.count("-i") == 2
+    assert args[args.index("-i") + 1] == build_relay_input_url(settings)
+    assert "-vf" not in args
+    graph = args[args.index("-filter_complex") + 1]
+    assert "overlay=16:16" in graph
+    assert "eof_action=repeat" in graph
+    assert "drawtext=text='v':reload=1" in graph
+    assert args[args.index("-map") + 1] == "[vout]"
+
+
+def test_output_with_overlay_without_extra_filters(settings: Settings) -> None:
+    args = build_output_command(
+        settings,
+        "key-123",
+        overlay_input_args=("-f", "rawvideo", "-i", "/tmp/chat.pipe"),
+        overlay_position=(16, 16),
+    )
+
+    graph = args[args.index("-filter_complex") + 1]
+    assert graph.endswith("[overlay]format=yuv420p[vout]")

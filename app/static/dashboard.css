@@ -1066,3 +1066,46 @@ legend {
         width: 100%;
     }
 }
+
+/* =========================================================
+   PNG-CHAT-ENGINE / VORSCHAU
+   ========================================================= */
+
+.overlay-preview-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    margin-top: var(--space-4);
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.overlay-preview-header .check {
+    font-family: var(--sans);
+    font-size: 12px;
+    font-weight: 400;
+    letter-spacing: 0;
+    text-transform: none;
+}
+
+.overlay-preview-wrap {
+    margin-top: var(--space-2);
+    padding: var(--space-3);
+    border: var(--line);
+    background: var(--surface-2);
+}
+
+.overlay-preview {
+    display: block;
+    width: auto;
+    max-width: min(100%, 360px);
+    max-height: 340px;
+    margin: 0 auto;
+    object-fit: contain;
+    background: var(--bg);
+}

@@ -245,11 +245,11 @@ def _quote_filter_value(value: str) -> str:
     return f"'{escaped}'"
 
 
-def _chat_margin(settings: Settings) -> int:
+def chat_margin(settings: Settings) -> int:
     return max(16, round(settings.output_width * 0.033))
 
 
-def _chat_font_size(settings: Settings) -> int:
+def chat_font_size(settings: Settings) -> int:
     if settings.chat_overlay_font_size > 0:
         return settings.chat_overlay_font_size
     auto = max(22, round(settings.output_width * CHAT_DEFAULT_FONT_RATIO))
@@ -258,10 +258,16 @@ def _chat_font_size(settings: Settings) -> int:
     return auto
 
 
-def _chat_max_width(settings: Settings) -> int:
-    available = max(120, settings.output_width - 2 * _chat_margin(settings))
+def chat_max_width(settings: Settings) -> int:
+    available = max(120, settings.output_width - 2 * chat_margin(settings))
     configured = settings.chat_overlay_width
     return min(configured, available) if configured > 0 else available
+
+
+# Backwards-compatible private aliases used by older call sites/tests.
+_chat_margin = chat_margin
+_chat_font_size = chat_font_size
+_chat_max_width = chat_max_width
 
 
 def build_overlay_filter(settings: Settings) -> str | None:
@@ -275,9 +281,9 @@ def build_overlay_filter(settings: Settings) -> str | None:
     if font is None:
         return None
 
-    font_size = _chat_font_size(settings)
+    font_size = chat_font_size(settings)
     line_spacing = max(4, font_size // 4)
-    margin = _chat_margin(settings)
+    margin = chat_margin(settings)
     box_border = max(10, round(font_size * 0.55))
 
     position = settings.chat_overlay_position
@@ -403,7 +409,12 @@ class ChatOverlay:
         self._clear_at = None
         self._write("")
 
-    def render(self, now: float | None = None) -> None:
+    def visible_messages(self, now: float | None = None) -> list[ChatMessage]:
+        """Return the currently visible messages, oldest first.
+
+        The PNG chat engine renders this list directly; the drawtext fallback
+        formats the same list into its text file.
+        """
         now = time.monotonic() if now is None else now
         if self._clear_at is not None and now >= self._clear_at:
             clear_at = self._clear_at
@@ -419,18 +430,21 @@ class ChatOverlay:
         ]
         visible.sort(key=lambda item: item.show_at)
         limit = max(1, self.settings.chat_overlay_max_messages)
-        text = self._format([item.message for item in visible[-limit:]])
+        return [item.message for item in visible[-limit:]]
+
+    def render(self, now: float | None = None) -> None:
+        text = self._format(self.visible_messages(now))
         if text != self._last_text:
             self._write(text)
 
     def _format(self, messages: list[ChatMessage]) -> str:
         if not messages:
             return ""
-        font_size = _chat_font_size(self.settings)
+        font_size = chat_font_size(self.settings)
         max_chars = max(
             10,
             int(
-                _chat_max_width(self.settings)
+                chat_max_width(self.settings)
                 / max(1.0, font_size * CHAT_WRAP_CHAR_RATIO)
             ),
         )

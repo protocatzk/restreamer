@@ -32,6 +32,9 @@ INT_FIELDS = {
     "chat_overlay_max_age_seconds",
     "chat_overlay_font_size",
     "chat_overlay_width",
+    "chat_overlay_render_fps",
+    "chat_overlay_opacity",
+    "chat_overlay_max_lines",
     "clock_font_size",
     "text_overlay_font_size",
     "text_overlay_speed",
@@ -47,6 +50,10 @@ BOOL_FIELDS = {
     "auto_reencode_fallback",
     "pause_screen_enabled",
     "chat_enabled",
+    "chat_overlay_engine_enabled",
+    "chat_overlay_emoji_enabled",
+    "chat_overlay_name_colors",
+    "chat_overlay_show_timestamps",
     "clock_enabled",
     "text_overlay_enabled",
     "clock_show_seconds",
@@ -91,6 +98,7 @@ STRING_FIELDS = {
     "earnings_overlay_font",
     "chat_overlay_position",
     "chat_overlay_font",
+    "chat_overlay_style",
     "clock_position",
     "clock_font",
     "text_overlay_text",
@@ -117,6 +125,7 @@ PAUSE_SCREEN_TEXT_MAX_LENGTH = 120
 PAUSE_SCREEN_SUBTEXT_MAX_LENGTH = 160
 YOUTUBE_TITLE_TEMPLATE_MAX_LENGTH = 200
 CHAT_OVERLAY_POSITIONS = ("bottom-left", "bottom-right", "top-left", "top-right")
+CHAT_OVERLAY_STYLES = ("bubbles", "panel", "minimal")
 CLOCK_POSITIONS = ("top-left", "top-right", "bottom-left", "bottom-right")
 TEXT_OVERLAY_POSITIONS = ("top", "bottom")
 TEXT_OVERLAY_TEXT_MAX_LENGTH = 500
@@ -282,6 +291,18 @@ class Settings:
     chat_overlay_position: str = "bottom-left"
     chat_overlay_font: str = ""
 
+    # PNG chat engine. When enabled, the visible chat messages are rendered
+    # with Pillow into a fixed-width RGBA tile and composited by the output
+    # ffmpeg. The drawtext overlay remains the fallback.
+    chat_overlay_engine_enabled: bool = False
+    chat_overlay_render_fps: int = 15
+    chat_overlay_emoji_enabled: bool = True
+    chat_overlay_style: str = "bubbles"
+    chat_overlay_opacity: int = 78
+    chat_overlay_name_colors: bool = True
+    chat_overlay_show_timestamps: bool = False
+    chat_overlay_max_lines: int = 3
+
     # Optional wall-clock overlay rendered directly by ffmpeg.
     clock_enabled: bool = False
     clock_position: str = "top-left"
@@ -409,6 +430,24 @@ class Settings:
                 "CHAT_OVERLAY_POSITION", "bottom-left"
             ).strip().lower(),
             chat_overlay_font=os.getenv("CHAT_OVERLAY_FONT", ""),
+            chat_overlay_engine_enabled=_env_bool(
+                "CHAT_OVERLAY_ENGINE_ENABLED", False
+            ),
+            chat_overlay_render_fps=_env_int("CHAT_OVERLAY_RENDER_FPS", 15),
+            chat_overlay_emoji_enabled=_env_bool(
+                "CHAT_OVERLAY_EMOJI_ENABLED", True
+            ),
+            chat_overlay_style=os.getenv(
+                "CHAT_OVERLAY_STYLE", "bubbles"
+            ).strip().lower(),
+            chat_overlay_opacity=_env_int("CHAT_OVERLAY_OPACITY", 78),
+            chat_overlay_name_colors=_env_bool(
+                "CHAT_OVERLAY_NAME_COLORS", True
+            ),
+            chat_overlay_show_timestamps=_env_bool(
+                "CHAT_OVERLAY_SHOW_TIMESTAMPS", False
+            ),
+            chat_overlay_max_lines=_env_int("CHAT_OVERLAY_MAX_LINES", 3),
             clock_enabled=_env_bool("CLOCK_ENABLED", False),
             clock_position=os.getenv("CLOCK_POSITION", "top-left").strip().lower(),
             clock_show_seconds=_env_bool("CLOCK_SHOW_SECONDS", False),
@@ -617,6 +656,24 @@ class Settings:
         if not 0 <= self.chat_overlay_width <= 1000:
             raise ValueError(
                 "chat_overlay_width muss zwischen 0 und 1000 liegen"
+            )
+        if not 5 <= self.chat_overlay_render_fps <= 30:
+            raise ValueError(
+                "chat_overlay_render_fps muss zwischen 5 und 30 liegen"
+            )
+        if not 0 <= self.chat_overlay_opacity <= 100:
+            raise ValueError(
+                "chat_overlay_opacity muss zwischen 0 und 100 liegen"
+            )
+        if not 1 <= self.chat_overlay_max_lines <= 6:
+            raise ValueError(
+                "chat_overlay_max_lines muss zwischen 1 und 6 liegen"
+            )
+        if self.chat_overlay_style not in CHAT_OVERLAY_STYLES:
+            raise ValueError(
+                "chat_overlay_style muss einer von "
+                + ", ".join(CHAT_OVERLAY_STYLES)
+                + " sein"
             )
         if self.clock_position not in CLOCK_POSITIONS:
             raise ValueError(

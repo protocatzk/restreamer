@@ -764,3 +764,14 @@ def test_quick_add_streamers_validates_input(settings, streamers_file) -> None:
         )
         assert too_many.status_code == 400
         assert "Maximal" in too_many.text
+
+
+def test_overlay_preview_endpoint(settings, streamers_file) -> None:
+    app = create_app(replace(settings, streamers_file=streamers_file))
+
+    with TestClient(app) as client:
+        response = client.get("/api/overlay/preview.png?sample=1")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "image/png"
+    assert response.content.startswith(b"\x89PNG\r\n\x1a\n")
