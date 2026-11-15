@@ -1190,6 +1190,7 @@ class Supervisor:
                 _chat_engine_module.ChatOverlaySources(
                     self.settings,
                     messages=self._chat.overlay.visible_messages,
+                    stats=self._chat.overlay.stats,
                 ),
                 log=self._record,
             )
@@ -1219,10 +1220,12 @@ class Supervisor:
             )
             raise RuntimeError(f"PNG-Chat-Engine nicht verfügbar{detail}")
         messages = ()
+        stats = None
         if not sample and self._chat is not None:
             messages = tuple(self._chat.overlay.visible_messages())
+            stats = self._chat.overlay.stats()
         return _chat_engine_module.preview_png(
-            self.settings, messages, sample=sample
+            self.settings, messages, stats, sample=sample
         )
 
     def _legacy_overlay_filters(self, *, include_chat: bool = True) -> list[str]:

@@ -8,9 +8,10 @@ import textwrap
 import time
 import urllib.parse
 import urllib.request
+from collections import Counter, deque
 from collections.abc import Callable, Iterable
 from contextlib import suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Protocol
@@ -32,6 +33,8 @@ CHAT_DEFAULT_FONT_RATIO = 0.042
 CHAT_WRAP_CHAR_RATIO = 0.60
 CHAT_MAX_NAME_LENGTH = 28
 CHAT_MAX_MESSAGE_LINES = 3
+CHAT_STATS_WINDOW_SECONDS = 600.0
+CHAT_REGULAR_MESSAGE_COUNT = 5
 
 _WHITESPACE_RE = re.compile(r"\s+")
 _CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
@@ -84,6 +87,8 @@ class ChatMessage:
     streamer: str = ""
     created_at: datetime | None = None
     is_whale: bool = False
+    whale_tier: str = ""
+    user_badge: str = ""
 
     @property
     def display_name(self) -> str:
@@ -93,6 +98,16 @@ class ChatMessage:
         if username:
             return f"@{username}"
         return _clean_text(self.nickname) or "?"
+
+
+@dataclass(frozen=True)
+class ChatStats:
+    """Rolling chat activity stats for the compact overlay header."""
+
+    unique_users: int = 0
+    messages_per_minute: float = 0.0
+    top_user: str = ""
+    total_messages: int = 0
 
 
 class ChatSource(Protocol):
@@ -154,6 +169,9 @@ def parse_messages(payload: object) -> list[ChatMessage]:
                     _first_value(item, "created_at", "timestamp", "ts", "time")
                 ),
                 is_whale=bool(_first_value(item, "is_whale", "isWhale") or False),
+                whale_tier=_first_str(
+                    item, "whale_tier", "whaleTier", "tier"
+                ).lower(),
             )
         )
     return messages
@@ -326,6 +344,14 @@ class ChatOverlay:
         self._clock_offset: float | None = None
         self._last_text = ""
         self._last_write_error = 0.0
+        self._user_counts: dict[str, int] = {}
+        self._stats_events: deque[tuple[float, str]] = deque()
+        self._stats_started: float | None = None
+
+    def _reset_stats(self) -> None:
+        self._user_counts.clear()
+        self._stats_events.clear()
+        self._stats_started = None
 
     def reset_clock(self) -> None:
         """Forget the source clock offset, e.g. after changing the source URL."""
@@ -386,6 +412,24 @@ class ChatOverlay:
                 continue
             show_at = max(show_at, now_mono)
             show_at = min(show_at, now_mono + max_lead)
+            user_key = (
+                (message.username or message.nickname or message.display_name)
+                .strip()
+                .lstrip("@")
+                .lower()
+            )
+            count = self._user_counts.get(user_key, 0) + 1
+            self._user_counts[user_key] = count
+            badge = (
+                "new"
+                if count == 1
+                else ("regular" if count >= CHAT_REGULAR_MESSAGE_COUNT else "")
+            )
+            if badge:
+                message = replace(message, user_badge=badge)
+            if self._stats_started is None:
+                self._stats_started = now_mono
+            self._stats_events.append((now_mono, user_key))
             self._pending.append(
                 _PendingMessage(
                     message=message,
@@ -407,7 +451,32 @@ class ChatOverlay:
     def clear(self) -> None:
         self._pending.clear()
         self._clear_at = None
+        self._reset_stats()
         self._write("")
+
+    def stats(self, now: float | None = None) -> ChatStats:
+        """Return rolling chat activity for the stats header."""
+        now = time.monotonic() if now is None else now
+        cutoff = now - CHAT_STATS_WINDOW_SECONDS
+        while self._stats_events and self._stats_events[0][0] < cutoff:
+            self._stats_events.popleft()
+        events = list(self._stats_events)
+        total = len(events)
+        if not total:
+            return ChatStats()
+        unique = len({user for _, user in events})
+        started = self._stats_started if self._stats_started is not None else now
+        elapsed = max(
+            60.0, min(CHAT_STATS_WINDOW_SECONDS, now - started)
+        )
+        messages_per_minute = total / (elapsed / 60.0)
+        top_user = Counter(user for _, user in events).most_common(1)[0][0]
+        return ChatStats(
+            unique_users=unique,
+            messages_per_minute=messages_per_minute,
+            top_user=top_user,
+            total_messages=total,
+        )
 
     def visible_messages(self, now: float | None = None) -> list[ChatMessage]:
         """Return the currently visible messages, oldest first.
@@ -422,6 +491,7 @@ class ChatOverlay:
                 item for item in self._pending if item.show_at > clear_at
             ]
             self._clear_at = None
+            self._reset_stats()
         visible = [
             item for item in self._pending if item.show_at <= now < item.expire_at
         ]

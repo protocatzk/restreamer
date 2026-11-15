@@ -9,7 +9,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.chat import ensure_chat_overlay_file
+from app.chat import ChatStats, ensure_chat_overlay_file
 from app.models import PlaylistConfig, ResolvedStream
 from app.store import StreamerStore
 from app.supervisor import (
@@ -1378,7 +1378,10 @@ async def test_manual_switch_clears_preferred_return(
 
 def _chat_stub():
     return SimpleNamespace(
-        overlay=SimpleNamespace(visible_messages=lambda: [])
+        overlay=SimpleNamespace(
+            visible_messages=lambda: [],
+            stats=lambda: ChatStats(),
+        )
     )
 
 

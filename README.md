@@ -189,7 +189,7 @@ Alle Optionen sind in [`.env.example`](.env.example) dokumentiert.
 - Auto-Start, Reencode-Fallback
 - **Pausenscreen**: Ein/Aus, Texte, Hintergrundfarbe, Schriftdatei und Maximaldauer
 - **Chat-Overlay**: Ein/Aus, HTTP-JSON-Quelle, API-Key, Poll-Intervall, Position, Schriftgröße, Chatbreite und maximale Nachrichtenzahl
-- **PNG-Chat-Engine**: Ein/Aus, Bildrate, Farb-Emoji, Stil (Blasen/Panel/Minimal), Deckkraft, Namensfarben, Zeitstempel, maximale Zeilen und Live-Vorschau
+- **PNG-Chat-Engine**: Ein/Aus, Bildrate, Farb-Emoji, Stil (Blasen/Panel/Minimal), Deckkraft, Namensfarben, Zeitstempel, Tier-/Neu-/Stammgast-Badges, Chat-Statistik und Live-Vorschau
 - **Uhrzeit-Overlay**: Ein/Aus, Position, Sekunden, Schriftgröße und Schriftdatei; zusätzlich Versionsanzeige oben rechts
 - **Text-Overlay (Laufschrift)**: Ein/Aus, Text, Position oben/unten, Schriftgröße, Schriftdatei und Scroll-Geschwindigkeit
 - **Ausgabeformat**: 720p Hochformat (720×1280) oder Querformat (1280×720). Beim Umschalten im laufenden Betrieb wird nur der YouTube-Output kurz neu aufgebaut; die TikTok-Quelle läuft weiter.
@@ -381,6 +381,9 @@ CHAT_OVERLAY_STYLE=bubbles          # bubbles | panel | minimal
 CHAT_OVERLAY_OPACITY=78
 CHAT_OVERLAY_NAME_COLORS=true
 CHAT_OVERLAY_SHOW_TIMESTAMPS=false
+CHAT_OVERLAY_SHOW_TIERS=true         # 🐬/🦈/🐋 aus whale_tier
+CHAT_OVERLAY_SHOW_STATS=false        # Chatter/Minute + Top-Chatter
+CHAT_OVERLAY_USER_BADGES=false       # NEU / STAMM
 CHAT_OVERLAY_MAX_LINES=3
 ```
 
@@ -388,14 +391,22 @@ Eigenschaften:
 
 - Alle Blasen haben immer exakt `CHAT_OVERLAY_WIDTH`; die Breite bleibt beim
   Kommen und Gehen von Nachrichten stabil (kein „Wobbeln“).
-- Neu gerendert wird nur, wenn sich Nachrichten oder Stil ändern. Das fertige
-  Frame wird als Roh-RGBA mit `CHAT_OVERLAY_RENDER_FPS` kontinuierlich an
-  ffmpeg geschrieben, damit der Overlay-Filter nicht hungert.
+- `CHAT_OVERLAY_SHOW_TIERS` nutzt das Feld `whale_tier` der Chatquelle und
+  zeigt statt des pauschalen ★ ein kleines 🐬/🦈/🐋-Badge. Standardmäßig an.
+- `CHAT_OVERLAY_SHOW_TIMESTAMPS` blendet `HH:MM` rechts im Kopf der Blase ein.
+- `CHAT_OVERLAY_USER_BADGES` markiert den ersten Auftritt eines Nutzers mit
+  `NEU` und Vielschreiber ab fünf Nachrichten mit `STAMM`.
+- `CHAT_OVERLAY_SHOW_STATS` zeigt eine schmale Zeile über den Blasen:
+  Chatter-Anzahl, Nachrichten pro Minute und Top-Chatter der letzten zehn
+  Minuten. Standardmäßig aus.
+- Neu gerendert wird nur, wenn sich Nachrichten, Statistik oder Stil ändern.
+  Das fertige Frame wird als Roh-RGBA mit `CHAT_OVERLAY_RENDER_FPS`
+  kontinuierlich an ffmpeg geschrieben, damit der Overlay-Filter nicht hungert.
 - Farb-Emoji werden über Noto Color Emoji gerendert; fehlt die Schrift, wird
   auf die normale Schrift zurückgefallen.
-- Stil, Deckkraft, Farben, Zeitstempel und Inhalte wirken live. Nur
-  Aktivierung, Bildrate, Chatbreite, Position und Schriftgröße bauen den
-  YouTube-Output einmal kurz neu auf.
+- Stil, Deckkraft, Farben, Zeitstempel, Badges, Statistik und Inhalte wirken
+  live. Nur Aktivierung, Bildrate, Chatbreite, Position und Schriftgröße bauen
+  den YouTube-Output einmal kurz neu auf.
 - Im Dashboard unter **Einstellungen → PNG-Chat-Engine** gibt es eine
   Live-Vorschau (`/api/overlay/preview.png`) mit optionalen Beispielnachrichten.
 - Bei `false` oder einem Fehler (z. B. fehlendes Pillow) läuft der bisherige

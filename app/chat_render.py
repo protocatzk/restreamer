@@ -22,6 +22,7 @@ from PIL import Image, ImageDraw, ImageFilter
 from app.chat import (
     CHAT_MAX_NAME_LENGTH,
     ChatMessage,
+    ChatStats,
     chat_font_size,
     chat_margin,
     chat_max_width,
@@ -60,6 +61,21 @@ _TEXT_COLOR = (245, 247, 250, 255)
 _MUTED_COLOR = (176, 184, 196, 255)
 _SHADOW_COLOR = (0, 0, 0, 170)
 _PREVIEW_BACKGROUND = (18, 22, 28, 255)
+
+_TIER_ICONS: dict[str, str] = {
+    "dolphin": "🐬",
+    "shark": "🦈",
+    "whale": "🐋",
+}
+_TIER_COLORS: dict[str, tuple[int, int, int]] = {
+    "dolphin": (77, 208, 225),
+    "shark": (100, 181, 246),
+    "whale": (179, 157, 219),
+}
+_USER_BADGES: dict[str, tuple[str, tuple[int, int, int, int]]] = {
+    "new": ("NEU", (34, 139, 94, 220)),
+    "regular": ("STAMM", (124, 92, 200, 220)),
+}
 
 
 def _cache_put(cache: dict, key: tuple, value, limit: int) -> None:
@@ -221,6 +237,9 @@ class ChatRenderer:
             s.chat_overlay_position,
             s.chat_overlay_font,
             s.chat_overlay_emoji_enabled,
+            s.chat_overlay_show_tiers,
+            s.chat_overlay_show_stats,
+            s.chat_overlay_user_badges,
         )
 
     @property
@@ -291,6 +310,62 @@ class ChatRenderer:
         ):
             timestamp = message.created_at.strftime("%H:%M")
 
+        padding = max(10, round(text_fonts.size * 0.46))
+        line_gap = max(2, round(text_fonts.size * 0.12))
+        section_gap = max(3, round(text_fonts.size * 0.20))
+        timestamp_fonts = self._font_set(
+            timestamp_font_path, max(12, round(text_fonts.size * 0.72))
+        )
+        timestamp_width = (
+            timestamp_fonts.regular.getlength(timestamp)
+            if timestamp and timestamp_fonts is not None
+            else 0.0
+        )
+
+        tier = (message.whale_tier or "").strip().lower()
+        show_tiers = bool(self.settings.chat_overlay_show_tiers)
+        tier_icon = _TIER_ICONS.get(tier, "") if show_tiers else ""
+        tier_color = _TIER_COLORS.get(tier, (255, 205, 86))
+        tier_image = (
+            self._emoji.image(
+                tier_icon, max(10, round(name_fonts.line_height * 0.9))
+            )
+            if tier_icon
+            else None
+        )
+        if tier_image is not None:
+            tier_width = tier_image.width + section_gap
+        elif tier_icon:
+            tier_width = name_fonts.bold.getlength("●") + section_gap
+        elif show_tiers and message.is_whale:
+            tier_width = name_fonts.bold.getlength("★") + section_gap
+        else:
+            tier_width = 0.0
+
+        badge_text, badge_fill = (
+            _USER_BADGES.get(message.user_badge, ("", (0, 0, 0, 0)))
+            if self.settings.chat_overlay_user_badges
+            else ("", (0, 0, 0, 0))
+        )
+        badge_fonts = (
+            self._font_set(
+                timestamp_font_path, max(10, round(text_fonts.size * 0.55))
+            )
+            if badge_text
+            else None
+        )
+        badge_pad = max(4, round(text_fonts.size * 0.16))
+        badge_width = (
+            badge_fonts.bold.getlength(badge_text) + badge_pad * 2
+            if badge_fonts is not None
+            else 0.0
+        )
+        badge_height = (
+            badge_fonts.line_height + max(2, round(text_fonts.size * 0.08))
+            if badge_fonts is not None
+            else 0.0
+        )
+
         key = (
             "bubble",
             message.cursor,
@@ -306,6 +381,10 @@ class ChatRenderer:
             text_fonts.regular_path,
             text_fonts.size,
             self.settings.chat_overlay_emoji_enabled,
+            tier,
+            show_tiers,
+            message.user_badge if self.settings.chat_overlay_user_badges else "",
+            self.settings.chat_overlay_user_badges,
         )
         cached = self._bubble_cache.get(key)
         if cached is not None:
@@ -315,29 +394,18 @@ class ChatRenderer:
                 cached.height - _SHADOW_PAD * 2,
             )
 
-        padding = max(10, round(text_fonts.size * 0.46))
-        line_gap = max(2, round(text_fonts.size * 0.12))
-        section_gap = max(3, round(text_fonts.size * 0.20))
-        timestamp_fonts = self._font_set(
-            timestamp_font_path, max(12, round(text_fonts.size * 0.72))
-        )
-        timestamp_width = (
-            timestamp_fonts.regular.getlength(timestamp)
-            if timestamp and timestamp_fonts is not None
-            else 0.0
-        )
-        star_width = (
-            name_fonts.bold.getlength("★") + section_gap
-            if message.is_whale
-            else 0.0
-        )
         header_available = (
             content_width
             - padding * 2
             - timestamp_width
             - (section_gap if timestamp_width else 0.0)
-            - star_width
+            - tier_width
+            - (badge_width + section_gap if badge_width else 0.0)
         )
+        if badge_width and header_available < 20:
+            header_available += badge_width + section_gap
+            badge_text = ""
+            badge_width = 0.0
         name = _fit_text(name, name_fonts.bold, header_available)
         content_max = max(1, content_width - padding * 2)
         lines = rich.layout(
@@ -377,20 +445,61 @@ class ChatRenderer:
         base_y = _SHADOW_PAD + padding
 
         name_x = base_x
-        if message.is_whale:
+        if tier_image is not None:
+            top = base_y + max(0, (header_height - tier_image.height) // 2)
+            content.alpha_composite(
+                tier_image, dest=(round(name_x), round(top))
+            )
+            name_x += tier_image.width + section_gap
+        elif tier_icon:
+            drawer.text(
+                (name_x, base_y),
+                "●",
+                font=name_fonts.bold,
+                fill=(*tier_color, 255),
+            )
+            name_x += name_fonts.bold.getlength("●") + section_gap
+        elif show_tiers and message.is_whale:
             drawer.text(
                 (name_x, base_y),
                 "★",
                 font=name_fonts.bold,
                 fill=(255, 205, 86, 255),
             )
-            name_x += star_width
+            name_x += name_fonts.bold.getlength("★") + section_gap
         drawer.text(
             (name_x, base_y),
             name,
             font=name_fonts.bold,
             fill=(*name_color, 255),
         )
+        if badge_text and badge_fonts is not None:
+            badge_x = (
+                name_x + name_fonts.bold.getlength(name) + section_gap
+            )
+            badge_y = base_y + max(
+                0, (header_height - badge_height) // 2
+            )
+            drawer.rounded_rectangle(
+                (
+                    badge_x,
+                    badge_y,
+                    badge_x + badge_width,
+                    badge_y + badge_height,
+                ),
+                radius=max(2, round(badge_height * 0.35)),
+                fill=badge_fill,
+            )
+            drawer.text(
+                (
+                    badge_x + badge_pad,
+                    badge_y
+                    + max(0, (badge_height - badge_fonts.line_height) // 2),
+                ),
+                badge_text,
+                font=badge_fonts.bold,
+                fill=(255, 255, 255, 255),
+            )
         if timestamp and timestamp_fonts is not None:
             drawer.text(
                 (
@@ -432,6 +541,7 @@ class ChatRenderer:
         self,
         messages: tuple[ChatMessage, ...],
         geometry: ChatTileGeometry,
+        available_height: int | None = None,
     ) -> list[tuple[Image.Image, int, int]]:
         timestamp_path = find_regular_font(
             find_pause_font(self.settings.chat_overlay_font) or ""
@@ -446,16 +556,78 @@ class ChatRenderer:
             bubbles.append(surface)
         if not bubbles:
             return []
+        limit = (
+            geometry.content_height
+            if available_height is None
+            else max(0, available_height)
+        )
         gap = max(6, round(chat_font_size(self.settings) * 0.24))
         total = sum(item[2] for item in bubbles) + gap * (len(bubbles) - 1)
-        while len(bubbles) > 1 and total > geometry.content_height:
+        while len(bubbles) > 1 and total > limit:
             removed = bubbles.pop(0)
             total -= removed[2] + gap
         return bubbles
 
     # ---------------------------------------------------------------- render
 
-    def render_tile(self, messages: tuple[ChatMessage, ...]) -> Image.Image:
+    def _stats_text(self, stats: ChatStats) -> str:
+        parts = ["Chat"]
+        if stats.unique_users:
+            parts.append(f"{stats.unique_users} Chatter")
+        if stats.messages_per_minute >= 1:
+            parts.append(f"{round(stats.messages_per_minute)}/Min")
+        if stats.top_user:
+            parts.append(f"@{stats.top_user}")
+        return " · ".join(parts)
+
+    def _stats_fonts(self) -> tuple[str, FontSet | None]:
+        path = find_regular_font(
+            find_pause_font(self.settings.chat_overlay_font) or ""
+        )
+        size = max(10, round(chat_font_size(self.settings) * 0.5))
+        return path, self._font_set(path, size)
+
+    def _stats_height(self) -> int:
+        _path, fonts = self._stats_fonts()
+        return fonts.line_height + 7 if fonts is not None else 0
+
+    def _draw_stats(
+        self,
+        tile: Image.Image,
+        stats: ChatStats,
+        geometry: ChatTileGeometry,
+        y: int,
+    ) -> int:
+        _path, fonts = self._stats_fonts()
+        if fonts is None:
+            return 0
+        text = _fit_text(
+            self._stats_text(stats), fonts.regular, geometry.content_width
+        )
+        if not text:
+            return 0
+        drawer = ImageDraw.Draw(tile)
+        x = _SHADOW_PAD
+        drawer.text(
+            (x + 1, y + 1),
+            text,
+            font=fonts.regular,
+            fill=(0, 0, 0, 150),
+        )
+        drawer.text((x, y), text, font=fonts.regular, fill=_MUTED_COLOR)
+        line_y = y + fonts.line_height + 3
+        drawer.line(
+            (x, line_y, x + geometry.content_width, line_y),
+            fill=(255, 255, 255, 38),
+            width=1,
+        )
+        return fonts.line_height + 7
+
+    def render_tile(
+        self,
+        messages: tuple[ChatMessage, ...],
+        stats: ChatStats | None = None,
+    ) -> Image.Image:
         """Render the chat tile with a transparent background."""
         self._ensure_caches()
         geometry = chat_tile_geometry(self.settings)
@@ -464,23 +636,39 @@ class ChatRenderer:
         )
         if not messages:
             return tile
-        bubbles = self._bubbles(tuple(messages), geometry)
+
+        show_stats = bool(
+            self.settings.chat_overlay_show_stats
+            and stats is not None
+            and stats.total_messages
+        )
+        stats_height = self._stats_height() if show_stats else 0
+        gap = max(6, round(chat_font_size(self.settings) * 0.24))
+        stats_gap = gap if stats_height else 0
+        available = geometry.content_height - stats_height - stats_gap
+        bubbles = self._bubbles(tuple(messages), geometry, available)
         if not bubbles:
             return tile
 
-        gap = max(6, round(chat_font_size(self.settings) * 0.24))
-        total_height = sum(item[2] for item in bubbles) + gap * (len(bubbles) - 1)
+        bubbles_height = sum(item[2] for item in bubbles) + gap * (
+            len(bubbles) - 1
+        )
+        total_height = stats_height + stats_gap + bubbles_height
         if self.settings.chat_overlay_position.startswith("top"):
             y = _SHADOW_PAD
         else:
             y = _SHADOW_PAD + geometry.content_height - total_height
         y = max(_SHADOW_PAD, y)
 
+        if stats_height:
+            drawn = self._draw_stats(tile, stats, geometry, y)
+            y += drawn + stats_gap
+
         if self.settings.chat_overlay_style == "panel":
             opacity = int(255 * self.settings.chat_overlay_opacity / 100)
             panel = _panel_surface(
                 geometry.content_width,
-                total_height,
+                bubbles_height,
                 radius=max(
                     8, round(chat_font_size(self.settings) * 0.55)
                 ),
@@ -493,16 +681,22 @@ class ChatRenderer:
             y += content_height + gap
         return tile
 
-    def render_rgba(self, messages: tuple[ChatMessage, ...]) -> bytes:
+    def render_rgba(
+        self,
+        messages: tuple[ChatMessage, ...],
+        stats: ChatStats | None = None,
+    ) -> bytes:
         """Return one raw RGBA frame for the FIFO."""
         if not messages:
             geometry = chat_tile_geometry(self.settings)
             return bytes(geometry.width * geometry.height * 4)
-        tile = self.render_tile(tuple(messages))
+        tile = self.render_tile(tuple(messages), stats)
         return tile.tobytes()
 
     def render_png_preview(
-        self, messages: tuple[ChatMessage, ...]
+        self,
+        messages: tuple[ChatMessage, ...],
+        stats: ChatStats | None = None,
     ) -> bytes:
         """Render the chat tile on a dark output canvas for the dashboard."""
         geometry = chat_tile_geometry(self.settings)
@@ -511,7 +705,7 @@ class ChatRenderer:
             (self.settings.output_width, self.settings.output_height),
             _PREVIEW_BACKGROUND,
         )
-        tile = self.render_tile(tuple(messages))
+        tile = self.render_tile(tuple(messages), stats)
         _paste(canvas, tile, geometry.x, geometry.y)
         buffer = io.BytesIO()
         canvas.save(buffer, format="PNG", compress_level=1)
@@ -528,6 +722,8 @@ def sample_messages(now: datetime | None = None) -> tuple[ChatMessage, ...]:
             text="Hallo aus dem Chat! 👋",
             nickname="Karlchen",
             created_at=moment,
+            whale_tier="dolphin",
+            user_badge="new",
         ),
         ChatMessage(
             cursor="preview-2",
@@ -535,6 +731,9 @@ def sample_messages(now: datetime | None = None) -> tuple[ChatMessage, ...]:
             text="Das Overlay sieht richtig gut aus 😍🎉",
             nickname="Lena",
             created_at=moment,
+            is_whale=True,
+            whale_tier="whale",
+            user_badge="regular",
         ),
         ChatMessage(
             cursor="preview-3",
@@ -546,13 +745,28 @@ def sample_messages(now: datetime | None = None) -> tuple[ChatMessage, ...]:
     )
 
 
+def sample_stats() -> ChatStats:
+    """Return demo stats for the dashboard preview."""
+    return ChatStats(
+        unique_users=78,
+        messages_per_minute=12.0,
+        top_user="lena_live",
+        total_messages=156,
+    )
+
+
 def preview_png(
     settings: Settings,
     messages: tuple[ChatMessage, ...] = (),
+    stats: ChatStats | None = None,
     *,
     sample: bool = False,
 ) -> bytes:
     """Render a one-off preview without touching a running output."""
     renderer = ChatRenderer(settings)
-    content = sample_messages() if sample else tuple(messages)
-    return renderer.render_png_preview(content)
+    if sample:
+        content = sample_messages()
+        stats = sample_stats()
+    else:
+        content = tuple(messages)
+    return renderer.render_png_preview(content, stats)

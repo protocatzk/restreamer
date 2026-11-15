@@ -4,6 +4,8 @@ import asyncio
 from datetime import datetime, timedelta
 from pathlib import Path
 
+import pytest
+
 from app.chat import (
     ChatMessage,
     ChatOverlay,
@@ -36,10 +38,11 @@ def _message(
     streamer: str = "alice",
     created_at: datetime | None = None,
     nickname: str = "",
+    username: str = "user",
 ) -> ChatMessage:
     return ChatMessage(
         cursor=cursor,
-        username="user",
+        username=username,
         text=text,
         nickname=nickname,
         streamer=streamer,
@@ -328,3 +331,72 @@ def test_visible_messages_returns_delayed_messages(tmp_path: Path) -> None:
     visible = overlay.visible_messages(130.1)
 
     assert [message.text for message in visible] == ["hello"]
+
+
+def test_parse_whale_tier_is_normalized() -> None:
+    messages = parse_messages(
+        {
+            "messages": [
+                {
+                    "id": 1,
+                    "username": "alice",
+                    "comment": "hi",
+                    "whale_tier": "Dolphin",
+                }
+            ]
+        }
+    )
+
+    assert messages[0].whale_tier == "dolphin"
+
+
+def test_overlay_marks_new_and_regular_users(tmp_path: Path) -> None:
+    settings = _settings(tmp_path, relay_delay_seconds=0)
+    overlay = ChatOverlay(settings)
+    now_wall = datetime.now()
+
+    for index in range(5):
+        overlay.enqueue(
+            [_message(str(index), f"message {index}", created_at=now_wall)],
+            now_mono=0.0,
+            now_wall=now_wall,
+        )
+
+    visible = overlay.visible_messages(1.0)
+
+    assert [message.user_badge for message in visible] == [
+        "new",
+        "",
+        "",
+        "",
+        "regular",
+    ]
+
+
+def test_stats_count_unique_users_and_top_user(tmp_path: Path) -> None:
+    settings = _settings(tmp_path, relay_delay_seconds=0)
+    overlay = ChatOverlay(settings)
+    now_wall = datetime.now()
+
+    overlay.enqueue(
+        [_message("1", "eins", username="alice", created_at=now_wall)],
+        now_mono=0.0,
+        now_wall=now_wall,
+    )
+    overlay.enqueue(
+        [_message("2", "zwei", username="bob", created_at=now_wall)],
+        now_mono=0.0,
+        now_wall=now_wall,
+    )
+    overlay.enqueue(
+        [_message("3", "drei", username="alice", created_at=now_wall)],
+        now_mono=0.0,
+        now_wall=now_wall,
+    )
+
+    stats = overlay.stats(now=60.0)
+
+    assert stats.unique_users == 2
+    assert stats.total_messages == 3
+    assert stats.top_user == "alice"
+    assert stats.messages_per_minute == pytest.approx(3.0)

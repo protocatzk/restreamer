@@ -19,12 +19,13 @@ from collections.abc import Callable, Iterable
 from contextlib import suppress
 from dataclasses import dataclass
 
-from app.chat import ChatMessage
+from app.chat import ChatMessage, ChatStats
 from app.chat_render import (
     ChatRenderer,
     chat_tile_geometry,
     preview_png,
     sample_messages,
+    sample_stats,
 )
 from app.settings import Settings
 
@@ -44,10 +45,11 @@ def _write_all(fd: int, data: bytes) -> None:
 
 @dataclass
 class ChatOverlaySources:
-    """Live messages provider for the PNG chat overlay."""
+    """Live messages and stats providers for the PNG chat overlay."""
 
     settings: Settings
     messages: Callable[[], Iterable[ChatMessage]] | None = None
+    stats: Callable[[], ChatStats] | None = None
 
 
 class ChatPipeline:
@@ -170,12 +172,27 @@ class ChatPipeline:
             logger.exception("Chat-Snapshot fehlgeschlagen")
             return ()
 
-    async def _frame(self, messages: tuple[ChatMessage, ...]) -> bytes:
+    def _stats(self) -> ChatStats | None:
+        if not self.settings.chat_overlay_show_stats:
+            return None
+        if self.sources.stats is None:
+            return None
+        try:
+            return self.sources.stats()
+        except Exception:  # noqa: BLE001 - stats are optional
+            logger.exception("Chat-Statistik fehlgeschlagen")
+            return None
+
+    async def _frame(
+        self,
+        messages: tuple[ChatMessage, ...],
+        stats: ChatStats | None,
+    ) -> bytes:
         if not messages:
             return self._blank
         try:
             return await asyncio.to_thread(
-                self.renderer.render_rgba, messages
+                self.renderer.render_rgba, messages, stats
             )
         except Exception as exc:  # noqa: BLE001 - never stop the output
             self._log_error(
@@ -196,9 +213,10 @@ class ChatPipeline:
             while not self._stop.is_set():
                 started = time.monotonic()
                 messages = self._messages()
-                key = (messages, self.renderer.signature)
+                stats = self._stats()
+                key = (messages, stats, self.renderer.signature)
                 if key != self._last_key or self._last_data is None:
-                    self._last_data = await self._frame(messages)
+                    self._last_data = await self._frame(messages, stats)
                     self._last_key = key
                 # Always write a frame at the nominal rate.  ffmpeg's overlay
                 # filter would otherwise block waiting for the next input frame.
@@ -226,4 +244,5 @@ __all__ = [
     "ChatPipeline",
     "preview_png",
     "sample_messages",
+    "sample_stats",
 ]

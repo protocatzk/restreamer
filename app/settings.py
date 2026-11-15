@@ -52,6 +52,9 @@ BOOL_FIELDS = {
     "chat_enabled",
     "chat_overlay_engine_enabled",
     "chat_overlay_emoji_enabled",
+    "chat_overlay_show_tiers",
+    "chat_overlay_show_stats",
+    "chat_overlay_user_badges",
     "chat_overlay_name_colors",
     "chat_overlay_show_timestamps",
     "clock_enabled",
@@ -297,6 +300,9 @@ class Settings:
     chat_overlay_engine_enabled: bool = False
     chat_overlay_render_fps: int = 15
     chat_overlay_emoji_enabled: bool = True
+    chat_overlay_show_tiers: bool = True
+    chat_overlay_show_stats: bool = False
+    chat_overlay_user_badges: bool = False
     chat_overlay_style: str = "bubbles"
     chat_overlay_opacity: int = 78
     chat_overlay_name_colors: bool = True
@@ -436,6 +442,15 @@ class Settings:
             chat_overlay_render_fps=_env_int("CHAT_OVERLAY_RENDER_FPS", 15),
             chat_overlay_emoji_enabled=_env_bool(
                 "CHAT_OVERLAY_EMOJI_ENABLED", True
+            ),
+            chat_overlay_show_tiers=_env_bool(
+                "CHAT_OVERLAY_SHOW_TIERS", True
+            ),
+            chat_overlay_show_stats=_env_bool(
+                "CHAT_OVERLAY_SHOW_STATS", False
+            ),
+            chat_overlay_user_badges=_env_bool(
+                "CHAT_OVERLAY_USER_BADGES", False
             ),
             chat_overlay_style=os.getenv(
                 "CHAT_OVERLAY_STYLE", "bubbles"

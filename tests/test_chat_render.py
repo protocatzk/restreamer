@@ -5,13 +5,14 @@ from pathlib import Path
 
 import pytest
 
-from app.chat import ChatMessage
+from app.chat import ChatMessage, ChatStats
 from app.chat_render import (
     ChatRenderer,
     _fit_text,
     _name_color,
     chat_tile_geometry,
     preview_png,
+    sample_stats,
 )
 from app.overlay_text import find_emoji_font, load_font_set
 from app.pause import find_pause_font
@@ -37,6 +38,10 @@ def _message(
     cursor: str = "1",
     text: str = "Hallo Welt!",
     username: str = "alice",
+    *,
+    whale_tier: str = "",
+    user_badge: str = "",
+    is_whale: bool = False,
 ) -> ChatMessage:
     return ChatMessage(
         cursor=cursor,
@@ -44,6 +49,9 @@ def _message(
         text=text,
         nickname="Alice",
         created_at=datetime(2026, 11, 9, 20, 15),
+        whale_tier=whale_tier,
+        user_badge=user_badge,
+        is_whale=is_whale,
     )
 
 
@@ -216,3 +224,64 @@ def test_color_emoji_is_rendered(tmp_path: Path) -> None:
         alpha > 0 and max(red, green, blue) - min(red, green, blue) > 25
         for _, (red, green, blue, alpha) in colors
     )
+
+
+def test_tier_badge_changes_bubble(tmp_path: Path) -> None:
+    _requires_font()
+    message = _message("1", "Hallo", whale_tier="whale", is_whale=True)
+
+    with_tier = ChatRenderer(
+        _settings(tmp_path, chat_overlay_show_tiers=True)
+    ).render_tile((message,))
+    without_tier = ChatRenderer(
+        _settings(tmp_path, chat_overlay_show_tiers=False)
+    ).render_tile((message,))
+
+    assert with_tier.tobytes() != without_tier.tobytes()
+
+
+def test_user_badge_changes_bubble(tmp_path: Path) -> None:
+    _requires_font()
+    message = _message("1", "Hallo", user_badge="new")
+
+    with_badge = ChatRenderer(
+        _settings(tmp_path, chat_overlay_user_badges=True)
+    ).render_tile((message,))
+    without_badge = ChatRenderer(
+        _settings(tmp_path, chat_overlay_user_badges=False)
+    ).render_tile((message,))
+
+    assert with_badge.tobytes() != without_badge.tobytes()
+
+
+def test_stats_header_is_drawn_and_keeps_width(tmp_path: Path) -> None:
+    _requires_font()
+    message = _message("1", "Hallo")
+    stats = ChatStats(
+        unique_users=78,
+        messages_per_minute=12.0,
+        top_user="lena_live",
+        total_messages=156,
+    )
+
+    with_stats = ChatRenderer(
+        _settings(tmp_path, chat_overlay_show_stats=True)
+    ).render_tile((message,), stats)
+    without_stats = ChatRenderer(
+        _settings(tmp_path, chat_overlay_show_stats=False)
+    ).render_tile((message,))
+
+    assert with_stats.tobytes() != without_stats.tobytes()
+    with_box = with_stats.getbbox()
+    without_box = without_stats.getbbox()
+    assert with_box is not None and without_box is not None
+    assert with_box[0] == without_box[0]
+    assert with_box[2] == without_box[2]
+
+
+def test_sample_stats_are_available() -> None:
+    stats = sample_stats()
+
+    assert stats.unique_users > 0
+    assert stats.messages_per_minute > 0
+    assert stats.top_user

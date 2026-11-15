@@ -810,6 +810,9 @@
           <div class="check-row">
             <label class="check"><input type="checkbox" name="chat_overlay_name_colors"> Namen farbig hervorheben</label>
             <label class="check"><input type="checkbox" name="chat_overlay_show_timestamps"> Uhrzeit der Nachricht anzeigen</label>
+            <label class="check"><input type="checkbox" name="chat_overlay_show_tiers"> Tier-Badges (🐬/🦈/🐋)</label>
+            <label class="check"><input type="checkbox" name="chat_overlay_user_badges"> Neu-/Stammgast-Badges</label>
+            <label class="check"><input type="checkbox" name="chat_overlay_show_stats"> Chat-Statistik (Chatter/Minute, Top-Chatter)</label>
           </div>
           <div class="overlay-preview-header">
             <span>Vorschau</span>
@@ -820,6 +823,8 @@
           </div>
           <p class="hint">Die PNG-Engine rendert nur den Chat und benötigt keinen zusätzlichen Encoder.
             Alle Blasen verwenden immer die eingestellte Chatbreite, damit das Overlay nicht „wobbelt“.
+            Tier-Badges nutzen das Feld <code>whale_tier</code> der Chatquelle; Zeitstempel,
+            Neu-/Stammgast-Badges und die Statistikzeile sind optional.
             Stil, Deckkraft, Farben und Inhalte wirken live; Aktivierung, Bildrate, Breite, Position und
             Schriftgröße bauen den YouTube-Ausgang einmal kurz neu auf.</p>
         </fieldset>

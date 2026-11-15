@@ -6,7 +6,7 @@ import stat
 from datetime import datetime
 from pathlib import Path
 
-from app.chat import ChatMessage
+from app.chat import ChatMessage, ChatStats
 from app.chat_engine import (
     ChatOverlaySources,
     ChatPipeline,
@@ -169,3 +169,50 @@ def test_preview_png_has_signature(tmp_path: Path) -> None:
     png = preview_png(_settings(tmp_path), (), sample=True)
 
     assert png.startswith(b"\x89PNG\r\n\x1a\n")
+
+
+async def test_pipeline_passes_stats_to_renderer(tmp_path: Path) -> None:
+    class RecordingRenderer:
+        signature = ("recording",)
+
+        def __init__(self) -> None:
+            self.calls: list[ChatStats | None] = []
+
+        def render_rgba(self, messages, stats):
+            self.calls.append(stats)
+            size = (
+                pipeline.geometry.width * pipeline.geometry.height * 4
+            )
+            return bytes(size)
+
+    stats = ChatStats(
+        unique_users=4,
+        messages_per_minute=6.0,
+        top_user="alice",
+        total_messages=12,
+    )
+    renderer = RecordingRenderer()
+    pipeline = ChatPipeline(
+        ChatOverlaySources(
+            _settings(tmp_path, chat_overlay_show_stats=True),
+            messages=lambda: [_message()],
+            stats=lambda: stats,
+        ),
+        renderer=renderer,
+        fps=10,
+    )
+    pipeline.prepare()
+    frame_size = pipeline.geometry.width * pipeline.geometry.height * 4
+
+    def reader() -> None:
+        with open(pipeline.path, "rb") as handle:
+            handle.read(frame_size * 2)
+
+    reader_task = asyncio.create_task(asyncio.to_thread(reader))
+    pipeline.start()
+    await asyncio.sleep(0.25)
+    await pipeline.stop()
+    await asyncio.wait_for(reader_task, timeout=2)
+
+    assert renderer.calls
+    assert renderer.calls[0] == stats
