@@ -5,25 +5,20 @@ import logging
 import os
 import re
 import signal
-import time
 from collections.abc import Awaitable, Callable
 from contextlib import suppress
-from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
+from typing import TextIO
 
 from app.chat import (
+    ChatMessage,
     ChatWorker,
-    build_overlay_filter,
     ensure_chat_overlay_file,
 )
-from app.clock import build_clock_filter
 from app.delay_buffer import DelayBuffer
 from app.earnings import (
     EarningsMonitor,
-)
-from app.earnings import (
-    build_overlay_filter as build_earnings_overlay_filter,
 )
 from app.earnings import (
     default_summary as default_earnings_summary,
@@ -34,6 +29,13 @@ from app.ffmpeg_cmd import (
     build_source_command,
 )
 from app.handles import normalize_handle
+from app.keys import (
+    channel_can_output,
+    configured_key,
+    key_source,
+    shared_output_available,
+    shared_output_configured,
+)
 from app.logs import RingLog, redact
 from app.models import (
     PlaylistConfig,
@@ -42,41 +44,37 @@ from app.models import (
     StreamState,
 )
 from app.online import OnlineStatusMonitor
+from app.overlay_stack import OverlayStack
+from app.overlay_stack import preview_png as render_overlay_preview
 from app.pause import build_pause_command, find_pause_font, write_pause_texts
+from app.playlist import (
+    PlaylistController,
+    PreferredReturn,
+    playlist_end_deadline,
+)
 from app.resolver import ResolveError, Resolver
 from app.settings import Settings
 from app.source_rate import DEFAULT_WINDOW_SECONDS, SourceRateMonitor
+from app.status_view import (
+    StatusContext,
+    active_playlist_id,
+    online_view,
+    playlist_view,
+    playlists_view,
+    preferred_return_view,
+    streamer_view,
+)
 from app.store import StreamerStore
-from app.text_overlay import build_text_overlay_filter
+from app.timing import Clock, WallClock
 from app.titles import render_title
-from app.version import build_version_filter
 from app.words import WordTracker, parse_watchlist
-
-try:  # Pillow is optional; the drawtext overlay remains the fallback.
-    from app import chat_engine as _chat_engine_module
-except Exception as _chat_engine_exc:  # pragma: no cover - dependency guard
-    _chat_engine_module = None
-    _chat_engine_import_error = str(_chat_engine_exc)
-else:
-    _chat_engine_import_error = ""
 
 logger = logging.getLogger(__name__)
 
 Spawn = Callable[[list[str]], Awaitable[asyncio.subprocess.Process]]
 
-AUTO_SWITCH_RETRY_SECONDS = 300.0
-
-
-@dataclass(frozen=True)
-class _PreferredReturn:
-    """Session that was running before a preferred streamer took over."""
-
-    streamer_id: str
-    preferred_id: str
-    playlist_mode: bool = False
-    playlist_id: str | None = None
-    playlist_end_at: str | None = None
-    playlist_end_at_monotonic: float | None = None
+# Backwards-compatible aliases for callers that imported private names.
+_PreferredReturn = PreferredReturn
 
 CODEC_ERROR_MARKERS = (
     "could not find tag for codec",
@@ -138,25 +136,6 @@ def _utc_now_iso() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
 
 
-def playlist_end_deadline(
-    playlist: PlaylistConfig, now: datetime
-) -> datetime | None:
-    """Return the wall-clock deadline for a playlist, or None if disabled.
-
-    A configured ``end_time`` is interpreted as a daily local time; if it has
-    already passed, the next day is used.
-    """
-    if playlist.end_after_minutes > 0:
-        return now + timedelta(minutes=playlist.end_after_minutes)
-    if playlist.end_time:
-        hour, minute = (int(part) for part in playlist.end_time.split(":", 1))
-        target = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
-        if target <= now:
-            target += timedelta(days=1)
-        return target
-    return None
-
-
 async def _default_spawn(args: list[str]) -> asyncio.subprocess.Process:
     return await asyncio.create_subprocess_exec(
         *args,
@@ -176,12 +155,14 @@ class Supervisor:
         resolver: Resolver,
         spawn: Spawn | None = None,
         delay_buffer: DelayBuffer | None = None,
+        clock: Clock | None = None,
     ) -> None:
         self.settings = settings
         self.store = store
         self.resolver = resolver
         self._spawn = spawn or _default_spawn
         self._delay_buffer = delay_buffer
+        self._clock: Clock = clock or WallClock()
 
         self._lock = asyncio.Lock()
         self._task: asyncio.Task | None = None
@@ -209,7 +190,7 @@ class Supervisor:
         self._secrets: list[str] = []
 
         self._log = RingLog(settings.log_buffer_lines)
-        self._log_file = None
+        self._log_file: TextIO | None = None
         self._log_path: Path | None = None
 
         self._last_progress_monotonic: float | None = None
@@ -245,30 +226,43 @@ class Supervisor:
 
         self._online: OnlineStatusMonitor | None = None
         self._earnings: EarningsMonitor | None = None
-        self._auto_switch_attempts: dict[str, float] = {}
-        self._preferred_return: _PreferredReturn | None = None
         self._chat: ChatWorker | None = None
-        self._chat_filter_warned = False
-        self._chat_engine_warned = False
         self._words = WordTracker(settings.asr_words_file)
-        self._earnings_filter_warned = False
-        self._clock_filter_warned = False
-        self._version_filter_warned = False
-        self._text_filter_warned = False
 
-        self._playlist_mode = False
-        self._playlist_id: str | None = None
-        self._offline_cycle: set[str] = set()
-        self._switch_count = 0
-        self._last_switch_reason = ""
-        self._playlist_end_at: str | None = None
-        self._playlist_end_at_monotonic: float | None = None
+        self._overlays = OverlayStack(settings, self._record)
+        self._playlist = PlaylistController(
+            store,
+            self._clock,
+            can_output=self._channel_can_output,
+            record=self._record,
+        )
         self._playlist_end_task: asyncio.Task | None = None
         self._session_token = 0
-        self._stream_epoch_monotonic = time.monotonic()
+        self._stream_epoch_monotonic = self._clock.monotonic()
         self._last_pipe_offset_end = 0.0
         self._pipe_offset_started: float | None = None
         self._pipe_offset_value: float | None = None
+
+    # Backwards-compatible views for callers that used the old attributes.
+    @property
+    def _playlist_end_at(self) -> str | None:
+        return self._playlist.end_at
+
+    @_playlist_end_at.setter
+    def _playlist_end_at(self, value: str | None) -> None:
+        self._playlist.end_at = value
+
+    @property
+    def _playlist_end_at_monotonic(self) -> float | None:
+        return self._playlist.end_at_monotonic
+
+    @_playlist_end_at_monotonic.setter
+    def _playlist_end_at_monotonic(self, value: float | None) -> None:
+        self._playlist.end_at_monotonic = value
+
+    @property
+    def _auto_switch_attempts(self) -> dict[str, float]:
+        return self._playlist._auto_switch_attempts
 
     # ------------------------------------------------------------------ status
 
@@ -313,7 +307,7 @@ class Supervisor:
             if statuses.get(normalize_handle(streamer.tiktok)) is True:
                 live.append(streamer)
             else:
-                self._auto_switch_attempts.pop(streamer.id, None)
+                self._playlist.clear_attempt(streamer.id)
         if not live:
             return
 
@@ -325,7 +319,7 @@ class Supervisor:
         ):
             return
 
-        now = time.monotonic()
+        now = self._clock.monotonic()
         target = self._next_preferred_target(live, now)
         if target is None or self._state == StreamState.STOPPING:
             return
@@ -334,19 +328,8 @@ class Supervisor:
         if previous_id is None:
             return
 
-        self._auto_switch_attempts[target.id] = now
-        self._preferred_return = _PreferredReturn(
-            streamer_id=previous_id,
-            preferred_id=target.id,
-            playlist_mode=self._playlist_mode,
-            playlist_id=self._playlist_id if self._playlist_mode else None,
-            playlist_end_at=(
-                self._playlist_end_at if self._playlist_mode else None
-            ),
-            playlist_end_at_monotonic=(
-                self._playlist_end_at_monotonic if self._playlist_mode else None
-            ),
-        )
+        self._playlist.note_attempt(target.id, now)
+        self._playlist.begin_preferred_return(previous_id, target.id)
         self._record(
             f"[Restreamer] Bevorzugter Sender online: {target.name}"
         )
@@ -367,7 +350,7 @@ class Supervisor:
                     return
             await self.start(target.id, watch=True, preferred_switch=True)
         except Exception as exc:  # noqa: BLE001 - keep the monitor alive
-            self._preferred_return = None
+            self._playlist.preferred_return = None
             logger.warning(
                 "Automatischer Wechsel zu %s fehlgeschlagen: %s",
                 target.id,
@@ -381,24 +364,12 @@ class Supervisor:
     def _next_preferred_target(
         self, live: list[StreamerConfig], now: float
     ) -> StreamerConfig | None:
-        """Return the first preferred streamer whose retry cooldown expired.
-
-        ``_auto_switch_attempts`` starts empty.  The previous default of 0.0
-        accidentally blocked the very first switch on hosts whose monotonic
-        clock is younger than the retry interval (e.g. fresh CI runners).
-        """
-        for streamer in live:
-            last_attempt = self._auto_switch_attempts.get(streamer.id)
-            if (
-                last_attempt is None
-                or now - last_attempt >= AUTO_SWITCH_RETRY_SECONDS
-            ):
-                return streamer
-        return None
+        """Return the first preferred streamer whose retry cooldown expired."""
+        return self._playlist.next_preferred_target(live, now)
 
     def status(self) -> dict:
         self.store.refresh()
-        now = time.monotonic()
+        now = self._clock.monotonic()
         progress_age = (
             round(now - self._last_progress_monotonic, 1)
             if self._last_progress_monotonic is not None
@@ -536,171 +507,50 @@ class Supervisor:
             "streamers": [self._streamer_view(cfg) for cfg in self.store.streamers],
         }
 
+    def _status_context(self) -> StatusContext:
+        playlist = self._playlist
+        return StatusContext(
+            store=self.store,
+            online=self._online,
+            active_id=self._active_id,
+            state=self._state,
+            playlist_mode=playlist.mode,
+            playlist_id=playlist.playlist_id,
+            offline_cycle=playlist.offline_cycle,
+            playlist_end_at=playlist.end_at,
+            playlist_end_at_monotonic=playlist.end_at_monotonic,
+            switch_count=playlist.switch_count,
+            last_switch_reason=playlist.last_switch_reason,
+            preferred_return=playlist.preferred_return,
+            now=self._clock.monotonic(),
+        )
+
     def active_playlist_id(self) -> str | None:
-        return self._playlist_id if self._playlist_mode else None
+        return active_playlist_id(self._status_context())
 
     def playlists_view(self) -> dict:
         self.store.refresh()
-        return {
-            "playlists": [
-                self._playlist_view(playlist)
-                for playlist in self.store.playlists
-            ],
-            "active_playlist": self.active_playlist_id(),
-        }
+        return playlists_view(self._status_context())
 
     def _playlist_view(self, playlist: PlaylistConfig) -> dict:
-        shared_source = self._key_source(
-            playlist.youtube_key, playlist.youtube_key_env
-        )
-        mode_active = (
-            self._playlist_mode
-            and self._playlist_id == playlist.id
-            and self._active_id is not None
-        )
-        shared_key_value = self._configured_key(
-            playlist.youtube_key, playlist.youtube_key_env
-        )
-        channels: list[dict] = []
-        for number, channel_id in enumerate(playlist.channels, start=1):
-            cfg = self.store.get(channel_id)
-            if cfg is None:
-                continue
-            key_source = self._key_source(cfg.youtube_key, cfg.youtube_key_env)
-            own_key_value = self._configured_key(
-                cfg.youtube_key, cfg.youtube_key_env
-            )
-            online = self._online_view(cfg)
-            channels.append(
-                {
-                    "id": cfg.id,
-                    "name": cfg.name,
-                    "tiktok": cfg.tiktok,
-                    "number": number,
-                    "enabled": cfg.enabled,
-                    "key_configured": key_source != "missing",
-                    "preferred": cfg.preferred,
-                    "own_stream": cfg.own_stream,
-                    "own_stream_conflicts": bool(
-                        cfg.own_stream
-                        and shared_key_value
-                        and own_key_value == shared_key_value
-                    ),
-                    "active": cfg.id == self._active_id,
-                    "offline": mode_active and cfg.id in self._offline_cycle,
-                    "online": online["online"],
-                    "online_checked_at": online["online_checked_at"],
-                    "online_checking": online["online_checking"],
-                }
-            )
-
-        active_index = None
-        if self._active_id is not None and self._active_id in playlist.channels:
-            active_index = playlist.channels.index(self._active_id)
-
-        end_in_seconds = None
-        if mode_active and self._playlist_end_at_monotonic is not None:
-            end_in_seconds = max(
-                0,
-                int(round(self._playlist_end_at_monotonic - time.monotonic())),
-            )
-
-        return {
-            "id": playlist.id,
-            "name": playlist.name,
-            "auto_advance": playlist.auto_advance,
-            "wrap": playlist.wrap,
-            "advance_delay_seconds": playlist.advance_delay_seconds,
-            "end_time": playlist.end_time,
-            "end_after_minutes": playlist.end_after_minutes,
-            "ends_at": self._playlist_end_at if mode_active else None,
-            "end_in_seconds": end_in_seconds,
-            "youtube_key_env": playlist.youtube_key_env,
-            "channels": channels,
-            "channel_ids": list(playlist.channels),
-            "total": len(playlist.channels),
-            "shared_key_configured": shared_source != "missing",
-            "shared_key_source": shared_source,
-            "shared_key_stored": bool(playlist.youtube_key.strip()),
-            "mode_active": mode_active,
-            "index": active_index,
-            "number": active_index + 1 if active_index is not None else None,
-            "switch_count": self._switch_count if mode_active else 0,
-            "last_switch_reason": (
-                self._last_switch_reason if mode_active else ""
-            ),
-        }
+        return playlist_view(self._status_context(), playlist)
 
     @staticmethod
     def _configured_key(key: str, env_name: str) -> str:
-        if key.strip():
-            return key.strip()
-        if env_name:
-            return os.getenv(env_name, "").strip()
-        return ""
+        return configured_key(key, env_name)
 
     @staticmethod
     def _key_source(key: str, env_name: str) -> str:
-        if key.strip():
-            return "config"
-        if env_name and os.getenv(env_name, "").strip():
-            return "env"
-        return "missing"
+        return key_source(key, env_name)
 
     def _preferred_return_view(self) -> dict | None:
-        record = self._preferred_return
-        if record is None:
-            return None
-        streamer = self.store.get(record.streamer_id)
-        return {
-            "streamer_id": record.streamer_id,
-            "name": (
-                streamer.name if streamer is not None else record.streamer_id
-            ),
-            "preferred_id": record.preferred_id,
-        }
+        return preferred_return_view(self._status_context())
 
     def _streamer_view(self, cfg: StreamerConfig) -> dict:
-        key_source = self._key_source(cfg.youtube_key, cfg.youtube_key_env)
-        return {
-            "id": cfg.id,
-            "name": cfg.name,
-            "tiktok": cfg.tiktok,
-            "enabled": cfg.enabled,
-            "auto_start": cfg.auto_start,
-            "video_mode": cfg.video_mode,
-            "preferred": cfg.preferred,
-            "own_stream": cfg.own_stream,
-            "youtube_key_env": cfg.youtube_key_env,
-            "asr_watchlist": cfg.asr_watchlist,
-            "key_configured": key_source != "missing",
-            "key_source": key_source,
-            "active": cfg.id == self._active_id,
-            **self._online_view(cfg),
-        }
+        return streamer_view(self._status_context(), cfg)
 
     def _online_view(self, cfg: StreamerConfig) -> dict:
-        if cfg.id == self._active_id:
-            if self._state == StreamState.LIVE:
-                online: bool | None = True
-            elif self._state == StreamState.OFFLINE:
-                online = False
-            else:
-                online = None
-            return {
-                "online": online,
-                "online_checked_at": None,
-                "online_error": "",
-                "online_checking": False,
-            }
-        if self._online is None:
-            return {
-                "online": None,
-                "online_checked_at": None,
-                "online_error": "",
-                "online_checking": False,
-            }
-        return self._online.view(cfg.id)
+        return online_view(self._status_context(), cfg)
 
     def _youtube_title(self) -> str:
         if not self._title or self._active_id is None:
@@ -765,18 +615,18 @@ class Supervisor:
 
         async with self._lock:
             if not preferred_switch:
-                self._preferred_return = None
+                self._playlist.preferred_return = None
             keep_end_at = None
             keep_end_monotonic = None
             if (
                 keep_playlist_end
                 and playlist is not None
-                and self._playlist_mode
-                and self._playlist_id == playlist.id
+                and self._playlist.mode
+                and self._playlist.playlist_id == playlist.id
                 and (playlist.end_time or playlist.end_after_minutes)
             ):
-                keep_end_at = self._playlist_end_at
-                keep_end_monotonic = self._playlist_end_at_monotonic
+                keep_end_at = self._playlist.end_at
+                keep_end_monotonic = self._playlist.end_at_monotonic
 
             preserve_delay = (
                 self._delay_buffer is not None
@@ -790,11 +640,9 @@ class Supervisor:
 
             self._stop_event = asyncio.Event()
             self._session_token += 1
-            self._playlist_mode = playlist_mode
-            self._playlist_id = playlist.id if playlist is not None else None
-            self._offline_cycle.clear()
-            self._switch_count = 0
-            self._last_switch_reason = "playlist-start" if playlist_mode else ""
+            self._playlist.begin(
+                playlist.id if playlist is not None else None
+            )
             self._active_id = streamer.id
             self._state = StreamState.RESOLVING
             self._state_since = _utc_now_iso()
@@ -806,7 +654,7 @@ class Supervisor:
             self._output_error = ""
             self._output_key_value = key
             self._output_args = tuple(streamer.ffmpeg_args)
-            self._stream_epoch_monotonic = time.monotonic()
+            self._stream_epoch_monotonic = self._clock.monotonic()
             self._last_pipe_offset_end = 0.0
             self._pipe_offset_started = None
             self._pipe_offset_value = None
@@ -822,12 +670,7 @@ class Supervisor:
             self._reset_progress()
             self._log.clear()
             self._open_log_file(streamer.id)
-            self._chat_filter_warned = False
-            self._chat_engine_warned = False
-            self._earnings_filter_warned = False
-            self._clock_filter_warned = False
-            self._version_filter_warned = False
-            self._text_filter_warned = False
+            self._overlays.reset_warnings()
             self._start_chat(streamer)
 
             self._output_task = asyncio.create_task(
@@ -861,7 +704,7 @@ class Supervisor:
 
     async def stop(self) -> dict:
         async with self._lock:
-            self._preferred_return = None
+            self._playlist.preferred_return = None
             await self._stop_locked(reset_delay=True)
         return self.status()
 
@@ -886,44 +729,16 @@ class Supervisor:
         *,
         skip_offline: bool = False,
     ) -> StreamerConfig | None:
-        channels = list(playlist.channels)
-        if not channels:
-            return None
-
-        if from_id is not None and from_id in channels:
-            start = channels.index(from_id)
-        else:
-            start = -1 if direction > 0 else len(channels)
-
-        for offset in range(1, len(channels) + 1):
-            position = start + direction * offset
-            if playlist.wrap:
-                position %= len(channels)
-            elif position < 0 or position >= len(channels):
-                break
-
-            cfg = self.store.get(channels[position])
-            if cfg is None or not cfg.enabled:
-                continue
-            if skip_offline and cfg.id in self._offline_cycle:
-                continue
-            return cfg
-        return None
+        return self._playlist.next_target(
+            playlist,
+            direction,
+            from_id,
+            skip_offline=skip_offline,
+        )
 
     def _playlist_entry(self, playlist: PlaylistConfig) -> StreamerConfig | None:
         """Current channel if it is part of the playlist, else the first one."""
-        if not playlist.channels:
-            return None
-
-        active = self.store.get(self._active_id) if self._active_id else None
-        if active is not None and active.id in playlist.channels and active.enabled:
-            return active
-
-        for channel_id in playlist.channels:
-            cfg = self.store.get(channel_id)
-            if cfg is not None and cfg.enabled:
-                return cfg
-        return None
+        return self._playlist.entry(playlist, self._active_id)
 
     async def playlist_play(self, playlist_id: str, watch: bool = True) -> dict:
         self.store.refresh()
@@ -938,7 +753,7 @@ class Supervisor:
             watch=watch,
             playlist_mode=True,
             playlist_id=playlist.id,
-            bridge_pause=self._playlist_mode and self._playlist_id == playlist.id,
+            bridge_pause=self._playlist.mode and self._playlist.playlist_id == playlist.id,
         )
 
     async def playlist_step(
@@ -967,7 +782,7 @@ class Supervisor:
             playlist_mode=True,
             playlist_id=playlist.id,
             keep_playlist_end=True,
-            bridge_pause=self._playlist_mode and self._playlist_id == playlist.id,
+            bridge_pause=self._playlist.mode and self._playlist.playlist_id == playlist.id,
         )
 
     async def playlist_tune(
@@ -990,7 +805,7 @@ class Supervisor:
             playlist_mode=True,
             playlist_id=playlist.id,
             keep_playlist_end=True,
-            bridge_pause=self._playlist_mode and self._playlist_id == playlist.id,
+            bridge_pause=self._playlist.mode and self._playlist.playlist_id == playlist.id,
         )
 
     def _start_playlist_end(
@@ -1001,17 +816,17 @@ class Supervisor:
         keep_monotonic: float | None = None,
     ) -> None:
         if keep_at is not None and keep_monotonic is not None:
-            self._playlist_end_at = keep_at
-            self._playlist_end_at_monotonic = keep_monotonic
+            self._playlist.end_at = keep_at
+            self._playlist.end_at_monotonic = keep_monotonic
         else:
             now = datetime.now().astimezone()
             target = playlist_end_deadline(playlist, now)
             if target is None:
-                self._playlist_end_at = None
-                self._playlist_end_at_monotonic = None
+                self._playlist.end_at = None
+                self._playlist.end_at_monotonic = None
                 return
-            self._playlist_end_at = target.isoformat(timespec="seconds")
-            self._playlist_end_at_monotonic = time.monotonic() + max(
+            self._playlist.end_at = target.isoformat(timespec="seconds")
+            self._playlist.end_at_monotonic = self._clock.monotonic() + max(
                 0.0, (target - now).total_seconds()
             )
 
@@ -1019,8 +834,8 @@ class Supervisor:
             self._end_playlist_when_due(
                 playlist.id,
                 session_token,
-                self._playlist_end_at_monotonic,
-                self._playlist_end_at,
+                self._playlist.end_at_monotonic,
+                self._playlist.end_at,
             ),
             name=f"playlist-end-{playlist.id}",
         )
@@ -1032,10 +847,10 @@ class Supervisor:
         deadline_monotonic: float,
         ends_at: str | None,
     ) -> None:
-        delay = deadline_monotonic - time.monotonic()
+        delay = deadline_monotonic - self._clock.monotonic()
         try:
             if delay > 0:
-                await asyncio.sleep(delay)
+                await self._clock.sleep(delay)
         except asyncio.CancelledError:
             raise
 
@@ -1045,8 +860,8 @@ class Supervisor:
         async with self._lock:
             if (
                 session_token != self._session_token
-                or not self._playlist_mode
-                or self._playlist_id != playlist_id
+                or not self._playlist.mode
+                or self._playlist.playlist_id != playlist_id
             ):
                 return
             self._record(
@@ -1054,7 +869,7 @@ class Supervisor:
                 + (f" ({ends_at})" if ends_at else "")
                 + " – stoppe Stream"
             )
-            self._preferred_return = None
+            self._playlist.preferred_return = None
             await self._stop_locked(reset_delay=True)
 
     async def _cancel_playlist_end(self) -> None:
@@ -1121,13 +936,7 @@ class Supervisor:
         self._prefetched = None
         self._current_stream = None
         self._restart_reason = None
-        self._playlist_mode = False
-        self._playlist_id = None
-        self._offline_cycle.clear()
-        self._switch_count = 0
-        self._last_switch_reason = ""
-        self._playlist_end_at = None
-        self._playlist_end_at_monotonic = None
+        self._playlist.reset()
         self._playlist_end_task = None
         self._session_token += 1
         self._reset_progress()
@@ -1170,67 +979,21 @@ class Supervisor:
 
     def _start_chat_pipeline(self):
         """Create the PNG chat FIFO for the next output process."""
-        if not self.settings.chat_overlay_engine_enabled:
-            return None
-        if not self.settings.chat_enabled or self._chat is None:
-            return None
-        if _chat_engine_module is None:
-            if not self._chat_engine_warned:
-                self._chat_engine_warned = True
-                detail = (
-                    f": {_chat_engine_import_error}"
-                    if _chat_engine_import_error
-                    else ""
-                )
-                self._record(
-                    "[Chat] PNG-Engine nicht verfügbar"
-                    + detail
-                    + " – drawtext-Fallback"
-                )
-            return None
-        try:
-            pipe = _chat_engine_module.ChatPipeline(
-                _chat_engine_module.ChatOverlaySources(
-                    self.settings,
-                    messages=self._chat.overlay.visible_messages,
-                    stats=self._chat.overlay.stats,
-                    earnings=(
-                        self._earnings.overlay_text
-                        if self._earnings is not None
-                        else None
-                    ),
-                    words=lambda: self._words.top(
-                        self.settings.chat_overlay_words_top
-                    ),
-                ),
-                log=self._record,
-            )
-            pipe.prepare()
-        except Exception as exc:  # noqa: BLE001 - fallback to drawtext
-            if not self._chat_engine_warned:
-                self._chat_engine_warned = True
-                self._record(
-                    f"[Chat] PNG-Engine nicht startbar: {exc} – "
-                    "drawtext-Fallback"
-                )
-            return None
-        self._record(
-            "[Chat] PNG-Engine aktiv "
-            f"({pipe.geometry.width}x{pipe.geometry.height} "
-            f"@ {pipe.fps} fps)"
+        return self._overlays.start_pipeline(
+            chat=self._chat,
+            earnings_text=(
+                self._earnings.overlay_text
+                if self._earnings is not None
+                else None
+            ),
+            words=lambda: self._words.top(
+                self.settings.chat_overlay_words_top
+            ),
         )
-        return pipe
 
     def overlay_preview_png(self, *, sample: bool = False) -> bytes:
         """Render the current (or sample) chat overlay for the dashboard."""
-        if _chat_engine_module is None:
-            detail = (
-                f": {_chat_engine_import_error}"
-                if _chat_engine_import_error
-                else ""
-            )
-            raise RuntimeError(f"PNG-Chat-Engine nicht verfügbar{detail}")
-        messages = ()
+        messages: tuple[ChatMessage, ...] = ()
         stats = None
         earnings = ""
         if not sample and self._chat is not None:
@@ -1239,7 +1002,7 @@ class Supervisor:
             if self._earnings is not None:
                 earnings = self._earnings.overlay_text()
         words = self._words.top(self.settings.chat_overlay_words_top)
-        return _chat_engine_module.preview_png(
+        return render_overlay_preview(
             self.settings, messages, stats, earnings, words, sample=sample
         )
 
@@ -1274,57 +1037,7 @@ class Supervisor:
 
     def _legacy_overlay_filters(self, *, include_chat: bool = True) -> list[str]:
         """Build the drawtext filters used outside the PNG chat engine."""
-        video_filters: list[str] = []
-        if include_chat:
-            chat_filter = build_overlay_filter(self.settings)
-            if chat_filter is not None:
-                video_filters.append(chat_filter)
-            elif self.settings.chat_enabled and not self._chat_filter_warned:
-                self._chat_filter_warned = True
-                self._record(
-                    "[Chat] Keine Schrift oder Overlay-Datei gefunden – "
-                    "Chat-Overlay deaktiviert"
-                )
-        earnings_filter = build_earnings_overlay_filter(self.settings)
-        if earnings_filter is not None:
-            video_filters.append(earnings_filter)
-        elif (
-            self.settings.earnings_overlay_enabled
-            and not self._earnings_filter_warned
-        ):
-            self._earnings_filter_warned = True
-            self._record(
-                "[Einnahmen] Keine Schrift oder Overlay-Datei gefunden – "
-                "Einnahmen-Overlay deaktiviert"
-            )
-        clock_filter = build_clock_filter(self.settings)
-        if clock_filter is not None:
-            video_filters.append(clock_filter)
-        elif self.settings.clock_enabled and not self._clock_filter_warned:
-            self._clock_filter_warned = True
-            self._record("[Clock] Keine Schrift gefunden – Uhrzeit deaktiviert")
-        text_filter = build_text_overlay_filter(self.settings)
-        if text_filter is not None:
-            video_filters.append(text_filter)
-        elif self.settings.text_overlay_enabled and not self._text_filter_warned:
-            self._text_filter_warned = True
-            self._record(
-                "[Text] Keine Schrift oder Textdatei gefunden – "
-                "Text-Overlay deaktiviert"
-            )
-        version_filter = build_version_filter(self.settings)
-        if version_filter is not None:
-            video_filters.append(version_filter)
-        elif (
-            self.settings.version_overlay_enabled
-            and not self._version_filter_warned
-        ):
-            self._version_filter_warned = True
-            self._record(
-                "[Version] Keine Schrift gefunden – "
-                "Versionsanzeige deaktiviert"
-            )
-        return video_filters
+        return self._overlays.legacy_filters(include_chat=include_chat)
 
     def _activate_channel(self, streamer: StreamerConfig, key: str) -> None:
         """Switch the worker to another channel without restarting the task."""
@@ -1382,17 +1095,17 @@ class Supervisor:
         delay = self.settings.relay_delay_seconds
         if delay <= 0:
             return
-        deadline = time.monotonic() + delay + 15
+        deadline = self._clock.monotonic() + delay + 15
         while not self._stop_event.is_set():
             if self._delay_buffer.buffer_seconds() >= delay:
                 return
-            if time.monotonic() >= deadline:
+            if self._clock.monotonic() >= deadline:
                 self._record(
                     "[Restreamer] Delay-Puffer nicht voll – starte "
                     "YouTube-Ausgang trotzdem"
                 )
                 return
-            await asyncio.sleep(0.5)
+            await self._clock.sleep(0.5)
 
     async def _output_loop(self, key: str) -> None:
         """Keep one YouTube RTMP connection alive across source changes."""
@@ -1458,7 +1171,7 @@ class Supervisor:
                 overlay_pipe.start()
             self._output_sessions += 1
             self._output_error = ""
-            started = time.monotonic()
+            started = self._clock.monotonic()
             self._last_progress_monotonic = started
             self._last_out_time_us = -1
             self._last_total_size = -1
@@ -1494,7 +1207,7 @@ class Supervisor:
             if self._stop_event.is_set():
                 break
 
-            if time.monotonic() - started > 60:
+            if self._clock.monotonic() - started > 60:
                 backoff = self.settings.backoff_initial_seconds
             self._output_error = f"YouTube-Ausgang beendet (rc={returncode})"
             self._record(
@@ -1555,14 +1268,14 @@ class Supervisor:
     ) -> None:
         interval = max(2, self.settings.watchdog_interval_seconds)
         while True:
-            await asyncio.sleep(interval)
+            await self._clock.sleep(interval)
             if self._stop_event.is_set() or process.returncode is not None:
                 return
             if self._last_progress_monotonic is None:
                 continue
             if not (self._source_running() or self._pause_running()):
                 continue
-            age = time.monotonic() - self._last_progress_monotonic
+            age = self._clock.monotonic() - self._last_progress_monotonic
             # The output receives its first packets only after the delay
             # buffer has filled, so allow that extra time before restarting.
             output_stall = (
@@ -1599,12 +1312,7 @@ class Supervisor:
                 "[Restreamer] Ausgabeformat oder Bitrate geändert – "
                 "YouTube-Ausgang wird für kurze Zeit neu aufgebaut"
             )
-            self._chat_filter_warned = False
-            self._chat_engine_warned = False
-            self._earnings_filter_warned = False
-            self._clock_filter_warned = False
-            self._version_filter_warned = False
-            self._text_filter_warned = False
+            self._overlays.reset_warnings()
             pause_was_running = self._pause_running()
             if pause_was_running:
                 await self._stop_pause()
@@ -1618,60 +1326,23 @@ class Supervisor:
 
     @staticmethod
     def _shared_output_configured(playlist: PlaylistConfig) -> bool:
-        return bool(
-            playlist.youtube_key.strip() or playlist.youtube_key_env.strip()
-        )
+        return shared_output_configured(playlist)
 
-    def _shared_output_available(self, playlist: PlaylistConfig) -> bool:
-        return (
-            self._key_source(playlist.youtube_key, playlist.youtube_key_env)
-            != "missing"
-        )
+    @staticmethod
+    def _shared_output_available(playlist: PlaylistConfig) -> bool:
+        return shared_output_available(playlist)
 
+    @staticmethod
     def _channel_can_output(
-        self, cfg: StreamerConfig, playlist: PlaylistConfig
+        cfg: StreamerConfig, playlist: PlaylistConfig
     ) -> bool:
-        if cfg.own_stream:
-            return self._key_source(cfg.youtube_key, cfg.youtube_key_env) != "missing"
-        if self._shared_output_configured(playlist):
-            return self._shared_output_available(playlist)
-        return self._key_source(cfg.youtube_key, cfg.youtube_key_env) != "missing"
+        return channel_can_output(cfg, playlist)
 
     def _advance_target(
         self, current_id: str, playlist: PlaylistConfig
     ) -> StreamerConfig | None:
         """Next enabled channel that has not failed in this cycle."""
-        channels = list(playlist.channels)
-        if not channels:
-            return None
-
-        start = channels.index(current_id) if current_id in channels else -1
-        saw_offline = False
-        for offset in range(1, len(channels) + 1):
-            position = start + offset
-            if playlist.wrap:
-                position %= len(channels)
-            elif position >= len(channels):
-                break
-
-            cfg = self.store.get(channels[position])
-            if cfg is None or not cfg.enabled:
-                continue
-            if cfg.id in self._offline_cycle:
-                saw_offline = True
-                continue
-            if not self._channel_can_output(cfg, playlist):
-                self._record(
-                    f"[Restreamer] Sender {cfg.name} übersprungen: "
-                    "kein YouTube-Key konfiguriert"
-                )
-                continue
-            return cfg
-
-        if saw_offline:
-            # Alle Sender wurden in diesem Durchlauf bereits als offline erkannt.
-            self._offline_cycle.clear()
-        return None
+        return self._playlist.advance_target(current_id, playlist).target
 
     async def _maybe_advance(
         self,
@@ -1680,12 +1351,12 @@ class Supervisor:
         reason: str,
         watch: bool,
     ) -> tuple[StreamerConfig, str] | None:
-        if not watch or not self._playlist_mode:
+        if not watch or not self._playlist.mode:
             return None
         self.store.refresh()
         playlist = (
-            self.store.playlist(self._playlist_id)
-            if self._playlist_id
+            self.store.playlist(self._playlist.playlist_id)
+            if self._playlist.playlist_id
             else None
         )
         if playlist is None or not playlist.auto_advance:
@@ -1719,9 +1390,8 @@ class Supervisor:
             f"[Restreamer] Senderwechsel: {streamer.name} → {target.name} "
             f"({reason})"
         )
-        self._switch_count += 1
-        self._last_switch_reason = reason
-        self._offline_cycle.discard(target.id)
+        self._playlist.record_switch(reason)
+        self._playlist.offline_cycle.discard(target.id)
         self._activate_channel(target, new_key)
         return target, new_key
 
@@ -1729,10 +1399,9 @@ class Supervisor:
         self, current: StreamerConfig, key: str
     ) -> tuple[StreamerConfig, str] | None:
         """Return to the streamer that ran before a preferred takeover."""
-        record = self._preferred_return
-        if record is None or record.preferred_id != current.id:
+        record = self._playlist.take_preferred_return(current.id)
+        if record is None:
             return None
-        self._preferred_return = None
 
         self.store.refresh()
         target = self.store.get(record.streamer_id)
@@ -1763,10 +1432,11 @@ class Supervisor:
 
         await self._cancel_playlist_end()
         if playlist is not None:
-            self._playlist_mode = True
-            self._playlist_id = playlist.id
-            self._playlist_end_at = record.playlist_end_at
-            self._playlist_end_at_monotonic = record.playlist_end_at_monotonic
+            self._playlist.enter(
+                playlist,
+                end_at=record.playlist_end_at,
+                end_at_monotonic=record.playlist_end_at_monotonic,
+            )
             if (
                 record.playlist_end_at is not None
                 and record.playlist_end_at_monotonic is not None
@@ -1783,14 +1453,10 @@ class Supervisor:
             ):
                 await self._ensure_pause(key, "Rückschaltung")
         else:
-            self._playlist_mode = False
-            self._playlist_id = None
-            self._playlist_end_at = None
-            self._playlist_end_at_monotonic = None
+            self._playlist.leave_playlist()
 
-        self._offline_cycle.discard(target.id)
-        self._switch_count += 1
-        self._last_switch_reason = "bevorzugt beendet"
+        self._playlist.offline_cycle.discard(target.id)
+        self._playlist.record_switch("bevorzugt beendet")
         self._record(
             f"[Restreamer] Bevorzugter Sender beendet: {current.name} "
             f"→ zurück zu {target.name}"
@@ -1834,7 +1500,7 @@ class Supervisor:
                     self._last_error = "Streamer ist offline"
                     self._record("[Restreamer] Streamer ist offline")
                     self._set_state(StreamState.OFFLINE)
-                    self._offline_cycle.add(streamer.id)
+                    self._playlist.offline_cycle.add(streamer.id)
                     if not watch:
                         break
 
@@ -1869,7 +1535,7 @@ class Supervisor:
                 self._last_error = ""
                 self._current_stream = stream
                 # Ein erfolgreicher Sender beendet den Offline-Zyklus.
-                self._offline_cycle.clear()
+                self._playlist.offline_cycle.clear()
                 reencode = force_reencode
                 await self._stop_pause_for_live()
                 source_offset = self._relay_timestamp_offset()
@@ -1904,7 +1570,7 @@ class Supervisor:
                 self._proc = process
                 self._sessions += 1
                 self._mark_pipe_start(source_offset)
-                started = time.monotonic()
+                started = self._clock.monotonic()
                 self._live_started_monotonic = started
                 self._source_progress_monotonic = started
                 # A new source needs the configured delay before the output
@@ -2001,7 +1667,7 @@ class Supervisor:
                 self._record(f"[Restreamer] ffmpeg beendet (rc={returncode})")
 
                 if returncode == 0 and watch:
-                    self._offline_cycle.add(streamer.id)
+                    self._playlist.offline_cycle.add(streamer.id)
                     restored = await self._restore_previous(streamer, key)
                     if self._stop_event.is_set():
                         break
@@ -2037,7 +1703,7 @@ class Supervisor:
                         "[Restreamer] Codec-Fehler erkannt – nächster Versuch mit Re-Encode"
                     )
 
-                if time.monotonic() - started > 60:
+                if self._clock.monotonic() - started > 60:
                     backoff = self.settings.backoff_initial_seconds
 
                 self._set_state(StreamState.BACKOFF)
@@ -2069,14 +1735,8 @@ class Supervisor:
                 self._started_at = None
                 self._secrets = []
                 self._prefetched = None
-                self._preferred_return = None
-                self._playlist_mode = False
-                self._playlist_id = None
-                self._offline_cycle.clear()
-                self._switch_count = 0
-                self._last_switch_reason = ""
-                self._playlist_end_at = None
-                self._playlist_end_at_monotonic = None
+                self._playlist.preferred_return = None
+                self._playlist.reset()
                 self._playlist_end_task = None
                 self._session_token += 1
                 self._reset_progress()
@@ -2095,7 +1755,7 @@ class Supervisor:
         minutes = self.settings.pause_screen_max_minutes
         if minutes <= 0 or self._pause_started_monotonic is None:
             return False
-        return time.monotonic() - self._pause_started_monotonic >= minutes * 60
+        return self._clock.monotonic() - self._pause_started_monotonic >= minutes * 60
 
     async def _ensure_pause(self, key: str, reason: str) -> None:
         """Start (or keep) the pause screen while the source is unavailable."""
@@ -2124,7 +1784,7 @@ class Supervisor:
             )
             await self._stop_pause()
 
-        now = time.monotonic()
+        now = self._clock.monotonic()
         if now < self._pause_retry_monotonic:
             return
 
@@ -2263,11 +1923,11 @@ class Supervisor:
     ) -> None:
         interval = max(2, self.settings.watchdog_interval_seconds)
         while True:
-            await asyncio.sleep(interval)
+            await self._clock.sleep(interval)
             if self._stop_event.is_set() or process.returncode is not None:
                 return
 
-            now = time.monotonic()
+            now = self._clock.monotonic()
 
             if (
                 self._next_refresh_monotonic is not None
@@ -2413,7 +2073,7 @@ class Supervisor:
                 return
             if microseconds > self._source_out_time_us:
                 self._source_out_time_us = microseconds
-                self._source_progress_monotonic = time.monotonic()
+                self._source_progress_monotonic = self._clock.monotonic()
         elif key == "total_size":
             try:
                 total_size = int(value)
@@ -2421,7 +2081,7 @@ class Supervisor:
                 return
             if total_size > self._source_total_size:
                 self._source_total_size = total_size
-                self._source_progress_monotonic = time.monotonic()
+                self._source_progress_monotonic = self._clock.monotonic()
 
     def _handle_progress_line(self, line: str) -> None:
         if not line or "=" not in line:
@@ -2455,7 +2115,7 @@ class Supervisor:
                 self._progress_bitrate_kbps = kbps
 
     def _touch_progress(self) -> None:
-        self._last_progress_monotonic = time.monotonic()
+        self._last_progress_monotonic = self._clock.monotonic()
 
     async def _terminate(self, process: asyncio.subprocess.Process) -> None:
         if process.returncode is not None:
@@ -2487,11 +2147,21 @@ class Supervisor:
 
     async def _sleep(self, seconds: int) -> bool:
         """Sleep, but wake up early on stop. Returns False if stop was requested."""
+        timeout = max(seconds, 1)
+        stop_task = asyncio.create_task(self._stop_event.wait())
+        timer = asyncio.create_task(self._clock.sleep(timeout))
         try:
-            await asyncio.wait_for(self._stop_event.wait(), timeout=max(seconds, 1))
-            return False
-        except TimeoutError:
-            return True
+            await asyncio.wait(
+                {stop_task, timer},
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            return not self._stop_event.is_set()
+        finally:
+            for task in (stop_task, timer):
+                if not task.done():
+                    task.cancel()
+                    with suppress(asyncio.CancelledError):
+                        await task
 
     # ---------------------------------------------------------------- utilities
 
@@ -2515,14 +2185,14 @@ class Supervisor:
         playlist_mode: bool | None = None,
         playlist: PlaylistConfig | None = None,
     ) -> str:
-        mode = self._playlist_mode if playlist_mode is None else playlist_mode
+        mode = self._playlist.mode if playlist_mode is None else playlist_mode
         if streamer.own_stream:
             # A marked streamer always uses its own YouTube key, even inside a
             # playlist with a shared key. The key change makes the supervisor
             # rebuild the output and YouTube opens a separate stream.
             return self._youtube_key(streamer)
-        if playlist is None and mode and self._playlist_id:
-            playlist = self.store.playlist(self._playlist_id)
+        if playlist is None and mode and self._playlist.playlist_id:
+            playlist = self.store.playlist(self._playlist.playlist_id)
         if mode and playlist is not None and (
             playlist.youtube_key.strip() or playlist.youtube_key_env.strip()
         ):
@@ -2546,14 +2216,14 @@ class Supervisor:
         zero again.  The long-lived output would then see a backwards jump and
         produce non-monotonic audio DTS on each switch.
         """
-        wall = time.monotonic() - self._stream_epoch_monotonic + 0.5
+        wall = self._clock.monotonic() - self._stream_epoch_monotonic + 0.5
         return round(
             max(wall, self._last_pipe_offset_end + PIPE_SWITCH_GUARD_SECONDS),
             3,
         )
 
     def _mark_pipe_start(self, offset: float) -> None:
-        self._pipe_offset_started = time.monotonic()
+        self._pipe_offset_started = self._clock.monotonic()
         self._pipe_offset_value = offset
 
     def _mark_pipe_end(self) -> None:
@@ -2563,7 +2233,7 @@ class Supervisor:
         ):
             self._last_pipe_offset_end = (
                 self._pipe_offset_value
-                + time.monotonic()
+                + self._clock.monotonic()
                 - self._pipe_offset_started
             )
         self._pipe_offset_started = None
