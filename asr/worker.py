@@ -27,6 +27,7 @@ RESTART_DELAY_SECONDS = 2.0
 DEFAULT_MODEL_PATH = "/models/vosk-model-small-de-0.15"
 DEFAULT_WATCHLIST_FILE = "/app/data/asr-watchlist.json"
 DEFAULT_OUTPUT_PATH = "/app/data/asr-words.json"
+DEFAULT_COUNTS_PATH = "/app/data/asr-counts.json"
 
 
 def _env_int(name: str, default: int) -> int:
@@ -62,6 +63,42 @@ def _mtime(path: Path) -> int | None:
         return path.stat().st_mtime_ns
     except OSError:
         return None
+
+
+def _load_totals(path: Path) -> dict[str, int]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return {}
+    if isinstance(payload, dict):
+        payload = payload.get("totals")
+    if not isinstance(payload, dict):
+        return {}
+    totals: dict[str, int] = {}
+    for word, count in payload.items():
+        try:
+            value = int(count)
+        except (TypeError, ValueError):
+            continue
+        if str(word) and value > 0:
+            totals[str(word)] = value
+    return totals
+
+
+def _write_counts(
+    path: Path, counter: PhraseCounter, watchlist: list[str]
+) -> None:
+    payload = {
+        "updated_at": datetime.now(UTC).isoformat(timespec="seconds"),
+        "totals": dict(counter.totals),
+        "watchlist": watchlist,
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(
+        json.dumps(payload, ensure_ascii=False), encoding="utf-8"
+    )
+    os.replace(tmp, path)
 
 
 def _write_output(
@@ -103,11 +140,13 @@ def _pump(
     watchlist_path: Path,
     fallback_watchlist: str,
     output_path: Path,
+    counts_path: Path,
     window_seconds: float,
     model_name: str,
 ) -> None:
+    totals = _load_totals(counts_path)
     watchlist: list[str] = []
-    counter = PhraseCounter([], window_seconds)
+    counter = PhraseCounter([], window_seconds, totals=totals)
     recognizer = _make_recognizer(model, watchlist)
     last_mtime: object = object()
     last_output = 0.0
@@ -120,8 +159,13 @@ def _pump(
             watchlist = _read_watchlist(
                 watchlist_path, fallback_watchlist
             )
-            counter = PhraseCounter(watchlist, window_seconds)
+            counter = PhraseCounter(
+                watchlist,
+                window_seconds,
+                totals=dict(counter.totals),
+            )
             recognizer = _make_recognizer(model, watchlist)
+            _write_counts(counts_path, counter, watchlist)
             last_output = 0.0
 
         try:
@@ -145,9 +189,11 @@ def _pump(
 
         if now - last_output >= OUTPUT_INTERVAL_SECONDS:
             _write_output(output_path, counter, watchlist, model_name)
+            _write_counts(counts_path, counter, watchlist)
             last_output = now
 
     _write_output(output_path, counter, watchlist, model_name)
+    _write_counts(counts_path, counter, watchlist)
 
 
 def _ffmpeg_command(audio_url: str) -> list[str]:
@@ -177,6 +223,7 @@ def run_stream(
     watchlist_path: Path,
     fallback_watchlist: str,
     output_path: Path,
+    counts_path: Path,
     window_seconds: float,
     model_name: str,
 ) -> None:
@@ -194,6 +241,7 @@ def run_stream(
                 watchlist_path,
                 fallback_watchlist,
                 output_path,
+                counts_path,
                 window_seconds,
                 model_name,
             )
@@ -219,6 +267,7 @@ def run_file(
     watchlist_path: Path,
     fallback_watchlist: str,
     output_path: Path,
+    counts_path: Path,
     window_seconds: float,
     model_name: str,
 ) -> None:
@@ -235,6 +284,7 @@ def run_file(
             watchlist_path,
             fallback_watchlist,
             output_path,
+            counts_path,
             window_seconds,
             model_name,
         )
@@ -270,6 +320,11 @@ def main(argv: list[str] | None = None) -> int:
         default=Path(os.getenv("ASR_OUTPUT_PATH", DEFAULT_OUTPUT_PATH)),
     )
     parser.add_argument(
+        "--counts",
+        type=Path,
+        default=Path(os.getenv("ASR_COUNTS_PATH", DEFAULT_COUNTS_PATH)),
+    )
+    parser.add_argument(
         "--window",
         type=float,
         default=float(_env_int("ASR_WINDOW_SECONDS", 600)),
@@ -293,6 +348,7 @@ def main(argv: list[str] | None = None) -> int:
                 watchlist_path=args.watchlist_file,
                 fallback_watchlist=args.watchlist,
                 output_path=args.output,
+                counts_path=args.counts,
                 window_seconds=args.window,
                 model_name=model_name,
             )
@@ -303,6 +359,7 @@ def main(argv: list[str] | None = None) -> int:
                 watchlist_path=args.watchlist_file,
                 fallback_watchlist=args.watchlist,
                 output_path=args.output,
+                counts_path=args.counts,
                 window_seconds=args.window,
                 model_name=model_name,
             )

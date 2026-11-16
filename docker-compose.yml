@@ -59,6 +59,7 @@ services:
       ASR_AUDIO_HOST: restreamer
       ASR_WATCHLIST_FILE: /app/data/asr-watchlist.json
       ASR_OUTPUT_PATH: /app/data/asr-words.json
+      ASR_COUNTS_PATH: /app/data/asr-counts.json
       ASR_WATCHLIST: ${ASR_WATCHLIST:-Guck ma,Dreck,Ich}
       ASR_WINDOW_SECONDS: ${ASR_WINDOW_SECONDS:-600}
     volumes:

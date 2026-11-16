@@ -47,8 +47,25 @@ def test_counter_prunes_old_events() -> None:
 
     snapshot = counter.snapshot(now=100.0)
 
-    assert snapshot["total"] == 1
-    assert snapshot["words"] == [{"word": "dreck", "count": 1}]
+    assert snapshot["total"] == 2
+    assert snapshot["words"] == [{"word": "dreck", "count": 2}]
+    assert snapshot["window_total"] == 1
+    assert snapshot["window_words"] == [{"word": "dreck", "count": 1}]
+
+
+def test_counter_loads_persisted_totals() -> None:
+    counter = PhraseCounter(
+        ["guck ma", "dreck"],
+        window_seconds=60,
+        totals={"guck ma": 10, "entfernt": 3},
+    )
+    counter.add_words(["guck", "ma"], now=1.0)
+
+    snapshot = counter.snapshot(now=1.0)
+
+    assert snapshot["total"] == 11
+    assert snapshot["words"] == [{"word": "guck ma", "count": 11}]
+    assert counter.totals["entfernt"] == 3
 
 
 def test_counter_ignores_unknown_tokens() -> None:

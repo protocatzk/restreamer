@@ -434,6 +434,7 @@ erscheinen als schmale `WÖRTER`-Zeile in der festen Chat-Karte.
 ASR_TAP_ENABLED=true
 ASR_WATCHLIST=Guck ma,Dreck,Ich
 ASR_WINDOW_SECONDS=600
+ASR_COUNTS_PATH=/app/data/asr-counts.json
 CHAT_OVERLAY_SHOW_WORDS=true
 CHAT_OVERLAY_WORDS_TOP=3
 ```
@@ -446,9 +447,22 @@ docker compose --profile asr up -d
 
 Die Watchlist lässt sich im Dashboard unter **Wort-Tracker (Vosk)** bearbeiten –
 ein Wort oder eine Phrase pro Zeile, Kommas sind ebenfalls erlaubt. Änderungen
-werden ohne Neustart übernommen; die Zähler starten dabei neu. Groß-/
-Kleinschreibung wird ignoriert, Phrasen mit Leerzeichen sind möglich. Für
-„Guck ma“ ggf. zusätzlich „Guck mal“ als Variante eintragen.
+werden ohne Neustart übernommen. Groß-/Kleinschreibung wird ignoriert, Phrasen
+mit Leerzeichen sind möglich. Für „Guck ma“ ggf. zusätzlich „Guck mal“ als
+Variante eintragen.
+
+Die Zähler sind **kumulativ und persistent**: Der Worker schreibt sie laufend
+nach `data/asr-counts.json`. Ein Neustart des ASR-Containers setzt sie nicht
+zurück. Entfernte Watchlist-Wörter verschwinden aus der Anzeige, behalten ihren
+Zähler aber in der Datei und erscheinen beim erneuten Hinzufügen wieder.
+Neu hinzugekommene Wörter starten bei null.
+
+Zähler zurücksetzen:
+
+```bash
+rm data/asr-counts.json
+docker compose --profile asr restart asr
+```
 
 Eigenschaften:
 
@@ -456,8 +470,9 @@ Eigenschaften:
   CPU-Last niedrig und reduziert Fehlalarme.
 - Der Worker läuft mit **1,0 CPU** und **768 MB** Limit; der Audio-Tap ist so
   gepuffert, dass ein langsamer ASR-Client den Haupt-Output nie blockiert.
-- Die Zähler laufen über ein rollierendes Fenster (`ASR_WINDOW_SECONDS`,
-  Standard 10 Minuten).
+- Die Anzeige nutzt die kumulativen Gesamtzähler. Zusätzlich führt der Worker
+  ein rollierendes Fenster (`ASR_WINDOW_SECONDS`, Standard 10 Minuten) als
+  `window_words` im JSON mit.
 - Das separate Einnahmen-Overlay bleibt unabhängig; die Wortzeile ist eine
   zusätzliche Zeile in der Chat-Karte.
 - Ohne Watchlist läuft der Worker weiter, zählt aber nichts. Fehlt der

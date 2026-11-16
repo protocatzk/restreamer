@@ -66,10 +66,13 @@ def build_grammar(phrases: list[str]) -> list[str]:
 
 
 class PhraseCounter:
-    """Count non-overlapping watchlist phrases in a rolling window."""
+    """Count non-overlapping watchlist phrases cumulatively and per window."""
 
     def __init__(
-        self, phrases: list[str], window_seconds: float = 600.0
+        self,
+        phrases: list[str],
+        window_seconds: float = 600.0,
+        totals: dict[str, int] | None = None,
     ) -> None:
         self.phrases = sorted(
             {normalize_text(phrase) for phrase in phrases if phrase},
@@ -79,11 +82,28 @@ class PhraseCounter:
                 phrase,
             ),
         )
+        self._watchlist = set(self.phrases)
         self.window_seconds = max(1.0, float(window_seconds))
+        self.totals: dict[str, int] = {}
+        for word, count in (totals or {}).items():
+            try:
+                value = int(count)
+            except (TypeError, ValueError):
+                continue
+            normalized = normalize_text(str(word or ""))
+            if normalized and value > 0:
+                self.totals[normalized] = value
         self._events: deque[tuple[float, str]] = deque()
 
-    def reset(self) -> None:
+    def reset_window(self) -> None:
         self._events.clear()
+
+    def reset_totals(self) -> None:
+        self.totals.clear()
+        self._events.clear()
+
+    def reset(self) -> None:
+        self.reset_totals()
 
     def add_words(self, words: list[str], now: float) -> None:
         """Count phrases in one final ASR result."""
@@ -108,6 +128,7 @@ class PhraseCounter:
                 index += 1
                 continue
             self._events.append((now, matched))
+            self.totals[matched] = self.totals.get(matched, 0) + 1
             index += len(matched.split())
 
     def _prune(self, now: float) -> None:
@@ -118,19 +139,35 @@ class PhraseCounter:
     def snapshot(
         self, now: float, limit: int | None = None
     ) -> dict[str, object]:
-        """Return rolling counts, newest window first."""
+        """Return cumulative counts plus the rolling-window counts."""
         self._prune(now)
-        counts = Counter(word for _, word in self._events)
+        visible = {
+            word: count
+            for word, count in self.totals.items()
+            if word in self._watchlist
+        }
         items = sorted(
-            counts.items(), key=lambda item: (-item[1], item[0])
+            visible.items(), key=lambda item: (-item[1], item[0])
         )
         if limit is not None:
             items = items[: max(0, int(limit))]
         words = [WordCount(word, count) for word, count in items]
+
+        window_counts = Counter(
+            word for _, word in self._events if word in self._watchlist
+        )
+        window_items = sorted(
+            window_counts.items(), key=lambda item: (-item[1], item[0])
+        )
         return {
             "window_seconds": self.window_seconds,
-            "total": sum(counts.values()),
+            "total": sum(visible.values()),
             "words": [
                 {"word": item.word, "count": item.count} for item in words
+            ],
+            "window_total": sum(window_counts.values()),
+            "window_words": [
+                {"word": word, "count": count}
+                for word, count in window_items
             ],
         }
