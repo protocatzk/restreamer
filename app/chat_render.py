@@ -629,12 +629,26 @@ class ChatRenderer:
         )
         return fonts.line_height + 7
 
-    def _words_text(self, words: tuple[WordCount, ...]) -> str:
-        if not words:
-            return "WÖRTER  –"
+    def _words_max_lines(self) -> int:
+        top = max(1, self.settings.chat_overlay_words_top)
+        if top <= 3:
+            return 1
+        if top <= 6:
+            return 2
+        return 3
+
+    def _words_segments(
+        self, words: tuple[WordCount, ...]
+    ) -> list[str]:
         limit = max(1, self.settings.chat_overlay_words_top)
-        parts = [f"{item.word} ×{item.count}" for item in words[:limit]]
-        return "WÖRTER  " + " · ".join(parts)
+        segments = ["WÖRTER"]
+        if words:
+            segments.extend(
+                f"{item.word} ×{item.count}" for item in words[:limit]
+            )
+        else:
+            segments.append("–")
+        return segments
 
     def _words_fonts(self) -> tuple[str, FontSet | None]:
         path = find_regular_font(
@@ -643,9 +657,46 @@ class ChatRenderer:
         size = max(10, round(chat_font_size(self.settings) * 0.5))
         return path, self._font_set(path, size)
 
+    def _words_gap(self) -> int:
+        return max(2, round(chat_font_size(self.settings) * 0.08))
+
     def _words_height(self) -> int:
         _path, fonts = self._words_fonts()
-        return fonts.line_height + 4 if fonts is not None else 0
+        if fonts is None:
+            return 0
+        lines = self._words_max_lines()
+        gap = self._words_gap()
+        return fonts.line_height * lines + gap * (lines - 1) + 4
+
+    def _wrap_words(
+        self,
+        segments: list[str],
+        font,
+        max_width: int,
+    ) -> list[str]:
+        lines: list[str] = []
+        current = ""
+        for segment in segments:
+            candidate = (
+                segment if not current else f"{current} · {segment}"
+            )
+            if font.getlength(candidate) <= max_width:
+                current = candidate
+                continue
+            if current:
+                lines.append(current)
+            current = segment
+        if current:
+            lines.append(current)
+        if not lines:
+            lines = ["WÖRTER  –"]
+        max_lines = self._words_max_lines()
+        if len(lines) > max_lines:
+            lines = lines[:max_lines]
+            lines[-1] = _fit_text(
+                lines[-1].rstrip() + " …", font, max_width
+            )
+        return [_fit_text(line, font, max_width) for line in lines]
 
     def _draw_words(
         self,
@@ -657,21 +708,30 @@ class ChatRenderer:
         _path, fonts = self._words_fonts()
         if fonts is None:
             return 0
-        text = _fit_text(
-            self._words_text(words), fonts.regular, geometry.content_width
+        lines = self._wrap_words(
+            self._words_segments(words),
+            fonts.regular,
+            geometry.content_width,
         )
-        if not text:
-            return 0
+        gap = self._words_gap()
         drawer = ImageDraw.Draw(tile)
         x = _SHADOW_PAD
-        drawer.text(
-            (x + 1, y + 1),
-            text,
-            font=fonts.regular,
-            fill=(0, 0, 0, 150),
-        )
-        drawer.text((x, y), text, font=fonts.regular, fill=_MUTED_COLOR)
-        return fonts.line_height + 4
+        cursor_y = y
+        for line in lines:
+            drawer.text(
+                (x + 1, cursor_y + 1),
+                line,
+                font=fonts.regular,
+                fill=(0, 0, 0, 150),
+            )
+            drawer.text(
+                (x, cursor_y),
+                line,
+                font=fonts.regular,
+                fill=_MUTED_COLOR,
+            )
+            cursor_y += fonts.line_height + gap
+        return self._words_height()
 
     def _earnings_surface(
         self, text: str, content_width: int

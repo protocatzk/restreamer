@@ -73,3 +73,9 @@ def test_counter_ignores_unknown_tokens() -> None:
     counter.add_words(["[unk]", "ich"], now=1.0)
 
     assert counter.snapshot(now=1.0)["total"] == 1
+
+
+def test_parse_watchlist_limits_the_number_of_entries() -> None:
+    entries = parse_watchlist([f"wort{i}" for i in range(205)])
+
+    assert len(entries) == 200

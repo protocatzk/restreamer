@@ -391,3 +391,21 @@ def test_words_line_is_drawn_and_keeps_width(tmp_path: Path) -> None:
     assert with_box is not None and without_box is not None
     assert with_box[0] == without_box[0]
     assert with_box[2] == without_box[2]
+
+
+def test_words_line_supports_ten_words(tmp_path: Path) -> None:
+    _requires_font()
+    settings = _settings(
+        tmp_path,
+        chat_overlay_show_words=True,
+        chat_overlay_words_top=10,
+    )
+    words = tuple(
+        WordCount(f"wort{index}", 10 - index) for index in range(10)
+    )
+
+    tile = ChatRenderer(settings).render_tile(
+        (_message("1", "Hallo"),), None, "", words
+    )
+
+    assert tile.getbbox() is not None

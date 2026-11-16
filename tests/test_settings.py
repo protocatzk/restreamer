@@ -526,8 +526,13 @@ def test_chat_overlay_engine_values_are_validated(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="chat_overlay_words_top"):
         settings.updated({"chat_overlay_words_top": 0})
     with pytest.raises(ValueError, match="chat_overlay_words_top"):
-        settings.updated({"chat_overlay_words_top": 6})
+        settings.updated({"chat_overlay_words_top": 11})
+    assert (
+        settings.updated({"chat_overlay_words_top": 10})
+        .chat_overlay_words_top
+        == 10
+    )
     with pytest.raises(ValueError, match="asr_watchlist"):
-        settings.updated({"asr_watchlist": "x" * 4001})
+        settings.updated({"asr_watchlist": "x" * 12001})
     with pytest.raises(ValueError, match="chat_overlay_style"):
         settings.updated({"chat_overlay_style": "huge"})

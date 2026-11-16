@@ -436,7 +436,7 @@ ASR_WATCHLIST=Guck ma,Dreck,Ich
 ASR_WINDOW_SECONDS=600
 ASR_COUNTS_PATH=/app/data/asr-counts.json
 CHAT_OVERLAY_SHOW_WORDS=true
-CHAT_OVERLAY_WORDS_TOP=3
+CHAT_OVERLAY_WORDS_TOP=3             # 1-10, mehrzeilig bei vielen Treffern
 ```
 
 Starten:
@@ -449,7 +449,9 @@ Die Watchlist lässt sich im Dashboard unter **Wort-Tracker (Vosk)** bearbeiten 
 ein Wort oder eine Phrase pro Zeile, Kommas sind ebenfalls erlaubt. Änderungen
 werden ohne Neustart übernommen. Groß-/Kleinschreibung wird ignoriert, Phrasen
 mit Leerzeichen sind möglich. Für „Guck ma“ ggf. zusätzlich „Guck mal“ als
-Variante eintragen.
+Variante eintragen. Die Watchlist fasst bis zu **200 Einträge** (je bis 120
+Zeichen). Die Anzeige zeigt **1–10 Top-Wörter** und bricht bei Bedarf auf bis
+zu drei Zeilen um.
 
 Die Zähler sind **kumulativ und persistent**: Der Worker schreibt sie laufend
 nach `data/asr-counts.json`. Ein Neustart des ASR-Containers setzt sie nicht

@@ -10,8 +10,8 @@ import re
 from collections import Counter, deque
 from dataclasses import dataclass
 
-MAX_WATCHLIST_ITEMS = 50
-MAX_PHRASE_LENGTH = 80
+MAX_WATCHLIST_ITEMS = 200
+MAX_PHRASE_LENGTH = 120
 UNKNOWN_TOKEN = "[unk]"
 _PUNCTUATION_RE = re.compile(r"[^\w]+", re.UNICODE)
 

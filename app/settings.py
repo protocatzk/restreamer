@@ -133,7 +133,7 @@ COLOR_PATTERN = re.compile(r"^(?:#|0x|0X)?[0-9a-fA-F]{6}$")
 PAUSE_SCREEN_TEXT_MAX_LENGTH = 120
 PAUSE_SCREEN_SUBTEXT_MAX_LENGTH = 160
 YOUTUBE_TITLE_TEMPLATE_MAX_LENGTH = 200
-ASR_WATCHLIST_MAX_LENGTH = 4000
+ASR_WATCHLIST_MAX_LENGTH = 12000
 CHAT_OVERLAY_POSITIONS = ("bottom-left", "bottom-right", "top-left", "top-right")
 CHAT_OVERLAY_STYLES = ("bubbles", "panel", "minimal")
 CLOCK_POSITIONS = ("top-left", "top-right", "bottom-left", "bottom-right")
@@ -740,9 +740,9 @@ class Settings:
                 "chat_overlay_panel_height muss 0 oder zwischen 120 und "
                 "2000 liegen"
             )
-        if not 1 <= self.chat_overlay_words_top <= 5:
+        if not 1 <= self.chat_overlay_words_top <= 10:
             raise ValueError(
-                "chat_overlay_words_top muss zwischen 1 und 5 liegen"
+                "chat_overlay_words_top muss zwischen 1 und 10 liegen"
             )
         if len(self.asr_watchlist) > ASR_WATCHLIST_MAX_LENGTH:
             raise ValueError(

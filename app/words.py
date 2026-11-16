@@ -9,8 +9,8 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
-MAX_WATCHLIST_ITEMS = 50
-MAX_PHRASE_LENGTH = 80
+MAX_WATCHLIST_ITEMS = 200
+MAX_PHRASE_LENGTH = 120
 _PUNCTUATION_RE = re.compile(r"[^\w]+", re.UNICODE)
 
 
