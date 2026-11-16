@@ -11,12 +11,12 @@ import pytest
 
 from app.chat import ChatStats, ensure_chat_overlay_file
 from app.models import PlaylistConfig, ResolvedStream
+from app.progress import parse_progress_bitrate as _parse_progress_bitrate
 from app.store import StreamerStore
 from app.supervisor import (
     KeyNotConfigured,
     StreamerNotFound,
     Supervisor,
-    _parse_progress_bitrate,
     playlist_end_deadline,
 )
 
@@ -365,12 +365,12 @@ async def test_pump_progress_updates_progress_state(settings, store) -> None:
 
     await supervisor._pump_progress(process)
 
-    assert supervisor._last_out_time_us == 1_000_000
-    assert supervisor._last_total_size == 5000
-    assert supervisor._progress_out_time_us == 1_000_000
-    assert supervisor._progress_speed == "1.01x"
-    assert supervisor._progress_bitrate_kbps == 3999.5
-    assert supervisor._last_progress_monotonic is not None
+    assert supervisor._progress.last_out_time_us == 1_000_000
+    assert supervisor._progress.last_total_size == 5000
+    assert supervisor._progress.out_time_us == 1_000_000
+    assert supervisor._progress.speed == "1.01x"
+    assert supervisor._progress.bitrate_kbps == 3999.5
+    assert supervisor._progress.last_progress is not None
 
     status = supervisor.status()
     assert status["output_bitrate_kbps"] == 3999.5
@@ -388,8 +388,8 @@ async def test_slow_source_rate_is_detected(settings, store) -> None:
     result = None
     for step in range(8):
         now = 1000.0 + step * 5
-        supervisor._source_progress_monotonic = now - 1
-        supervisor._source_out_time_us = int(step * 5 * 0.5 * 1_000_000)
+        supervisor._progress.source_progress = now - 1
+        supervisor._progress.source_out_time_us = int(step * 5 * 0.5 * 1_000_000)
         result = supervisor._check_source_rate(now)
 
     assert result == 0.5

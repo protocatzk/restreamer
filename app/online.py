@@ -3,20 +3,20 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import re
 import time
 import urllib.parse
 import urllib.request
 from collections.abc import Awaitable, Callable, Iterable
-from contextlib import suppress
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from typing import Protocol
 
 from app.handles import normalize_handle
 from app.models import StreamerConfig
+from app.polling import PollingWorker
+from app.redaction import redact_value as _redact
 from app.settings import Settings
 from app.store import StreamerStore
+from app.timing import utc_now_iso as _utc_now_iso
 
 logger = logging.getLogger(__name__)
 
@@ -41,16 +41,6 @@ _FALSE_STATUS_VALUES = frozenset(
 )
 
 JsonFetcher = Callable[[str, dict[str, str], float], object]
-
-
-def _utc_now_iso() -> str:
-    return datetime.now(UTC).isoformat(timespec="seconds")
-
-
-def _redact(value: str, secret: str = "") -> str:
-    if secret:
-        value = value.replace(secret, "***")
-    return re.sub(r"(api_key=)[^&\s]+", r"\1***", value)
 
 
 def _safe_source(url: str) -> str:
@@ -260,8 +250,13 @@ class OnlineStatusMonitor:
         self.source = source or HttpOnlineSource(settings)
         self._is_active = is_active or (lambda: None)
         self._states: dict[str, StreamerOnlineState] = {}
-        self._task: asyncio.Task | None = None
-        self._wake = asyncio.Event()
+        self._poller = PollingWorker(
+            name="online-status",
+            tick=self._tick,
+            interval=lambda: self.settings.online_check_interval_seconds,
+            min_interval=ONLINE_MIN_WAIT_SECONDS,
+            error_message="Online-Status-Prüfung fehlgeschlagen",
+        )
         self._last_run_at: str | None = None
         self._last_error = ""
         self._last_error_log = 0.0
@@ -277,23 +272,20 @@ class OnlineStatusMonitor:
         """Register a callback that receives every successful status snapshot."""
         self._status_handler = handler
 
+    @property
+    def _task(self) -> asyncio.Task | None:
+        """Expose the worker task for tests and diagnostics."""
+        return self._poller.task
+
     def start(self) -> None:
-        if self._task is not None:
-            return
-        self._wake.clear()
-        self._task = asyncio.create_task(self._run(), name="online-status")
+        self._poller.start()
 
     async def stop(self) -> None:
-        task = self._task
-        self._task = None
-        if task is not None:
-            task.cancel()
-            with suppress(asyncio.CancelledError):
-                await task
+        await self._poller.stop()
 
     def request_check(self) -> None:
         """Wake the worker so a check starts as soon as possible."""
-        self._wake.set()
+        self._poller.request_check()
 
     def view(self, streamer_id: str) -> dict:
         state = self._states.get(streamer_id)
@@ -330,36 +322,25 @@ class OnlineStatusMonitor:
             int(self.settings.online_check_timeout_seconds),
         )
 
-    async def _run(self) -> None:
-        while True:
-            self._wake.clear()
-            if self._enabled():
-                signature = self._signature_value()
-                if signature != self._signature:
-                    self._signature = signature
-                    self._states.clear()
-                    self._last_run_at = None
-                    self._last_error = ""
-                try:
-                    await self._check_all()
-                except asyncio.CancelledError:
-                    raise
-                except Exception:  # noqa: BLE001 - status checks are best effort
-                    logger.exception("Online-Status-Prüfung fehlgeschlagen")
-            else:
+    async def _tick(self) -> None:
+        if self._enabled():
+            signature = self._signature_value()
+            if signature != self._signature:
+                self._signature = signature
                 self._states.clear()
                 self._last_run_at = None
                 self._last_error = ""
-                self._signature = None
-
-            wait = max(
-                ONLINE_MIN_WAIT_SECONDS,
-                int(self.settings.online_check_interval_seconds),
-            )
             try:
-                await asyncio.wait_for(self._wake.wait(), timeout=wait)
-            except TimeoutError:
-                pass
+                await self._check_all()
+            except asyncio.CancelledError:
+                raise
+            except Exception:  # noqa: BLE001 - status checks are best effort
+                logger.exception("Online-Status-Prüfung fehlgeschlagen")
+        else:
+            self._states.clear()
+            self._last_run_at = None
+            self._last_error = ""
+            self._signature = None
 
     async def _check_all(self) -> None:
         self.store.refresh()

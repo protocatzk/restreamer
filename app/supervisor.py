@@ -3,11 +3,10 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import re
 import signal
 from collections.abc import Awaitable, Callable
 from contextlib import suppress
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 from typing import TextIO
 
@@ -52,6 +51,10 @@ from app.playlist import (
     PreferredReturn,
     playlist_end_deadline,
 )
+from app.progress import (
+    ProgressTracker,
+    looks_like_codec_error,
+)
 from app.resolver import ResolveError, Resolver
 from app.settings import Settings
 from app.source_rate import DEFAULT_WINDOW_SECONDS, SourceRateMonitor
@@ -66,6 +69,7 @@ from app.status_view import (
 )
 from app.store import StreamerStore
 from app.timing import Clock, WallClock
+from app.timing import utc_now_iso as _utc_now_iso
 from app.titles import render_title
 from app.words import WordTracker, parse_watchlist
 
@@ -76,40 +80,11 @@ Spawn = Callable[[list[str]], Awaitable[asyncio.subprocess.Process]]
 # Backwards-compatible aliases for callers that imported private names.
 _PreferredReturn = PreferredReturn
 
-CODEC_ERROR_MARKERS = (
-    "could not find tag for codec",
-    "codec not currently supported",
-    "unsupported codec",
-    "unknown encoder",
-    "encoder not found",
-    "invalid codec",
-)
-
 # Extra Abstand zwischen zwei MPEG-TS-Quellen. Der Wert deckt die Zeit ab, die
 # eine neue TikTok-Verbindung braucht, bevor sie das erste Paket liefert.
 PIPE_SWITCH_GUARD_SECONDS = 1.0
 SOURCE_RATE_LOW_CHECKS = 2
 SOURCE_RATE_COOLDOWN_SECONDS = 60.0
-
-PROGRESS_BITRATE_PATTERN = re.compile(
-    r"^([0-9]+(?:\.[0-9]+)?)\s*([kmg]?)bits/s$", re.IGNORECASE
-)
-
-
-def _parse_progress_bitrate(value: str) -> float | None:
-    """Parse ffmpeg's ``bitrate=3999.5kbits/s`` progress value into kbit/s."""
-    match = PROGRESS_BITRATE_PATTERN.match(value.strip())
-    if not match:
-        return None
-    number = float(match.group(1))
-    unit = match.group(2).lower()
-    if unit == "m":
-        return number * 1000
-    if unit == "g":
-        return number * 1_000_000
-    if unit == "":
-        return number / 1000
-    return number
 
 
 class StreamerNotFound(LookupError):
@@ -130,10 +105,6 @@ class PlaylistEmpty(RuntimeError):
 
 class PlaylistNotFound(LookupError):
     pass
-
-
-def _utc_now_iso() -> str:
-    return datetime.now(UTC).isoformat(timespec="seconds")
 
 
 async def _default_spawn(args: list[str]) -> asyncio.subprocess.Process:
@@ -193,20 +164,12 @@ class Supervisor:
         self._log_file: TextIO | None = None
         self._log_path: Path | None = None
 
-        self._last_progress_monotonic: float | None = None
-        self._source_progress_monotonic: float | None = None
-        self._source_out_time_us = -1
-        self._source_total_size = -1
+        self._progress = ProgressTracker(self._clock)
         self._source_rate_monitor = SourceRateMonitor(DEFAULT_WINDOW_SECONDS)
         self._source_rate: float | None = None
         self._source_rate_low_checks = 0
         self._source_slow_count = 0
         self._last_source_slow_restart = 0.0
-        self._last_out_time_us = -1
-        self._last_total_size = -1
-        self._progress_out_time_us = 0
-        self._progress_speed = ""
-        self._progress_bitrate_kbps: float | None = None
         self._live_started_monotonic: float | None = None
         self._next_refresh_monotonic: float | None = None
         self._last_refresh_at: str | None = None
@@ -371,8 +334,8 @@ class Supervisor:
         self.store.refresh()
         now = self._clock.monotonic()
         progress_age = (
-            round(now - self._last_progress_monotonic, 1)
-            if self._last_progress_monotonic is not None
+            round(now - self._progress.last_progress, 1)
+            if self._progress.last_progress is not None
             else None
         )
         next_refresh = (
@@ -392,8 +355,8 @@ class Supervisor:
             else None
         )
         source_progress_age = (
-            round(now - self._source_progress_monotonic, 1)
-            if self._source_progress_monotonic is not None
+            round(now - self._progress.source_progress, 1)
+            if self._progress.source_progress is not None
             else None
         )
         return {
@@ -488,14 +451,14 @@ class Supervisor:
             "progress_age_seconds": progress_age,
             "source_progress_age_seconds": source_progress_age,
             "progress_out_time_seconds": (
-                round(self._progress_out_time_us / 1_000_000, 1)
-                if self._progress_out_time_us
+                round(self._progress.out_time_us / 1_000_000, 1)
+                if self._progress.out_time_us
                 else None
             ),
-            "progress_speed": self._progress_speed or None,
+            "progress_speed": self._progress.speed or None,
             "output_bitrate_kbps": (
-                round(self._progress_bitrate_kbps, 1)
-                if self._progress_bitrate_kbps is not None
+                round(self._progress.bitrate_kbps, 1)
+                if self._progress.bitrate_kbps is not None
                 else None
             ),
             "target_bitrate_kbps": bitrate_to_kbps(
@@ -1063,18 +1026,10 @@ class Supervisor:
             self._chat.set_streamer(streamer.tiktok)
 
     def _reset_progress(self) -> None:
-        self._last_progress_monotonic = None
-        self._source_progress_monotonic = None
-        self._source_out_time_us = -1
-        self._source_total_size = -1
+        self._progress.reset()
         self._reset_source_rate()
         self._source_slow_count = 0
         self._last_source_slow_restart = 0.0
-        self._last_out_time_us = -1
-        self._last_total_size = -1
-        self._progress_out_time_us = 0
-        self._progress_speed = ""
-        self._progress_bitrate_kbps = None
         self._live_started_monotonic = None
         self._next_refresh_monotonic = None
 
@@ -1172,12 +1127,12 @@ class Supervisor:
             self._output_sessions += 1
             self._output_error = ""
             started = self._clock.monotonic()
-            self._last_progress_monotonic = started
-            self._last_out_time_us = -1
-            self._last_total_size = -1
-            self._progress_out_time_us = 0
-            self._progress_speed = ""
-            self._progress_bitrate_kbps = None
+            self._progress.last_progress = started
+            self._progress.last_out_time_us = -1
+            self._progress.last_total_size = -1
+            self._progress.out_time_us = 0
+            self._progress.speed = ""
+            self._progress.bitrate_kbps = None
 
             log_task = asyncio.create_task(
                 self._pump_logs(process, prefix="[out] ")
@@ -1202,7 +1157,7 @@ class Supervisor:
                 self._output_proc = None
                 self._output_log_task = None
                 self._output_progress_task = None
-                self._last_progress_monotonic = None
+                self._progress.last_progress = None
 
             if self._stop_event.is_set():
                 break
@@ -1271,11 +1226,11 @@ class Supervisor:
             await self._clock.sleep(interval)
             if self._stop_event.is_set() or process.returncode is not None:
                 return
-            if self._last_progress_monotonic is None:
+            if self._progress.last_progress is None:
                 continue
             if not (self._source_running() or self._pause_running()):
                 continue
-            age = self._clock.monotonic() - self._last_progress_monotonic
+            age = self._clock.monotonic() - self._progress.last_progress
             # The output receives its first packets only after the delay
             # buffer has filled, so allow that extra time before restarting.
             output_stall = (
@@ -1572,12 +1527,12 @@ class Supervisor:
                 self._mark_pipe_start(source_offset)
                 started = self._clock.monotonic()
                 self._live_started_monotonic = started
-                self._source_progress_monotonic = started
+                self._progress.source_progress = started
                 # A new source needs the configured delay before the output
                 # receives its first packets; do not trip the output watchdog.
-                self._last_progress_monotonic = started
-                self._source_out_time_us = -1
-                self._source_total_size = -1
+                self._progress.last_progress = started
+                self._progress.source_out_time_us = -1
+                self._progress.source_total_size = -1
                 self._reset_source_rate()
                 self._restart_reason = None
                 self._next_refresh_monotonic = (
@@ -1616,9 +1571,9 @@ class Supervisor:
                 self._restart_reason = None
                 self._live_started_monotonic = None
                 self._next_refresh_monotonic = None
-                self._source_progress_monotonic = None
-                self._source_out_time_us = -1
-                self._source_total_size = -1
+                self._progress.source_progress = None
+                self._progress.source_out_time_us = -1
+                self._progress.source_total_size = -1
                 self._reset_source_rate()
 
                 if self._stop_event.is_set():
@@ -1882,17 +1837,17 @@ class Supervisor:
             self._source_rate = None
             self._source_rate_low_checks = 0
             return None
-        if self._source_out_time_us <= 0:
+        if self._progress.source_out_time_us <= 0:
             return None
         if (
-            self._source_progress_monotonic is not None
-            and now - self._source_progress_monotonic
+            self._progress.source_progress is not None
+            and now - self._progress.source_progress
             >= self.settings.stall_timeout_seconds
         ):
             return None
 
         rate = self._source_rate_monitor.update(
-            now, self._source_out_time_us
+            now, self._progress.source_out_time_us
         )
         if rate is None:
             return None
@@ -1955,8 +1910,8 @@ class Supervisor:
                 )
 
             if (
-                self._source_progress_monotonic is not None
-                and now - self._source_progress_monotonic
+                self._progress.source_progress is not None
+                and now - self._progress.source_progress
                 >= self.settings.stall_timeout_seconds
             ):
                 self._restart_reason = "stall"
@@ -2034,9 +1989,9 @@ class Supervisor:
                 buffer += chunk.decode("utf-8", errors="replace")
                 while "\n" in buffer:
                     line, buffer = buffer.split("\n", 1)
-                    self._handle_progress_line(line.strip())
+                    self._progress.feed_output(line.strip())
             if buffer.strip():
-                self._handle_progress_line(buffer.strip())
+                self._progress.feed_output(buffer.strip())
         except Exception:  # noqa: BLE001 - stream can close at any time
             pass
 
@@ -2054,68 +2009,11 @@ class Supervisor:
                 buffer += chunk.decode("utf-8", errors="replace")
                 while "\n" in buffer:
                     line, buffer = buffer.split("\n", 1)
-                    self._handle_source_progress_line(line.strip())
+                    self._progress.feed_source(line.strip())
             if buffer.strip():
-                self._handle_source_progress_line(buffer.strip())
+                self._progress.feed_source(buffer.strip())
         except Exception:  # noqa: BLE001 - stream can close at any time
             pass
-
-    def _handle_source_progress_line(self, line: str) -> None:
-        if not line or "=" not in line:
-            return
-        key, _, value = line.partition("=")
-        key = key.strip()
-        value = value.strip()
-        if key == "out_time_us":
-            try:
-                microseconds = int(value)
-            except ValueError:
-                return
-            if microseconds > self._source_out_time_us:
-                self._source_out_time_us = microseconds
-                self._source_progress_monotonic = self._clock.monotonic()
-        elif key == "total_size":
-            try:
-                total_size = int(value)
-            except ValueError:
-                return
-            if total_size > self._source_total_size:
-                self._source_total_size = total_size
-                self._source_progress_monotonic = self._clock.monotonic()
-
-    def _handle_progress_line(self, line: str) -> None:
-        if not line or "=" not in line:
-            return
-        key, _, value = line.partition("=")
-        key = key.strip()
-        value = value.strip()
-
-        if key == "out_time_us":
-            try:
-                microseconds = int(value)
-            except ValueError:
-                return
-            if microseconds > self._last_out_time_us:
-                self._last_out_time_us = microseconds
-                self._progress_out_time_us = microseconds
-                self._touch_progress()
-        elif key == "total_size":
-            try:
-                total_size = int(value)
-            except ValueError:
-                return
-            if total_size > self._last_total_size:
-                self._last_total_size = total_size
-                self._touch_progress()
-        elif key == "speed":
-            self._progress_speed = "" if value in {"", "N/A"} else value
-        elif key == "bitrate":
-            kbps = _parse_progress_bitrate(value)
-            if kbps is not None:
-                self._progress_bitrate_kbps = kbps
-
-    def _touch_progress(self) -> None:
-        self._last_progress_monotonic = self._clock.monotonic()
 
     async def _terminate(self, process: asyncio.subprocess.Process) -> None:
         if process.returncode is not None:
@@ -2252,8 +2150,7 @@ class Supervisor:
                 pass
 
     def _looks_like_codec_error(self) -> bool:
-        text = "\n".join(self._log.tail(60)).lower()
-        return any(marker in text for marker in CODEC_ERROR_MARKERS)
+        return looks_like_codec_error(self._log.tail(60))
 
     def _set_state(self, state: StreamState) -> None:
         self._state = state
