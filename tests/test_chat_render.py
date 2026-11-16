@@ -310,3 +310,63 @@ def test_earnings_card_is_drawn_and_keeps_width(tmp_path: Path) -> None:
     assert with_box is not None and without_box is not None
     assert with_box[0] == without_box[0]
     assert with_box[2] == without_box[2]
+
+
+def test_fixed_card_is_visible_without_messages(tmp_path: Path) -> None:
+    settings = _settings(tmp_path, chat_overlay_panel_height=400)
+    renderer = ChatRenderer(settings)
+
+    tile = renderer.render_tile(())
+
+    box = tile.getbbox()
+    assert box is not None
+    assert box[1] == tile.height - 400
+    assert box[3] == tile.height
+
+
+def test_fixed_card_keeps_size_with_different_message_counts(
+    tmp_path: Path,
+) -> None:
+    _requires_font()
+    settings = _settings(tmp_path, chat_overlay_panel_height=400)
+    renderer = ChatRenderer(settings)
+
+    one = renderer.render_tile((_message("1", "Hi"),))
+    five = renderer.render_tile(
+        tuple(
+            _message(str(index), f"Nachricht {index}")
+            for index in range(5)
+        )
+    )
+
+    one_box = one.getbbox()
+    five_box = five.getbbox()
+    assert one_box is not None and five_box is not None
+    assert one_box == five_box
+    assert one_box[1] == one.height - 400
+
+
+def test_fixed_card_contains_stats_and_earnings(tmp_path: Path) -> None:
+    _requires_font()
+    settings = _settings(
+        tmp_path,
+        chat_overlay_panel_height=460,
+        chat_overlay_show_stats=True,
+        chat_overlay_show_earnings=True,
+    )
+    renderer = ChatRenderer(settings)
+    stats = ChatStats(
+        unique_users=12,
+        messages_per_minute=4.0,
+        top_user="alice",
+        total_messages=40,
+    )
+    earnings = "marco..1986\nHeute: 21,02 € · Brutto 42,04 €\n287 Zuschauer\nState: live"
+
+    with_content = renderer.render_tile(
+        (_message("1", "Hallo"),), stats, earnings
+    )
+    without_content = renderer.render_tile((_message("1", "Hallo"),))
+
+    assert with_content.tobytes() != without_content.tobytes()
+    assert with_content.getbbox() == without_content.getbbox()

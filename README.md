@@ -385,6 +385,7 @@ CHAT_OVERLAY_SHOW_TIERS=true         # 🐬/🦈/🐋 aus whale_tier
 CHAT_OVERLAY_SHOW_STATS=false        # Chatter/Minute + Top-Chatter
 CHAT_OVERLAY_SHOW_EARNINGS=false     # Einnahmen-Karte über den Blasen
 CHAT_OVERLAY_USER_BADGES=false       # NEU / STAMM
+CHAT_OVERLAY_PANEL_HEIGHT=0          # 0 = automatisch, sonst feste Kartenhöhe
 CHAT_OVERLAY_MAX_LINES=3
 ```
 
@@ -404,6 +405,10 @@ Eigenschaften:
   `EARNINGS_OVERLAY_TEMPLATE`-Vorlage als kompakte Karte über den Chatblasen.
   Das separate Einnahmen-Overlay bleibt unabhängig; bei Bedarf eines der
   beiden abschalten, damit die Daten nicht doppelt erscheinen.
+- `CHAT_OVERLAY_PANEL_HEIGHT` > 0 macht die Karte fest: Stats und Einnahmen
+  sitzen oben, der Chat füllt den Rest; zu viele Nachrichten werden von oben
+  entfernt. `0` behält das automatische Mitwachsen. Alle Schriftgrößen,
+  Paddings und Abstände leiten sich aus der Chat-Schriftgröße ab.
 - Neu gerendert wird nur, wenn sich Nachrichten, Statistik oder Stil ändern.
   Das fertige Frame wird als Roh-RGBA mit `CHAT_OVERLAY_RENDER_FPS`
   kontinuierlich an ffmpeg geschrieben, damit der Overlay-Filter nicht hungert.

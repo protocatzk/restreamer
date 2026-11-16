@@ -35,6 +35,7 @@ INT_FIELDS = {
     "chat_overlay_render_fps",
     "chat_overlay_opacity",
     "chat_overlay_max_lines",
+    "chat_overlay_panel_height",
     "clock_font_size",
     "text_overlay_font_size",
     "text_overlay_speed",
@@ -310,6 +311,7 @@ class Settings:
     chat_overlay_name_colors: bool = True
     chat_overlay_show_timestamps: bool = False
     chat_overlay_max_lines: int = 3
+    chat_overlay_panel_height: int = 0
 
     # Optional wall-clock overlay rendered directly by ffmpeg.
     clock_enabled: bool = False
@@ -468,6 +470,9 @@ class Settings:
                 "CHAT_OVERLAY_SHOW_TIMESTAMPS", False
             ),
             chat_overlay_max_lines=_env_int("CHAT_OVERLAY_MAX_LINES", 3),
+            chat_overlay_panel_height=_env_int(
+                "CHAT_OVERLAY_PANEL_HEIGHT", 0
+            ),
             clock_enabled=_env_bool("CLOCK_ENABLED", False),
             clock_position=os.getenv("CLOCK_POSITION", "top-left").strip().lower(),
             clock_show_seconds=_env_bool("CLOCK_SHOW_SECONDS", False),
@@ -688,6 +693,13 @@ class Settings:
         if not 1 <= self.chat_overlay_max_lines <= 6:
             raise ValueError(
                 "chat_overlay_max_lines muss zwischen 1 und 6 liegen"
+            )
+        if self.chat_overlay_panel_height != 0 and not (
+            120 <= self.chat_overlay_panel_height <= 2000
+        ):
+            raise ValueError(
+                "chat_overlay_panel_height muss 0 oder zwischen 120 und "
+                "2000 liegen"
             )
         if self.chat_overlay_style not in CHAT_OVERLAY_STYLES:
             raise ValueError(

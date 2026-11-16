@@ -105,6 +105,7 @@ def test_new_defaults_are_present(tmp_path: Path) -> None:
     assert data["chat_overlay_show_stats"] is False
     assert data["chat_overlay_show_earnings"] is False
     assert data["chat_overlay_user_badges"] is False
+    assert data["chat_overlay_panel_height"] == 0
     assert data["chat_overlay_max_lines"] == 3
     assert data["youtube_title_template"] == "{name} live: {title}"
 
@@ -475,6 +476,7 @@ def test_chat_overlay_engine_values_are_validated(tmp_path: Path) -> None:
             "chat_overlay_show_earnings": True,
             "chat_overlay_user_badges": True,
             "chat_overlay_max_lines": 5,
+            "chat_overlay_panel_height": 460,
         }
     )
 
@@ -490,6 +492,7 @@ def test_chat_overlay_engine_values_are_validated(tmp_path: Path) -> None:
     assert updated.chat_overlay_show_earnings is True
     assert updated.chat_overlay_user_badges is True
     assert updated.chat_overlay_max_lines == 5
+    assert updated.chat_overlay_panel_height == 460
 
     with pytest.raises(ValueError, match="chat_overlay_render_fps"):
         settings.updated({"chat_overlay_render_fps": 4})
@@ -501,5 +504,14 @@ def test_chat_overlay_engine_values_are_validated(tmp_path: Path) -> None:
         settings.updated({"chat_overlay_max_lines": 0})
     with pytest.raises(ValueError, match="chat_overlay_max_lines"):
         settings.updated({"chat_overlay_max_lines": 7})
+    with pytest.raises(ValueError, match="chat_overlay_panel_height"):
+        settings.updated({"chat_overlay_panel_height": 100})
+    with pytest.raises(ValueError, match="chat_overlay_panel_height"):
+        settings.updated({"chat_overlay_panel_height": 2001})
+    assert (
+        settings.updated({"chat_overlay_panel_height": 0})
+        .chat_overlay_panel_height
+        == 0
+    )
     with pytest.raises(ValueError, match="chat_overlay_style"):
         settings.updated({"chat_overlay_style": "huge"})

@@ -201,7 +201,7 @@ class ChatPipeline:
         stats: ChatStats | None,
         earnings: str,
     ) -> bytes:
-        if not messages:
+        if not messages and self.settings.chat_overlay_panel_height <= 0:
             return self._blank
         try:
             return await asyncio.to_thread(

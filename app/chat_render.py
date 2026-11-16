@@ -233,6 +233,7 @@ class ChatRenderer:
             s.chat_overlay_name_colors,
             s.chat_overlay_show_timestamps,
             s.chat_overlay_max_lines,
+            s.chat_overlay_panel_height,
             s.chat_overlay_font_size,
             s.chat_overlay_width,
             s.chat_overlay_position,
@@ -704,6 +705,70 @@ class ChatRenderer:
         surface.alpha_composite(content)
         return surface, content_width, height
 
+    def _render_fixed_card(
+        self,
+        tile: Image.Image,
+        geometry: ChatTileGeometry,
+        messages: tuple[ChatMessage, ...],
+        stats: ChatStats | None,
+        earnings: str,
+        fixed_height: int,
+    ) -> None:
+        """Draw the fixed-size card with stats, earnings and chat inside."""
+        top = self.settings.chat_overlay_position.startswith("top")
+        card_y = 0 if top else geometry.height - fixed_height
+        opacity = int(255 * self.settings.chat_overlay_opacity / 100)
+        card_alpha = max(80, min(200, int(opacity * 0.7)))
+        drawer = ImageDraw.Draw(tile)
+        drawer.rounded_rectangle(
+            (0, card_y, geometry.width - 1, card_y + fixed_height - 1),
+            radius=max(8, round(chat_font_size(self.settings) * 0.3)),
+            fill=(8, 10, 14, card_alpha),
+            outline=(255, 255, 255, 32),
+            width=1,
+        )
+
+        content_top = card_y + _SHADOW_PAD
+        content_bottom = card_y + fixed_height - _SHADOW_PAD
+        gap = max(6, round(chat_font_size(self.settings) * 0.24))
+
+        show_stats = bool(
+            self.settings.chat_overlay_show_stats
+            and stats is not None
+            and stats.total_messages
+        )
+        stats_height = self._stats_height() if show_stats else 0
+        earnings_surface = (
+            self._earnings_surface(earnings, geometry.content_width)
+            if self.settings.chat_overlay_show_earnings
+            and earnings.strip()
+            else None
+        )
+        earnings_height = (
+            earnings_surface[2] if earnings_surface is not None else 0
+        )
+
+        y = content_top
+        if stats_height:
+            drawn = self._draw_stats(tile, stats, geometry, y)
+            y += drawn + gap
+        if earnings_surface is not None:
+            _paste(tile, earnings_surface[0], 0, y - _SHADOW_PAD)
+            y += earnings_height + gap
+
+        chat_top = y
+        chat_height = max(0, content_bottom - chat_top)
+        bubbles = self._bubbles(messages, geometry, chat_height)
+        if not bubbles:
+            return
+        bubbles_height = sum(item[2] for item in bubbles) + gap * (
+            len(bubbles) - 1
+        )
+        bubble_y = max(chat_top, content_bottom - bubbles_height)
+        for surface, _content_width, content_height in bubbles:
+            _paste(tile, surface, 0, bubble_y - _SHADOW_PAD)
+            bubble_y += content_height + gap
+
     def render_tile(
         self,
         messages: tuple[ChatMessage, ...],
@@ -716,6 +781,21 @@ class ChatRenderer:
         tile = Image.new(
             "RGBA", (geometry.width, geometry.height), (0, 0, 0, 0)
         )
+        fixed_height = (
+            min(self.settings.chat_overlay_panel_height, geometry.height)
+            if self.settings.chat_overlay_panel_height > 0
+            else 0
+        )
+        if fixed_height:
+            self._render_fixed_card(
+                tile,
+                geometry,
+                tuple(messages),
+                stats,
+                earnings,
+                fixed_height,
+            )
+            return tile
         if not messages:
             return tile
 
@@ -796,7 +876,7 @@ class ChatRenderer:
         earnings: str = "",
     ) -> bytes:
         """Return one raw RGBA frame for the FIFO."""
-        if not messages:
+        if not messages and self.settings.chat_overlay_panel_height <= 0:
             geometry = chat_tile_geometry(self.settings)
             return bytes(geometry.width * geometry.height * 4)
         tile = self.render_tile(tuple(messages), stats, earnings)

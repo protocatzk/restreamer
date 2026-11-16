@@ -806,6 +806,10 @@
               <span>Max. Zeilen pro Nachricht</span>
               <input name="chat_overlay_max_lines" type="number" min="1" max="6" step="1">
             </label>
+            <label class="field">
+              <span>Feste Kartenhöhe (px, 0 = automatisch)</span>
+              <input name="chat_overlay_panel_height" type="number" min="0" max="2000" step="10">
+            </label>
           </div>
           <div class="check-row">
             <label class="check"><input type="checkbox" name="chat_overlay_name_colors"> Namen farbig hervorheben</label>
@@ -828,6 +832,8 @@
             Neu-/Stammgast-Badges und die Statistikzeile sind optional.
             Die Einnahmen-Karte nutzt die bestehende Einnahmen-Vorlage; das separate
             Einnahmen-Overlay bleibt unabhängig und kann bei Bedarf abgeschaltet werden.
+            Eine feste Kartenhöhe hält Stats, Einnahmen und Chat in einer stabilen Box;
+            0 = automatisch. Alle Elemente skalieren mit der Chat-Schriftgröße.
             Stil, Deckkraft, Farben und Inhalte wirken live; Aktivierung, Bildrate, Breite, Position und
             Schriftgröße bauen den YouTube-Ausgang einmal kurz neu auf.</p>
         </fieldset>
