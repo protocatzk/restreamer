@@ -170,7 +170,7 @@ DASHBOARD_PASSWORD=...       # optional
 YOUTUBE_BACKUP=false
 RELAY_DELAY_SECONDS=30       # Delay-Puffer in Sekunden, 0 = aus
 SOURCE_MIN_RATE_PERCENT=85   # Auto-Neustart unter dieser Quellrate, 0 = aus
-OUTPUT_ORIENTATION=portrait  # portrait (720x1280) | landscape (1280x720)
+OUTPUT_ORIENTATION=portrait  # portrait (720x1280) | landscape (1280x720) | landscape-900p (1600x900)
 OUTPUT_FPS=25
 OUTPUT_STRETCH_PERCENT=10  # horizontale Streckung des Bildes in 16:9
 ONLINE_CHECK_ENABLED=true  # Live-Status aller Streamer im Dashboard
@@ -200,7 +200,7 @@ Alle Optionen sind in [`.env.example`](.env.example) dokumentiert.
 - **Wort-Tracker (Vosk)**: optionale, im Dashboard editierbare Watchlist; erkennt Wörter und Phrasen im Stream-Audio und zeigt die Top-Treffer in der Chat-Karte
 - **Uhrzeit-Overlay**: Ein/Aus, Position, Sekunden, Schriftgröße und Schriftdatei; zusätzlich Versionsanzeige oben rechts
 - **Text-Overlay (Laufschrift)**: Ein/Aus, Text, Position oben/unten, Schriftgröße, Schriftdatei und Scroll-Geschwindigkeit
-- **Ausgabeformat**: 720p Hochformat (720×1280) oder Querformat (1280×720). Beim Umschalten im laufenden Betrieb wird nur der YouTube-Output kurz neu aufgebaut; die TikTok-Quelle läuft weiter.
+- **Ausgabeformat**: 720p Hochformat (720×1280), 720p Querformat (1280×720) oder 900p Querformat (1600×900, empfohlen mit 20 FPS). Beim Umschalten im laufenden Betrieb wird nur der YouTube-Output kurz neu aufgebaut; die TikTok-Quelle läuft weiter.
 - ffmpeg Log-Level, Ausgabe-FPS (Default 25), horizontale Streckung (Default 10 %), Audio-/Video-Bitrate (Default 5000k/192k; Änderungen bauen den Ausgabe-Encoder automatisch neu auf)
 - Delay-Puffer (`RELAY_DELAY_SECONDS`, 0–60 s; 0 = aus)
 - Mindest-Quellrate (`SOURCE_MIN_RATE_PERCENT`, 0–100 %; 0 = Auto-Neustart aus)

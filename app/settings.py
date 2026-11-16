@@ -139,6 +139,13 @@ CHAT_OVERLAY_POSITIONS = ("bottom-left", "bottom-right", "top-left", "top-right"
 CHAT_OVERLAY_STYLES = ("bubbles", "panel", "minimal")
 CLOCK_POSITIONS = ("top-left", "top-right", "bottom-left", "bottom-right")
 TEXT_OVERLAY_POSITIONS = ("top", "bottom")
+
+# Output presets exposed as the dashboard's "Ausgabeformat" selection.
+OUTPUT_FORMATS: dict[str, tuple[int, int]] = {
+    "portrait": (720, 1280),
+    "landscape": (1280, 720),
+    "landscape-900p": (1600, 900),
+}
 TEXT_OVERLAY_TEXT_MAX_LENGTH = 500
 EARNINGS_PERIODS = ("today", "24h", "7d", "30d", "all")
 EARNINGS_VIEWS = ("compact", "standard", "detailed")
@@ -276,11 +283,11 @@ class OutputSettings:
 
     @property
     def width(self) -> int:
-        return 720 if self.orientation == "portrait" else 1280
+        return OUTPUT_FORMATS.get(self.orientation, (1280, 720))[0]
 
     @property
     def height(self) -> int:
-        return 1280 if self.orientation == "portrait" else 720
+        return OUTPUT_FORMATS.get(self.orientation, (1280, 720))[1]
 
 
 @dataclass(frozen=True)
@@ -428,11 +435,11 @@ class Settings:
 
     @property
     def output_width(self) -> int:
-        return 720 if self.output_orientation == "portrait" else 1280
+        return OUTPUT_FORMATS.get(self.output_orientation, (1280, 720))[0]
 
     @property
     def output_height(self) -> int:
-        return 1280 if self.output_orientation == "portrait" else 720
+        return OUTPUT_FORMATS.get(self.output_orientation, (1280, 720))[1]
 
     # Typed, read-only views of the flat dataclass.  The flat fields stay the
     # storage because ``dataclasses.replace(settings, ...)`` is used throughout
@@ -948,9 +955,10 @@ class Settings:
             raise ValueError(
                 "source_min_rate_percent muss zwischen 0 und 100 liegen"
             )
-        if self.output_orientation not in {"portrait", "landscape"}:
+        if self.output_orientation not in OUTPUT_FORMATS:
             raise ValueError(
-                "output_orientation muss 'portrait' oder 'landscape' sein"
+                "output_orientation muss 'portrait', 'landscape' oder "
+                "'landscape-900p' sein"
             )
         if not 15 <= self.output_fps <= 60:
             raise ValueError("output_fps muss zwischen 15 und 60 liegen")

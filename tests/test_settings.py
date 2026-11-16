@@ -232,6 +232,12 @@ def test_output_orientation_can_be_switched(tmp_path: Path) -> None:
     landscape = settings.updated({"output_orientation": "landscape"})
     assert (landscape.output_width, landscape.output_height) == (1280, 720)
 
+    hd = settings.updated(
+        {"output_orientation": "landscape-900p", "output_fps": 20}
+    )
+    assert (hd.output_width, hd.output_height) == (1600, 900)
+    assert (hd.output.width, hd.output.height) == (1600, 900)
+
     with pytest.raises(ValueError, match="output_orientation"):
         settings.updated({"output_orientation": "square"})
 

@@ -1552,6 +1552,17 @@ const settingsDialog = $("settings-dialog");
 const settingsForm = $("settings-form");
 let chatOverlayPreviewTimer = null;
 
+settingsForm.addEventListener("change", (event) => {
+  const target = event.target;
+  if (
+    target?.name === "output_orientation" &&
+    target.value === "landscape-900p"
+  ) {
+    const fps = settingsForm.elements.output_fps;
+    if (fps) fps.value = "20";
+  }
+});
+
 function refreshChatOverlayPreview() {
   const image = $("chat-overlay-preview");
   if (!image) return;

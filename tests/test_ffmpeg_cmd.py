@@ -120,6 +120,22 @@ def test_output_landscape_canvas(settings: Settings) -> None:
     assert "fps=25" in video_filter
 
 
+def test_output_900p_canvas(settings: Settings) -> None:
+    hd = replace(
+        settings,
+        output_orientation="landscape-900p",
+        output_fps=20,
+        reencode_video_bitrate="4000k",
+    )
+    args = build_output_command(hd, "key-123")
+
+    video_filter = args[args.index("-vf") + 1]
+    assert "scale=1600:900" in video_filter
+    assert "fps=20" in video_filter
+    assert args[args.index("-b:v") + 1] == "4000k"
+    assert args[args.index("-g") + 1] == "40"
+
+
 def test_output_appends_extra_video_filters(settings: Settings) -> None:
     args = build_output_command(
         settings,
