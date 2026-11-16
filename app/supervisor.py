@@ -186,6 +186,7 @@ class Supervisor:
         self._pause_started_monotonic: float | None = None
         self._pause_since: str | None = None
         self._pause_retry_monotonic = 0.0
+        self._pause_as_bridge = False
 
         self._online: OnlineStatusMonitor | None = None
         self._earnings: EarningsMonitor | None = None
@@ -603,6 +604,17 @@ class Supervisor:
                 and key == self._output_key_value
                 and self._output_task is not None
             )
+
+            # Start pause bridge BEFORE stopping the old source to avoid relay gap
+            # This keeps the relay fed while the new source is starting up
+            if (
+                not output_context_changed
+                and self.settings.pause_screen_enabled
+                and self._output_task is not None
+            ):
+                self._pause_as_bridge = True
+                await self._ensure_pause(key, "Senderwechsel")
+
             # Only stop output if context changes
             await self._stop_locked(stop_output=output_context_changed)
             if not preserve_delay:
@@ -1441,6 +1453,8 @@ class Supervisor:
     async def _run(self, streamer: StreamerConfig, key: str, watch: bool) -> None:
         backoff = self.settings.backoff_initial_seconds
         force_reencode = False
+        # Reset bridge flag - source is now running
+        self._pause_as_bridge = False
 
         try:
             while not self._stop_event.is_set():
@@ -1837,7 +1851,14 @@ class Supervisor:
                     await task
 
     async def _stop_pause_for_live(self) -> None:
-        """Stop the pause screen before reconnecting to the live source."""
+        """Stop the pause screen before reconnecting to the live source.
+        
+        If pause is being used as a bridge between source switches, keep it running.
+        """
+        if self._pause_as_bridge:
+            # Pause is bridging the gap between sources - let it run
+            self._pause_as_bridge = False
+            return
         if self._pause_proc is not None or self._pause_task is not None:
             await self._stop_pause()
         self._pause_started_monotonic = None
@@ -1850,6 +1871,7 @@ class Supervisor:
         self._pause_started_monotonic = None
         self._pause_since = None
         self._pause_retry_monotonic = 0.0
+        self._pause_as_bridge = False
 
     def _check_source_rate(self, now: float) -> float | None:
         if self.settings.source_min_rate_percent <= 0:
