@@ -17,4 +17,20 @@ testpaths = ["tests"]
 pythonpath = ["."]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
-addopts = "-q"
+addopts = "-q --cov=app --cov=asr --cov-report=term-missing"
+
+[tool.coverage.run]
+source = ["app", "asr"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+fail_under = 80
+
+[tool.mypy]
+python_version = "3.11"
+check_untyped_defs = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+warn_unused_configs = true
+ignore_missing_imports = true

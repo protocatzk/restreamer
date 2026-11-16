@@ -8,7 +8,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 import httpx
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Message, Update
 from telegram.constants import ChatType, ParseMode
 from telegram.error import TelegramError
 from telegram.ext import (
@@ -754,10 +754,11 @@ class RestreamerBot:
         try:
             await app.initialize()
             await app.start()
-            await app.updater.start_polling(
-                allowed_updates=Update.ALL_TYPES,
-                drop_pending_updates=True,
-            )
+            if app.updater is not None:
+                await app.updater.start_polling(
+                    allowed_updates=Update.ALL_TYPES,
+                    drop_pending_updates=True,
+                )
             me = await app.bot.get_me()
         except Exception:
             logger.exception("Telegram-Bot konnte nicht gestartet werden")
@@ -828,7 +829,10 @@ class RestreamerBot:
         if update.effective_chat is not None:
             return update.effective_chat.id
         query = update.callback_query
-        if query is not None and query.message is not None:
+        if (
+            query is not None
+            and isinstance(query.message, Message)
+        ):
             return query.message.chat_id
         return None
 

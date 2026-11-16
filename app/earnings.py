@@ -738,7 +738,7 @@ def _format_amount(value: float | None, currency: str) -> str:
     return f"{formatted} {symbol}"
 
 
-def _format_int(value: int | None) -> str:
+def _format_int(value: int | float | None) -> str:
     if value is None:
         return "–"
     return f"{int(value):,}".replace(",", ".")

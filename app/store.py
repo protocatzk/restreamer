@@ -200,7 +200,7 @@ def _parse_end_after_minutes(value: object, playlist_id: str) -> int:
     if value is None or str(value).strip() == "":
         return 0
     try:
-        minutes = int(value)
+        minutes = int(str(value))
     except (TypeError, ValueError) as exc:
         raise ConfigError(
             f"Senderliste {playlist_id}: end_after_minutes muss eine Ganzzahl sein"
@@ -618,7 +618,7 @@ def build_playlist(
         youtube_key = str(raw_key).strip()
 
     try:
-        delay = int(pick("advance_delay_seconds", 2))
+        delay = int(str(pick("advance_delay_seconds", 2)))
     except (TypeError, ValueError) as exc:
         raise ConfigError("advance_delay_seconds muss eine Ganzzahl sein") from exc
 

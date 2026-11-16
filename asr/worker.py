@@ -195,7 +195,7 @@ def _write_output(
     os.replace(tmp, path)
 
 
-def _make_recognizer(model, watchlist: list[WatchEntry]):  # type: ignore[no-untyped-def]
+def _make_recognizer(model, watchlist: list[WatchEntry]):
     from vosk import KaldiRecognizer
 
     grammar = build_grammar(watchlist)

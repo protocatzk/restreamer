@@ -191,7 +191,7 @@ class EmojiRenderer:
             return None
         ratio = height / image.height
         width = max(1, round(image.width * ratio))
-        image = image.resize((width, height), Image.LANCZOS)
+        image = image.resize((width, height), Image.Resampling.LANCZOS)
         self._cache[key] = image
         while len(self._cache) > EMOJI_CACHE_LIMIT:
             self._cache.pop(next(iter(self._cache)))

@@ -339,6 +339,7 @@ class ChatRenderer:
             if tier_icon
             else None
         )
+        tier_width: float
         if tier_image is not None:
             tier_width = tier_image.width + section_gap
         elif tier_icon:
@@ -450,7 +451,7 @@ class ChatRenderer:
         base_x = _SHADOW_PAD + padding
         base_y = _SHADOW_PAD + padding
 
-        name_x = base_x
+        name_x: float = base_x
         if tier_image is not None:
             top = base_y + max(0, (header_height - tier_image.height) // 2)
             content.alpha_composite(
@@ -600,10 +601,12 @@ class ChatRenderer:
     def _draw_stats(
         self,
         tile: Image.Image,
-        stats: ChatStats,
+        stats: ChatStats | None,
         geometry: ChatTileGeometry,
         y: int,
     ) -> int:
+        if stats is None:
+            return 0
         _path, fonts = self._stats_fonts()
         if fonts is None:
             return 0

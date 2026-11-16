@@ -400,9 +400,11 @@ class OnlineStatusMonitor:
             await self._notify_statuses(statuses)
         finally:
             for streamer in candidates:
-                state = self._states.get(streamer.id)
-                if state is not None:
-                    state.checking = False
+                current_state: StreamerOnlineState | None = self._states.get(
+                    streamer.id
+                )
+                if current_state is not None:
+                    current_state.checking = False
 
     async def _notify_statuses(self, statuses: dict[str, bool]) -> None:
         handler = self._status_handler
