@@ -4,6 +4,7 @@ import logging
 import os
 import re
 import shlex
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
 
@@ -213,7 +214,9 @@ def _coerce(key: str, value: object) -> object:
         return _as_bool(value)
     if key in INT_FIELDS:
         try:
-            return int(value)  # type: ignore[arg-type]
+            if isinstance(value, (int, float, str)):
+                return int(value)
+            return int(str(value))
         except (TypeError, ValueError) as exc:
             raise ValueError(f"{key} muss eine Ganzzahl sein") from exc
     if key in TUPLE_FIELDS:
@@ -227,6 +230,153 @@ def _coerce(key: str, value: object) -> object:
     if key in SECRET_FIELDS:
         return "" if value is None else str(value)
     return "" if value is None else str(value).strip()
+
+
+@dataclass(frozen=True)
+class StreamerSettings:
+    """Per-streamer process and reconnect configuration."""
+
+    ytdlp_bin: str
+    ffmpeg_bin: str
+    youtube_rtmp_url: str
+    youtube_backup: bool
+    offline_poll_seconds: int
+    backoff_initial_seconds: int
+    backoff_max_seconds: int
+    auto_refresh_minutes: int
+    stall_timeout_seconds: int
+    watchdog_interval_seconds: int
+    auto_start: bool
+    auto_reencode_fallback: bool
+    ffmpeg_loglevel: str
+    ytdlp_extra_args: tuple[str, ...]
+    reencode_video_bitrate: str
+    audio_bitrate: str
+    youtube_title_template: str
+    resolve_timeout_seconds: int
+    terminate_timeout_seconds: int
+
+
+@dataclass(frozen=True)
+class RelaySettings:
+    """Local MPEG-TS relay and source-rate watchdog."""
+
+    relay_port: int
+    relay_delay_seconds: int
+    source_min_rate_percent: int
+
+
+@dataclass(frozen=True)
+class OutputSettings:
+    """Encoder canvas and frame timing."""
+
+    orientation: str
+    fps: int
+    stretch_percent: int
+
+    @property
+    def width(self) -> int:
+        return 720 if self.orientation == "portrait" else 1280
+
+    @property
+    def height(self) -> int:
+        return 1280 if self.orientation == "portrait" else 720
+
+
+@dataclass(frozen=True)
+class OverlaySettings:
+    """Pause screen, chat, clock, text, version and earnings overlays."""
+
+    pause_screen_enabled: bool
+    pause_screen_text: str
+    pause_screen_subtext: str
+    pause_screen_background: str
+    pause_screen_font: str
+    pause_screen_max_minutes: int
+    chat_enabled: bool
+    chat_source_url: str
+    chat_source_api_key: str
+    chat_poll_seconds: int
+    chat_delay_seconds: int
+    chat_overlay_max_messages: int
+    chat_overlay_max_age_seconds: int
+    chat_overlay_font_size: int
+    chat_overlay_width: int
+    chat_overlay_position: str
+    chat_overlay_font: str
+    chat_overlay_engine_enabled: bool
+    chat_overlay_render_fps: int
+    chat_overlay_emoji_enabled: bool
+    chat_overlay_show_tiers: bool
+    chat_overlay_show_stats: bool
+    chat_overlay_show_earnings: bool
+    chat_overlay_user_badges: bool
+    chat_overlay_style: str
+    chat_overlay_opacity: int
+    chat_overlay_name_colors: bool
+    chat_overlay_show_timestamps: bool
+    chat_overlay_max_lines: int
+    chat_overlay_panel_height: int
+    chat_overlay_show_words: bool
+    chat_overlay_words_top: int
+    clock_enabled: bool
+    clock_position: str
+    clock_show_seconds: bool
+    clock_font_size: int
+    clock_font: str
+    version_overlay_enabled: bool
+    text_overlay_enabled: bool
+    text_overlay_text: str
+    text_overlay_position: str
+    text_overlay_font_size: int
+    text_overlay_font: str
+    text_overlay_speed: int
+    earnings_overlay_enabled: bool
+    earnings_overlay_template: str
+    earnings_overlay_position: str
+    earnings_overlay_font_size: int
+    earnings_overlay_font: str
+
+
+@dataclass(frozen=True)
+class AsrSettings:
+    """Vosk word tracker paths and watchlist."""
+
+    tap_enabled: bool
+    watchlist: str
+    watchlist_file: Path
+    words_file: Path
+    active_file: Path
+
+
+@dataclass(frozen=True)
+class TelegramSettings:
+    """Telegram control bot configuration (env-only secrets)."""
+
+    bot_token: str
+    allowed_user_ids: tuple[int, ...]
+    notify_chat_id: int | None
+    notifications: bool
+
+
+def resolve_settings(
+    base: Settings, overrides: Mapping[str, object]
+) -> Settings:
+    """Apply validated dashboard overrides on top of a base configuration.
+
+    precedence: environment variables -> ``settings.yml`` (loaded while
+    building ``base``) -> request/dashboard payload.  Unknown keys and invalid
+    values raise ``ValueError``; the base object is never mutated.
+    """
+    changes: dict[str, object] = {}
+    for key, value in overrides.items():
+        if key not in EDITABLE_FIELDS:
+            raise ValueError(f"Unbekanntes Feld: {key}")
+        changes[key] = _coerce(key, value)
+
+    candidate = replace(base, **changes)  # type: ignore[arg-type]
+    candidate._validate()
+    return candidate
 
 
 @dataclass
@@ -283,6 +433,122 @@ class Settings:
     @property
     def output_height(self) -> int:
         return 1280 if self.output_orientation == "portrait" else 720
+
+    # Typed, read-only views of the flat dataclass.  The flat fields stay the
+    # storage because ``dataclasses.replace(settings, ...)`` is used throughout
+    # tests and API code; the groups make call sites and documentation clearer.
+    @property
+    def streamer(self) -> StreamerSettings:
+        return StreamerSettings(
+            ytdlp_bin=self.ytdlp_bin,
+            ffmpeg_bin=self.ffmpeg_bin,
+            youtube_rtmp_url=self.youtube_rtmp_url,
+            youtube_backup=self.youtube_backup,
+            offline_poll_seconds=self.offline_poll_seconds,
+            backoff_initial_seconds=self.backoff_initial_seconds,
+            backoff_max_seconds=self.backoff_max_seconds,
+            auto_refresh_minutes=self.auto_refresh_minutes,
+            stall_timeout_seconds=self.stall_timeout_seconds,
+            watchdog_interval_seconds=self.watchdog_interval_seconds,
+            auto_start=self.auto_start,
+            auto_reencode_fallback=self.auto_reencode_fallback,
+            ffmpeg_loglevel=self.ffmpeg_loglevel,
+            ytdlp_extra_args=self.ytdlp_extra_args,
+            reencode_video_bitrate=self.reencode_video_bitrate,
+            audio_bitrate=self.audio_bitrate,
+            youtube_title_template=self.youtube_title_template,
+            resolve_timeout_seconds=self.resolve_timeout_seconds,
+            terminate_timeout_seconds=self.terminate_timeout_seconds,
+        )
+
+    @property
+    def relay(self) -> RelaySettings:
+        return RelaySettings(
+            relay_port=self.relay_port,
+            relay_delay_seconds=self.relay_delay_seconds,
+            source_min_rate_percent=self.source_min_rate_percent,
+        )
+
+    @property
+    def output(self) -> OutputSettings:
+        return OutputSettings(
+            orientation=self.output_orientation,
+            fps=self.output_fps,
+            stretch_percent=self.output_stretch_percent,
+        )
+
+    @property
+    def overlay(self) -> OverlaySettings:
+        return OverlaySettings(
+            pause_screen_enabled=self.pause_screen_enabled,
+            pause_screen_text=self.pause_screen_text,
+            pause_screen_subtext=self.pause_screen_subtext,
+            pause_screen_background=self.pause_screen_background,
+            pause_screen_font=self.pause_screen_font,
+            pause_screen_max_minutes=self.pause_screen_max_minutes,
+            chat_enabled=self.chat_enabled,
+            chat_source_url=self.chat_source_url,
+            chat_source_api_key=self.chat_source_api_key,
+            chat_poll_seconds=self.chat_poll_seconds,
+            chat_delay_seconds=self.chat_delay_seconds,
+            chat_overlay_max_messages=self.chat_overlay_max_messages,
+            chat_overlay_max_age_seconds=self.chat_overlay_max_age_seconds,
+            chat_overlay_font_size=self.chat_overlay_font_size,
+            chat_overlay_width=self.chat_overlay_width,
+            chat_overlay_position=self.chat_overlay_position,
+            chat_overlay_font=self.chat_overlay_font,
+            chat_overlay_engine_enabled=self.chat_overlay_engine_enabled,
+            chat_overlay_render_fps=self.chat_overlay_render_fps,
+            chat_overlay_emoji_enabled=self.chat_overlay_emoji_enabled,
+            chat_overlay_show_tiers=self.chat_overlay_show_tiers,
+            chat_overlay_show_stats=self.chat_overlay_show_stats,
+            chat_overlay_show_earnings=self.chat_overlay_show_earnings,
+            chat_overlay_user_badges=self.chat_overlay_user_badges,
+            chat_overlay_style=self.chat_overlay_style,
+            chat_overlay_opacity=self.chat_overlay_opacity,
+            chat_overlay_name_colors=self.chat_overlay_name_colors,
+            chat_overlay_show_timestamps=self.chat_overlay_show_timestamps,
+            chat_overlay_max_lines=self.chat_overlay_max_lines,
+            chat_overlay_panel_height=self.chat_overlay_panel_height,
+            chat_overlay_show_words=self.chat_overlay_show_words,
+            chat_overlay_words_top=self.chat_overlay_words_top,
+            clock_enabled=self.clock_enabled,
+            clock_position=self.clock_position,
+            clock_show_seconds=self.clock_show_seconds,
+            clock_font_size=self.clock_font_size,
+            clock_font=self.clock_font,
+            version_overlay_enabled=self.version_overlay_enabled,
+            text_overlay_enabled=self.text_overlay_enabled,
+            text_overlay_text=self.text_overlay_text,
+            text_overlay_position=self.text_overlay_position,
+            text_overlay_font_size=self.text_overlay_font_size,
+            text_overlay_font=self.text_overlay_font,
+            text_overlay_speed=self.text_overlay_speed,
+            earnings_overlay_enabled=self.earnings_overlay_enabled,
+            earnings_overlay_template=self.earnings_overlay_template,
+            earnings_overlay_position=self.earnings_overlay_position,
+            earnings_overlay_font_size=self.earnings_overlay_font_size,
+            earnings_overlay_font=self.earnings_overlay_font,
+        )
+
+    @property
+    def asr(self) -> AsrSettings:
+        return AsrSettings(
+            tap_enabled=self.asr_tap_enabled,
+            watchlist=self.asr_watchlist,
+            watchlist_file=self.asr_watchlist_file,
+            words_file=self.asr_words_file,
+            active_file=self.asr_active_file,
+        )
+
+    @property
+    def telegram(self) -> TelegramSettings:
+        return TelegramSettings(
+            bot_token=self.telegram_bot_token,
+            allowed_user_ids=self.telegram_allowed_user_ids,
+            notify_chat_id=self.telegram_notify_chat_id,
+            notifications=self.telegram_notifications,
+        )
 
     pause_screen_enabled: bool = True
     pause_screen_text: str = "Stream pausiert"
@@ -594,15 +860,7 @@ class Settings:
 
     def updated(self, payload: dict) -> Settings:
         """Build a validated copy with the given changes applied."""
-        changes: dict[str, object] = {}
-        for key, value in payload.items():
-            if key not in EDITABLE_FIELDS:
-                raise ValueError(f"Unbekanntes Feld: {key}")
-            changes[key] = _coerce(key, value)
-
-        candidate = replace(self, **changes)
-        candidate._validate()
-        return candidate
+        return resolve_settings(self, payload)
 
     def apply_from(self, other: Settings) -> None:
         for key in EDITABLE_FIELDS | {

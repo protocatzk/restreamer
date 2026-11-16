@@ -23,6 +23,19 @@ from app.delay_buffer import DelayBuffer
 from app.earnings import EarningsMonitor, ensure_earnings_overlay_file
 from app.online import OnlineStatusMonitor
 from app.resolver import Resolver
+from app.schemas import (
+    EarningsResponse,
+    HealthResponse,
+    LogsResponse,
+    OnlineCheckResponse,
+    PlaylistMutationResponse,
+    PlaylistsResponse,
+    QuickAddResponse,
+    SettingsResponse,
+    StatusResponse,
+    StreamerListResponse,
+    WordsResponse,
+)
 from app.settings import SECRET_FIELDS, Settings
 from app.store import (
     QUICK_ADD_MAX_ITEMS,
@@ -438,7 +451,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         response.delete_cookie(AuthManager.COOKIE_NAME, path="/")
         return response
 
-    @app.get("/healthz")
+    @app.get("/healthz", response_model=HealthResponse)
     async def healthz():
         state = supervisor.status()
         return {
@@ -448,25 +461,25 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "state": state["state"],
         }
 
-    @app.get("/api/status")
+    @app.get("/api/status", response_model=StatusResponse)
     async def api_status():
         return supervisor.status()
 
-    @app.post("/api/online/check")
+    @app.post("/api/online/check", response_model=OnlineCheckResponse)
     async def api_online_check():
         online_monitor.request_check()
         return {"ok": True, "online_check": online_monitor.summary()}
 
-    @app.get("/api/earnings")
+    @app.get("/api/earnings", response_model=EarningsResponse)
     async def api_earnings():
         return {"ok": True, "earnings": earnings_monitor.summary()}
 
-    @app.post("/api/earnings/check")
+    @app.post("/api/earnings/check", response_model=EarningsResponse)
     async def api_earnings_check():
         earnings_monitor.request_check()
         return {"ok": True, "earnings": earnings_monitor.summary()}
 
-    @app.get("/api/words")
+    @app.get("/api/words", response_model=WordsResponse)
     async def api_words():
         return {"ok": True, **supervisor.words_status()}
 
@@ -488,11 +501,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     # ------------------------------------------------------------- Einstellungen
 
-    @app.get("/api/settings")
+    @app.get("/api/settings", response_model=SettingsResponse)
     async def api_get_settings():
         return settings.to_public_dict()
 
-    @app.put("/api/settings")
+    @app.put("/api/settings", response_model=SettingsResponse)
     async def api_put_settings(request: Request):
         payload = await _json_object(request)
 
@@ -622,11 +635,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     # ---------------------------------------------------------------- Senderlisten
 
-    @app.get("/api/playlists")
+    @app.get("/api/playlists", response_model=PlaylistsResponse)
     async def api_get_playlists():
         return supervisor.playlists_view()
 
-    @app.post("/api/playlists", status_code=201)
+    @app.post(
+        "/api/playlists",
+        status_code=201,
+        response_model=PlaylistMutationResponse,
+    )
     async def api_create_playlist(request: Request):
         payload = await _json_object(request)
         try:
@@ -653,7 +670,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         return {"playlist_id": playlist.id, **supervisor.playlists_view()}
 
-    @app.put("/api/playlists/{playlist_id}")
+    @app.put(
+        "/api/playlists/{playlist_id}",
+        response_model=PlaylistMutationResponse,
+    )
     async def api_update_playlist(playlist_id: str, request: Request):
         existing = store.playlist(playlist_id)
         if existing is None:
@@ -683,7 +703,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         return {"playlist_id": playlist.id, **supervisor.playlists_view()}
 
-    @app.delete("/api/playlists/{playlist_id}")
+    @app.delete(
+        "/api/playlists/{playlist_id}",
+        response_model=PlaylistsResponse,
+    )
     async def api_delete_playlist(playlist_id: str):
         if store.playlist(playlist_id) is None:
             raise HTTPException(status_code=404, detail="Senderliste nicht gefunden")
@@ -710,11 +733,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         return {"ok": True, **supervisor.playlists_view()}
 
-    @app.post("/api/playlists/stop")
+    @app.post("/api/playlists/stop", response_model=StatusResponse)
     async def api_playlists_stop():
         return await supervisor.stop()
 
-    @app.post("/api/playlists/{playlist_id}/start")
+    @app.post(
+        "/api/playlists/{playlist_id}/start",
+        response_model=StatusResponse,
+    )
     async def api_playlist_start(playlist_id: str, request: Request):
         watch = await _watch_flag(request)
         try:
@@ -726,7 +752,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except (StreamerDisabled, KeyNotConfigured, ConfigError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    @app.post("/api/playlists/{playlist_id}/next")
+    @app.post(
+        "/api/playlists/{playlist_id}/next",
+        response_model=StatusResponse,
+    )
     async def api_playlist_next(playlist_id: str, request: Request):
         watch = await _watch_flag(request)
         try:
@@ -738,7 +767,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except (StreamerDisabled, KeyNotConfigured, ConfigError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    @app.post("/api/playlists/{playlist_id}/previous")
+    @app.post(
+        "/api/playlists/{playlist_id}/previous",
+        response_model=StatusResponse,
+    )
     async def api_playlist_previous(playlist_id: str, request: Request):
         watch = await _watch_flag(request)
         try:
@@ -750,7 +782,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except (StreamerDisabled, KeyNotConfigured, ConfigError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    @app.post("/api/playlists/{playlist_id}/tune/{streamer_id}")
+    @app.post(
+        "/api/playlists/{playlist_id}/tune/{streamer_id}",
+        response_model=StatusResponse,
+    )
     async def api_playlist_tune(
         playlist_id: str, streamer_id: str, request: Request
     ):
@@ -766,7 +801,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     # ------------------------------------------------------------------ Streamer
 
-    @app.post("/api/streamers", status_code=201)
+    @app.post(
+        "/api/streamers",
+        status_code=201,
+        response_model=StreamerListResponse,
+    )
     async def api_create_streamer(request: Request):
         payload = await _json_object(request)
         try:
@@ -790,7 +829,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         return {"ok": True, "streamers": [cfg.id for cfg in store.streamers]}
 
-    @app.post("/api/streamers/quick")
+    @app.post("/api/streamers/quick", response_model=QuickAddResponse)
     async def api_quick_add_streamers(request: Request):
         payload = await _json_object(request)
         raw = payload.get("tiktoks", payload.get("tiktok", []))
@@ -868,7 +907,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "playlists": supervisor.playlists_view()["playlists"],
         }
 
-    @app.put("/api/streamers/{streamer_id}")
+    @app.put(
+        "/api/streamers/{streamer_id}",
+        response_model=StreamerListResponse,
+    )
     async def api_update_streamer(streamer_id: str, request: Request):
         existing = store.get(streamer_id)
         if existing is None:
@@ -904,7 +946,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         return {"ok": True, "streamers": [cfg.id for cfg in store.streamers]}
 
-    @app.delete("/api/streamers/{streamer_id}")
+    @app.delete(
+        "/api/streamers/{streamer_id}",
+        response_model=StreamerListResponse,
+    )
     async def api_delete_streamer(streamer_id: str):
         if store.get(streamer_id) is None:
             raise HTTPException(status_code=404, detail="Streamer nicht gefunden")
@@ -926,7 +971,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     # -------------------------------------------------------------------- Control
 
-    @app.post("/api/streamers/{streamer_id}/start")
+    @app.post(
+        "/api/streamers/{streamer_id}/start",
+        response_model=StatusResponse,
+    )
     async def api_start(streamer_id: str, request: Request):
         watch = await _watch_flag(request)
         try:
@@ -936,14 +984,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except (StreamerDisabled, KeyNotConfigured, ConfigError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    @app.post("/api/streamers/{streamer_id}/stop")
+    @app.post(
+        "/api/streamers/{streamer_id}/stop",
+        response_model=StatusResponse,
+    )
     async def api_stop(streamer_id: str):
         try:
             return await supervisor.stop()
         except Exception as exc:  # noqa: BLE001
             raise HTTPException(status_code=500, detail=str(exc)) from exc
 
-    @app.post("/api/streamers/{streamer_id}/switch")
+    @app.post(
+        "/api/streamers/{streamer_id}/switch",
+        response_model=StatusResponse,
+    )
     async def api_switch(streamer_id: str, request: Request):
         watch = await _watch_flag(request)
         try:
@@ -953,7 +1007,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except (StreamerDisabled, KeyNotConfigured, ConfigError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    @app.get("/api/logs/{streamer_id}")
+    @app.get("/api/logs/{streamer_id}", response_model=LogsResponse)
     async def api_logs(
         streamer_id: str, lines: int = Query(default=200, ge=1, le=2000)
     ):
