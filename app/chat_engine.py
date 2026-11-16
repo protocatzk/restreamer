@@ -45,11 +45,12 @@ def _write_all(fd: int, data: bytes) -> None:
 
 @dataclass
 class ChatOverlaySources:
-    """Live messages and stats providers for the PNG chat overlay."""
+    """Live messages, stats and earnings providers for the PNG chat overlay."""
 
     settings: Settings
     messages: Callable[[], Iterable[ChatMessage]] | None = None
     stats: Callable[[], ChatStats] | None = None
+    earnings: Callable[[], str] | None = None
 
 
 class ChatPipeline:
@@ -183,16 +184,28 @@ class ChatPipeline:
             logger.exception("Chat-Statistik fehlgeschlagen")
             return None
 
+    def _earnings(self) -> str:
+        if not self.settings.chat_overlay_show_earnings:
+            return ""
+        if self.sources.earnings is None:
+            return ""
+        try:
+            return self.sources.earnings() or ""
+        except Exception:  # noqa: BLE001 - earnings are optional
+            logger.exception("Chat-Einnahmen fehlgeschlagen")
+            return ""
+
     async def _frame(
         self,
         messages: tuple[ChatMessage, ...],
         stats: ChatStats | None,
+        earnings: str,
     ) -> bytes:
         if not messages:
             return self._blank
         try:
             return await asyncio.to_thread(
-                self.renderer.render_rgba, messages, stats
+                self.renderer.render_rgba, messages, stats, earnings
             )
         except Exception as exc:  # noqa: BLE001 - never stop the output
             self._log_error(
@@ -214,9 +227,12 @@ class ChatPipeline:
                 started = time.monotonic()
                 messages = self._messages()
                 stats = self._stats()
-                key = (messages, stats, self.renderer.signature)
+                earnings = self._earnings()
+                key = (messages, stats, earnings, self.renderer.signature)
                 if key != self._last_key or self._last_data is None:
-                    self._last_data = await self._frame(messages, stats)
+                    self._last_data = await self._frame(
+                        messages, stats, earnings
+                    )
                     self._last_key = key
                 # Always write a frame at the nominal rate.  ffmpeg's overlay
                 # filter would otherwise block waiting for the next input frame.

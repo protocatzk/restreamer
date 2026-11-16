@@ -285,3 +285,28 @@ def test_sample_stats_are_available() -> None:
     assert stats.unique_users > 0
     assert stats.messages_per_minute > 0
     assert stats.top_user
+
+
+def test_earnings_card_is_drawn_and_keeps_width(tmp_path: Path) -> None:
+    _requires_font()
+    message = _message("1", "Hallo")
+    earnings = (
+        "supergirl0584\n"
+        "Heute: 12,34 € · Brutto 15,67 €\n"
+        "1.234 Zuschauer\n"
+        "State: live"
+    )
+
+    with_card = ChatRenderer(
+        _settings(tmp_path, chat_overlay_show_earnings=True)
+    ).render_tile((message,), None, earnings)
+    without_card = ChatRenderer(
+        _settings(tmp_path, chat_overlay_show_earnings=False)
+    ).render_tile((message,))
+
+    assert with_card.tobytes() != without_card.tobytes()
+    with_box = with_card.getbbox()
+    without_box = without_card.getbbox()
+    assert with_box is not None and without_box is not None
+    assert with_box[0] == without_box[0]
+    assert with_box[2] == without_box[2]

@@ -520,6 +520,32 @@ async def test_monitor_writes_overlay_and_clears_on_inactive(
     assert monitor.summary()["status"] == "inactive"
 
 
+async def test_monitor_overlay_text_works_without_standalone_overlay(
+    settings, monkeypatch
+) -> None:
+    monkeypatch.setattr("app.earnings.EARNINGS_RENDER_INTERVAL_SECONDS", 0.01)
+    settings = replace(
+        settings,
+        earnings_enabled=True,
+        earnings_source_url="https://example.test/overview",
+        earnings_period="today",
+        earnings_overlay_enabled=False,
+        earnings_overlay_template="{period}: {net}",
+    )
+    store = make_store(settings)
+    source = FakeEarningsSource({"alice": _entry("alice", 100)})
+    monitor = EarningsMonitor(
+        settings, store, source, is_active=lambda: "alice"
+    )
+
+    await monitor._tick()
+
+    assert monitor.overlay_text() == "Heute: 5,68 €"
+    assert (
+        earnings_overlay_path(settings).read_text(encoding="utf-8") == ""
+    )
+
+
 async def test_monitor_keeps_last_values_on_error(settings, monkeypatch) -> None:
     monkeypatch.setattr("app.earnings.EARNINGS_RENDER_INTERVAL_SECONDS", 0.01)
     settings = replace(

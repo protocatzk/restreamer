@@ -1191,6 +1191,11 @@ class Supervisor:
                     self.settings,
                     messages=self._chat.overlay.visible_messages,
                     stats=self._chat.overlay.stats,
+                    earnings=(
+                        self._earnings.overlay_text
+                        if self._earnings is not None
+                        else None
+                    ),
                 ),
                 log=self._record,
             )
@@ -1221,11 +1226,14 @@ class Supervisor:
             raise RuntimeError(f"PNG-Chat-Engine nicht verfügbar{detail}")
         messages = ()
         stats = None
+        earnings = ""
         if not sample and self._chat is not None:
             messages = tuple(self._chat.overlay.visible_messages())
             stats = self._chat.overlay.stats()
+            if self._earnings is not None:
+                earnings = self._earnings.overlay_text()
         return _chat_engine_module.preview_png(
-            self.settings, messages, stats, sample=sample
+            self.settings, messages, stats, earnings, sample=sample
         )
 
     def _legacy_overlay_filters(self, *, include_chat: bool = True) -> list[str]:

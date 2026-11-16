@@ -54,6 +54,7 @@ BOOL_FIELDS = {
     "chat_overlay_emoji_enabled",
     "chat_overlay_show_tiers",
     "chat_overlay_show_stats",
+    "chat_overlay_show_earnings",
     "chat_overlay_user_badges",
     "chat_overlay_name_colors",
     "chat_overlay_show_timestamps",
@@ -302,6 +303,7 @@ class Settings:
     chat_overlay_emoji_enabled: bool = True
     chat_overlay_show_tiers: bool = True
     chat_overlay_show_stats: bool = False
+    chat_overlay_show_earnings: bool = False
     chat_overlay_user_badges: bool = False
     chat_overlay_style: str = "bubbles"
     chat_overlay_opacity: int = 78
@@ -448,6 +450,9 @@ class Settings:
             ),
             chat_overlay_show_stats=_env_bool(
                 "CHAT_OVERLAY_SHOW_STATS", False
+            ),
+            chat_overlay_show_earnings=_env_bool(
+                "CHAT_OVERLAY_SHOW_EARNINGS", False
             ),
             chat_overlay_user_badges=_env_bool(
                 "CHAT_OVERLAY_USER_BADGES", False

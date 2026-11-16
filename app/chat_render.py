@@ -41,6 +41,7 @@ from app.settings import Settings
 _WHITESPACE_RE = re.compile(r"\s+")
 _SHADOW_PAD = 8
 _BUBBLE_CACHE_LIMIT = 128
+_EARNINGS_MAX_LINES = 5
 
 _NAME_PALETTE: tuple[tuple[int, int, int], ...] = (
     (255, 138, 128),
@@ -239,6 +240,7 @@ class ChatRenderer:
             s.chat_overlay_emoji_enabled,
             s.chat_overlay_show_tiers,
             s.chat_overlay_show_stats,
+            s.chat_overlay_show_earnings,
             s.chat_overlay_user_badges,
         )
 
@@ -623,10 +625,90 @@ class ChatRenderer:
         )
         return fonts.line_height + 7
 
+    def _earnings_surface(
+        self, text: str, content_width: int
+    ) -> tuple[Image.Image, int, int] | None:
+        """Render the earnings template as a compact card above the chat."""
+        raw_lines = [line.strip() for line in (text or "").splitlines()]
+        lines = [line for line in raw_lines if line]
+        if not lines:
+            return None
+        truncated = len(lines) > _EARNINGS_MAX_LINES
+        lines = lines[:_EARNINGS_MAX_LINES]
+        if truncated:
+            lines[-1] = lines[-1].rstrip() + "…"
+
+        font_path = find_regular_font(
+            find_pause_font(self.settings.chat_overlay_font) or ""
+        )
+        body_size = max(11, round(chat_font_size(self.settings) * 0.58))
+        header_size = max(10, round(chat_font_size(self.settings) * 0.45))
+        body = self._font_set(font_path, body_size)
+        header = self._font_set(font_path, header_size)
+        if body is None or header is None:
+            return None
+
+        opacity = int(255 * self.settings.chat_overlay_opacity / 100)
+        padding = max(8, round(body_size * 0.6))
+        line_gap = max(2, round(body_size * 0.12))
+        height = (
+            padding * 2
+            + header.line_height
+            + 4
+            + len(lines) * body.line_height
+            + max(0, len(lines) - 1) * line_gap
+        )
+        surface = _panel_surface(
+            content_width,
+            height,
+            radius=max(8, round(body_size * 0.7)),
+            fill=(10, 13, 18, opacity),
+        )
+        content = Image.new(
+            "RGBA", (surface.width, surface.height), (0, 0, 0, 0)
+        )
+        drawer = ImageDraw.Draw(content)
+        base_x = _SHADOW_PAD + padding
+        base_y = _SHADOW_PAD + padding
+        content_max = max(1, content_width - padding * 2)
+
+        drawer.text(
+            (base_x, base_y),
+            "EINNAHMEN",
+            font=header.regular,
+            fill=_MUTED_COLOR,
+        )
+        line_y = base_y + header.line_height + 2
+        drawer.line(
+            (base_x, line_y, base_x + content_max, line_y),
+            fill=(255, 205, 86, 110),
+            width=1,
+        )
+
+        cursor_y = line_y + 2
+        for index, line in enumerate(lines):
+            fitted = _fit_text(
+                line,
+                body.bold if index == 0 else body.regular,
+                content_max,
+            )
+            if not fitted:
+                continue
+            drawer.text(
+                (base_x, cursor_y),
+                fitted,
+                font=body.bold if index == 0 else body.regular,
+                fill=_TEXT_COLOR if index == 0 else _MUTED_COLOR,
+            )
+            cursor_y += body.line_height + line_gap
+        surface.alpha_composite(content)
+        return surface, content_width, height
+
     def render_tile(
         self,
         messages: tuple[ChatMessage, ...],
         stats: ChatStats | None = None,
+        earnings: str = "",
     ) -> Image.Image:
         """Render the chat tile with a transparent background."""
         self._ensure_caches()
@@ -643,9 +725,25 @@ class ChatRenderer:
             and stats.total_messages
         )
         stats_height = self._stats_height() if show_stats else 0
+        earnings_surface = (
+            self._earnings_surface(earnings, geometry.content_width)
+            if self.settings.chat_overlay_show_earnings
+            and earnings.strip()
+            else None
+        )
+        earnings_height = (
+            earnings_surface[2] if earnings_surface is not None else 0
+        )
         gap = max(6, round(chat_font_size(self.settings) * 0.24))
         stats_gap = gap if stats_height else 0
-        available = geometry.content_height - stats_height - stats_gap
+        earnings_gap = gap if earnings_height else 0
+        available = (
+            geometry.content_height
+            - stats_height
+            - stats_gap
+            - earnings_height
+            - earnings_gap
+        )
         bubbles = self._bubbles(tuple(messages), geometry, available)
         if not bubbles:
             return tile
@@ -653,7 +751,13 @@ class ChatRenderer:
         bubbles_height = sum(item[2] for item in bubbles) + gap * (
             len(bubbles) - 1
         )
-        total_height = stats_height + stats_gap + bubbles_height
+        total_height = (
+            stats_height
+            + stats_gap
+            + earnings_height
+            + earnings_gap
+            + bubbles_height
+        )
         if self.settings.chat_overlay_position.startswith("top"):
             y = _SHADOW_PAD
         else:
@@ -663,6 +767,10 @@ class ChatRenderer:
         if stats_height:
             drawn = self._draw_stats(tile, stats, geometry, y)
             y += drawn + stats_gap
+
+        if earnings_surface is not None:
+            _paste(tile, earnings_surface[0], 0, y - _SHADOW_PAD)
+            y += earnings_height + earnings_gap
 
         if self.settings.chat_overlay_style == "panel":
             opacity = int(255 * self.settings.chat_overlay_opacity / 100)
@@ -685,18 +793,20 @@ class ChatRenderer:
         self,
         messages: tuple[ChatMessage, ...],
         stats: ChatStats | None = None,
+        earnings: str = "",
     ) -> bytes:
         """Return one raw RGBA frame for the FIFO."""
         if not messages:
             geometry = chat_tile_geometry(self.settings)
             return bytes(geometry.width * geometry.height * 4)
-        tile = self.render_tile(tuple(messages), stats)
+        tile = self.render_tile(tuple(messages), stats, earnings)
         return tile.tobytes()
 
     def render_png_preview(
         self,
         messages: tuple[ChatMessage, ...],
         stats: ChatStats | None = None,
+        earnings: str = "",
     ) -> bytes:
         """Render the chat tile on a dark output canvas for the dashboard."""
         geometry = chat_tile_geometry(self.settings)
@@ -705,7 +815,7 @@ class ChatRenderer:
             (self.settings.output_width, self.settings.output_height),
             _PREVIEW_BACKGROUND,
         )
-        tile = self.render_tile(tuple(messages), stats)
+        tile = self.render_tile(tuple(messages), stats, earnings)
         _paste(canvas, tile, geometry.x, geometry.y)
         buffer = io.BytesIO()
         canvas.save(buffer, format="PNG", compress_level=1)
@@ -755,10 +865,21 @@ def sample_stats() -> ChatStats:
     )
 
 
+def sample_earnings() -> str:
+    """Return demo earnings text for the dashboard preview."""
+    return (
+        "supergirl0584\n"
+        "Heute: 12,34 € · Brutto 15,67 €\n"
+        "1.234 Zuschauer\n"
+        "State: live"
+    )
+
+
 def preview_png(
     settings: Settings,
     messages: tuple[ChatMessage, ...] = (),
     stats: ChatStats | None = None,
+    earnings: str = "",
     *,
     sample: bool = False,
 ) -> bytes:
@@ -767,6 +888,7 @@ def preview_png(
     if sample:
         content = sample_messages()
         stats = sample_stats()
+        earnings = sample_earnings()
     else:
         content = tuple(messages)
-    return renderer.render_png_preview(content, stats)
+    return renderer.render_png_preview(content, stats, earnings)

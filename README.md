@@ -383,6 +383,7 @@ CHAT_OVERLAY_NAME_COLORS=true
 CHAT_OVERLAY_SHOW_TIMESTAMPS=false
 CHAT_OVERLAY_SHOW_TIERS=true         # 🐬/🦈/🐋 aus whale_tier
 CHAT_OVERLAY_SHOW_STATS=false        # Chatter/Minute + Top-Chatter
+CHAT_OVERLAY_SHOW_EARNINGS=false     # Einnahmen-Karte über den Blasen
 CHAT_OVERLAY_USER_BADGES=false       # NEU / STAMM
 CHAT_OVERLAY_MAX_LINES=3
 ```
@@ -399,6 +400,10 @@ Eigenschaften:
 - `CHAT_OVERLAY_SHOW_STATS` zeigt eine schmale Zeile über den Blasen:
   Chatter-Anzahl, Nachrichten pro Minute und Top-Chatter der letzten zehn
   Minuten. Standardmäßig aus.
+- `CHAT_OVERLAY_SHOW_EARNINGS` rendert die bestehende
+  `EARNINGS_OVERLAY_TEMPLATE`-Vorlage als kompakte Karte über den Chatblasen.
+  Das separate Einnahmen-Overlay bleibt unabhängig; bei Bedarf eines der
+  beiden abschalten, damit die Daten nicht doppelt erscheinen.
 - Neu gerendert wird nur, wenn sich Nachrichten, Statistik oder Stil ändern.
   Das fertige Frame wird als Roh-RGBA mit `CHAT_OVERLAY_RENDER_FPS`
   kontinuierlich an ffmpeg geschrieben, damit der Overlay-Filter nicht hungert.

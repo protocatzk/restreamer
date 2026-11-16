@@ -103,6 +103,7 @@ def test_new_defaults_are_present(tmp_path: Path) -> None:
     assert data["chat_overlay_show_timestamps"] is False
     assert data["chat_overlay_show_tiers"] is True
     assert data["chat_overlay_show_stats"] is False
+    assert data["chat_overlay_show_earnings"] is False
     assert data["chat_overlay_user_badges"] is False
     assert data["chat_overlay_max_lines"] == 3
     assert data["youtube_title_template"] == "{name} live: {title}"
@@ -471,6 +472,7 @@ def test_chat_overlay_engine_values_are_validated(tmp_path: Path) -> None:
             "chat_overlay_show_timestamps": True,
             "chat_overlay_show_tiers": False,
             "chat_overlay_show_stats": True,
+            "chat_overlay_show_earnings": True,
             "chat_overlay_user_badges": True,
             "chat_overlay_max_lines": 5,
         }
@@ -485,6 +487,7 @@ def test_chat_overlay_engine_values_are_validated(tmp_path: Path) -> None:
     assert updated.chat_overlay_show_timestamps is True
     assert updated.chat_overlay_show_tiers is False
     assert updated.chat_overlay_show_stats is True
+    assert updated.chat_overlay_show_earnings is True
     assert updated.chat_overlay_user_badges is True
     assert updated.chat_overlay_max_lines == 5
 
