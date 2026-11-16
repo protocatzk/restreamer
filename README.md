@@ -469,6 +469,16 @@ streamers:
       Ich
 ```
 
+Aliase für Wörter, die das Modell nicht kennt, gehen mit `=`:
+
+```text
+isso = is so
+```
+
+Links steht die Anzeige, rechts die Phrase, die Vosk erkennen soll. Die Grammar
+verwendet nur den rechten Teil; gezählt wird unter dem linken Label. Bei
+mehreren Einträgen mit derselben gesprochenen Phrase gewinnt der erste.
+
 Die Zähler sind **pro Streamer, kumulativ und persistent**: Der Worker schreibt
 sie laufend nach `data/asr-counts.json` (`streamers` → `totals`). Beim
 Senderwechsel wird nach dem Relay-Delay auf die Zähler des neuen Streamers

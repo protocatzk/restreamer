@@ -17,7 +17,12 @@ from contextlib import suppress
 from datetime import UTC, datetime
 from pathlib import Path
 
-from asr.counter import PhraseCounter, build_grammar, parse_watchlist
+from asr.counter import (
+    PhraseCounter,
+    WatchEntry,
+    build_grammar,
+    parse_watch_entries,
+)
 
 SAMPLE_RATE = 16000
 READ_SIZE = 4000
@@ -47,16 +52,34 @@ def _audio_url(explicit: str = "") -> str:
     return f"tcp://{host}:{port}"
 
 
-def _read_watchlist(path: Path, fallback: str) -> list[str]:
+def _entries_from_raw(raw: list) -> list[WatchEntry]:
+    parts: list[str] = []
+    for item in raw:
+        if isinstance(item, dict):
+            display = str(item.get("display", "")).strip()
+            spoken = str(item.get("spoken", "")).strip()
+            if display and spoken and display != spoken:
+                parts.append(f"{display}={spoken}")
+            else:
+                parts.append(display or spoken)
+        else:
+            parts.append(str(item))
+    return parse_watch_entries(parts)
+
+
+def _read_watchlist(path: Path, fallback: str) -> list[WatchEntry]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError, TypeError):
-        return parse_watchlist(fallback)
+        return parse_watch_entries(fallback)
     if isinstance(payload, dict):
+        entries = payload.get("entries")
+        if isinstance(entries, list):
+            return _entries_from_raw(entries)
         payload = payload.get("words")
     if isinstance(payload, list):
-        return parse_watchlist([str(item) for item in payload])
-    return parse_watchlist(fallback)
+        return _entries_from_raw(payload)
+    return parse_watch_entries(fallback)
 
 
 def _mtime(path: Path) -> int | None:
@@ -120,7 +143,7 @@ def _read_active(
     watchlist_path: Path,
     fallback_watchlist: str,
     fallback_id: str,
-) -> tuple[str, str, list[str]]:
+) -> tuple[str, str, list[WatchEntry]]:
     try:
         payload = json.loads(active_path.read_text(encoding="utf-8"))
     except (OSError, ValueError, TypeError):
@@ -137,7 +160,7 @@ def _read_active(
             return (
                 streamer_id,
                 streamer_name,
-                parse_watchlist([str(item) for item in raw]),
+                _entries_from_raw(raw),
             )
     return (
         fallback_id,
@@ -149,7 +172,7 @@ def _read_active(
 def _write_output(
     path: Path,
     counter: PhraseCounter,
-    watchlist: list[str],
+    watchlist: list[WatchEntry],
     model_name: str,
     streamer_id: str = "",
     streamer_name: str = "",
@@ -158,7 +181,7 @@ def _write_output(
     payload.update(
         {
             "updated_at": datetime.now(UTC).isoformat(timespec="seconds"),
-            "watchlist": watchlist,
+            "watchlist": [entry.display for entry in watchlist],
             "source": model_name,
             "streamer_id": streamer_id,
             "streamer_name": streamer_name,
@@ -172,7 +195,7 @@ def _write_output(
     os.replace(tmp, path)
 
 
-def _make_recognizer(model, watchlist: list[str]):  # type: ignore[no-untyped-def]
+def _make_recognizer(model, watchlist: list[WatchEntry]):  # type: ignore[no-untyped-def]
     from vosk import KaldiRecognizer
 
     grammar = build_grammar(watchlist)
@@ -198,7 +221,7 @@ def _pump(
     counts = _load_counts(counts_path)
     active_id = ""
     active_name = ""
-    watchlist: list[str] = []
+    watchlist: list[WatchEntry] = []
     counter = PhraseCounter([], window_seconds)
     recognizer = _make_recognizer(model, watchlist)
     last_watch_key: object = object()

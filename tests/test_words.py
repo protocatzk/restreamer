@@ -20,6 +20,10 @@ def test_parse_watchlist_accepts_lines_commas_and_quotes() -> None:
     ]
 
 
+def test_parse_watchlist_returns_alias_labels() -> None:
+    assert parse_watchlist("isso = is so\nDreck") == ["isso", "dreck"]
+
+
 def test_write_watchlist_writes_atomic_json(tmp_path: Path) -> None:
     path = tmp_path / "asr-watchlist.json"
 
@@ -27,6 +31,11 @@ def test_write_watchlist_writes_atomic_json(tmp_path: Path) -> None:
 
     payload = json.loads(path.read_text(encoding="utf-8"))
     assert payload["words"] == ["guck ma", "dreck", "ich"]
+    assert payload["entries"] == [
+        {"display": "guck ma", "spoken": "guck ma"},
+        {"display": "dreck", "spoken": "dreck"},
+        {"display": "ich", "spoken": "ich"},
+    ]
     assert payload["updated_at"]
 
 
@@ -36,13 +45,16 @@ def test_write_active_streamer_writes_id_and_watchlist(
     path = tmp_path / "asr-active.json"
 
     write_active_streamer(
-        path, "marco_1986", "marco..1986", "Guck ma\nDreck"
+        path, "marco_1986", "marco..1986", "Guck ma\nisso = is so"
     )
 
     payload = json.loads(path.read_text(encoding="utf-8"))
     assert payload["streamer_id"] == "marco_1986"
     assert payload["streamer_name"] == "marco..1986"
-    assert payload["watchlist"] == ["guck ma", "dreck"]
+    assert payload["watchlist"] == [
+        {"display": "guck ma", "spoken": "guck ma"},
+        {"display": "isso", "spoken": "is so"},
+    ]
 
 
 def test_word_tracker_reads_and_limits(tmp_path: Path) -> None:

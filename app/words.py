@@ -21,6 +21,14 @@ class WordCount:
 
 
 @dataclass(frozen=True)
+class WatchEntry:
+    """Display label plus the spoken phrase used by the ASR engine."""
+
+    display: str
+    spoken: str
+
+
+@dataclass(frozen=True)
 class WordStats:
     words: tuple[WordCount, ...] = ()
     total: int = 0
@@ -36,30 +44,69 @@ def normalize_text(value: str) -> str:
     return " ".join(text.split())
 
 
-def parse_watchlist(raw: str | list[str]) -> list[str]:
-    """Parse newline/comma separated phrases, preserving order."""
+def _split_alias(part: str) -> tuple[str, str]:
+    text = str(part).strip().strip("\"'").strip()
+    if "=" in text:
+        display_raw, spoken_raw = text.split("=", 1)
+        display = normalize_text(display_raw)
+        spoken = normalize_text(spoken_raw)
+        if not display:
+            display = spoken
+        if not spoken:
+            spoken = display
+        return display, spoken
+    normalized = normalize_text(text)
+    return normalized, normalized
+
+
+def parse_watch_entries(
+    raw: str | list[str] | list[WatchEntry],
+) -> list[WatchEntry]:
+    """Parse newline/comma separated entries, including ``display=spoken``."""
     if isinstance(raw, (list, tuple)):
-        parts = [str(item) for item in raw]
+        parts: list[object] = list(raw)
     else:
         parts = re.split(r"[\n,]+", str(raw or ""))
-    entries: list[str] = []
+    entries: list[WatchEntry] = []
+    seen_spoken: set[str] = set()
     for part in parts:
-        value = normalize_text(part.strip().strip("\"'").strip())
-        if not value or len(value) > MAX_PHRASE_LENGTH:
+        if isinstance(part, WatchEntry):
+            display, spoken = part.display, part.spoken
+        else:
+            display, spoken = _split_alias(str(part))
+        if not display or not spoken:
             continue
-        if value not in entries:
-            entries.append(value)
+        if (
+            len(display) > MAX_PHRASE_LENGTH
+            or len(spoken) > MAX_PHRASE_LENGTH
+        ):
+            continue
+        if spoken in seen_spoken:
+            continue
+        entries.append(WatchEntry(display, spoken))
+        seen_spoken.add(spoken)
         if len(entries) >= MAX_WATCHLIST_ITEMS:
             break
     return entries
 
 
+def parse_watchlist(
+    raw: str | list[str] | list[WatchEntry],
+) -> list[str]:
+    """Return only the display labels of the parsed watchlist."""
+    return [entry.display for entry in parse_watch_entries(raw)]
+
+
 def write_watchlist(path: Path, raw: str) -> None:
-    """Write the dashboard watchlist atomically for the ASR worker."""
-    words = parse_watchlist(raw)
+    """Write the fallback watchlist atomically for the ASR worker."""
+    entries = parse_watch_entries(raw)
     payload = {
         "updated_at": datetime.now(UTC).isoformat(timespec="seconds"),
-        "words": words,
+        "words": [entry.display for entry in entries],
+        "entries": [
+            {"display": entry.display, "spoken": entry.spoken}
+            for entry in entries
+        ],
     }
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + ".tmp")
@@ -80,7 +127,10 @@ def write_active_streamer(
         "updated_at": datetime.now(UTC).isoformat(timespec="seconds"),
         "streamer_id": str(streamer_id or "").strip(),
         "streamer_name": str(streamer_name or "").strip(),
-        "watchlist": parse_watchlist(watchlist),
+        "watchlist": [
+            {"display": entry.display, "spoken": entry.spoken}
+            for entry in parse_watch_entries(watchlist)
+        ],
     }
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + ".tmp")

@@ -43,7 +43,7 @@ from app.supervisor import (
     Supervisor,
 )
 from app.telegram_bot import RestreamerBot
-from app.words import parse_watchlist, write_active_streamer, write_watchlist
+from app.words import write_active_streamer, write_watchlist
 
 logger = logging.getLogger(__name__)
 
@@ -213,10 +213,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         await delay_buffer.start()
 
         async def _asr_active_loop() -> None:
-            applied: tuple[str, str, tuple[str, ...]] | None = None
-            pending: (
-                tuple[tuple[str, str, tuple[str, ...]], float] | None
-            ) = None
+            applied: tuple[str, str, str] | None = None
+            pending: tuple[tuple[str, str, str], float] | None = None
             while True:
                 active_id = supervisor.active_id
                 streamer = store.get(active_id) if active_id else None
@@ -230,11 +228,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 else:
                     name = ""
                     watchlist = ""
-                descriptor = (
-                    active_id or "",
-                    name,
-                    tuple(parse_watchlist(watchlist)),
-                )
+                descriptor = (active_id or "", name, watchlist)
                 if descriptor == applied:
                     pending = None
                 elif pending is None or pending[0] != descriptor:
@@ -253,7 +247,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                             settings.asr_active_file,
                             applied[0],
                             applied[1],
-                            "\n".join(applied[2]),
+                            applied[2],
                         )
                     except OSError:
                         logger.warning(

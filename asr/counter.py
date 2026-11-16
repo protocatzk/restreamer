@@ -29,40 +29,86 @@ def normalize_text(value: str) -> str:
     return " ".join(text.split())
 
 
-def parse_watchlist(raw: str | list[str]) -> list[str]:
-    """Parse newline/comma separated watchlist entries.
+@dataclass(frozen=True)
+class WatchEntry:
+    """One watchlist entry: display label plus spoken phrase."""
 
-    Quotes are stripped, phrases keep their inner spaces and duplicates are
-    removed case-insensitively.
+    display: str
+    spoken: str
+
+
+def _split_alias(part: str) -> tuple[str, str]:
+    text = str(part).strip().strip("\"'").strip()
+    if "=" in text:
+        display_raw, spoken_raw = text.split("=", 1)
+        display = normalize_text(display_raw)
+        spoken = normalize_text(spoken_raw)
+        if not display:
+            display = spoken
+        if not spoken:
+            spoken = display
+        return display, spoken
+    normalized = normalize_text(text)
+    return normalized, normalized
+
+
+def parse_watch_entries(
+    raw: str | list[str] | list[WatchEntry],
+) -> list[WatchEntry]:
+    """Parse newline/comma separated entries, including ``display=spoken``.
+
+    The left side is the label shown in the overlay; the right side is the
+    phrase sent to Vosk.  Without ``=`` both sides are identical.
     """
     if isinstance(raw, (list, tuple)):
-        parts = [str(item) for item in raw]
+        parts: list[object] = list(raw)
     else:
         parts = re.split(r"[\n,]+", str(raw or ""))
-    entries: list[str] = []
+    entries: list[WatchEntry] = []
+    seen_spoken: set[str] = set()
     for part in parts:
-        value = part.strip().strip("\"'").strip()
-        value = normalize_text(value)
-        if not value or len(value) > MAX_PHRASE_LENGTH:
+        if isinstance(part, WatchEntry):
+            display, spoken = part.display, part.spoken
+        else:
+            display, spoken = _split_alias(str(part))
+        if not display or not spoken:
             continue
-        if value not in entries:
-            entries.append(value)
+        if (
+            len(display) > MAX_PHRASE_LENGTH
+            or len(spoken) > MAX_PHRASE_LENGTH
+        ):
+            continue
+        if spoken in seen_spoken:
+            continue
+        entries.append(WatchEntry(display, spoken))
+        seen_spoken.add(spoken)
         if len(entries) >= MAX_WATCHLIST_ITEMS:
             break
     return entries
 
 
-def build_grammar(phrases: list[str]) -> list[str]:
-    """Build a Vosk grammar from phrases and their individual words."""
+def parse_watchlist(
+    raw: str | list[str] | list[WatchEntry],
+) -> list[str]:
+    """Return only the display labels of the parsed watchlist."""
+    return [entry.display for entry in parse_watch_entries(raw)]
+
+
+def build_grammar(
+    phrases: str | list[str] | list[WatchEntry],
+) -> list[str]:
+    """Build a Vosk grammar from spoken phrases and their words."""
+    entries = parse_watch_entries(phrases)
     grammar: list[str] = []
-    for phrase in phrases:
-        if phrase and phrase not in grammar:
-            grammar.append(phrase)
-        for word in phrase.split():
+    for entry in entries:
+        if entry.spoken and entry.spoken not in grammar:
+            grammar.append(entry.spoken)
+        for word in entry.spoken.split():
             if word and word not in grammar:
                 grammar.append(word)
     grammar.append(UNKNOWN_TOKEN)
     return grammar
+
 
 
 class PhraseCounter:
@@ -70,19 +116,23 @@ class PhraseCounter:
 
     def __init__(
         self,
-        phrases: list[str],
+        phrases: str | list[str] | list[WatchEntry],
         window_seconds: float = 600.0,
         totals: dict[str, int] | None = None,
     ) -> None:
+        entries = parse_watch_entries(phrases)
+        self._display_by_spoken = {
+            entry.spoken: entry.display for entry in entries
+        }
         self.phrases = sorted(
-            {normalize_text(phrase) for phrase in phrases if phrase},
+            self._display_by_spoken,
             key=lambda phrase: (
                 -len(phrase.split()),
                 -len(phrase),
                 phrase,
             ),
         )
-        self._watchlist = set(self.phrases)
+        self._watchlist = set(self._display_by_spoken.values())
         self.window_seconds = max(1.0, float(window_seconds))
         self.totals: dict[str, int] = {}
         for word, count in (totals or {}).items():
@@ -127,8 +177,9 @@ class PhraseCounter:
             if matched is None:
                 index += 1
                 continue
-            self._events.append((now, matched))
-            self.totals[matched] = self.totals.get(matched, 0) + 1
+            display = self._display_by_spoken[matched]
+            self._events.append((now, display))
+            self.totals[display] = self.totals.get(display, 0) + 1
             index += len(matched.split())
 
     def _prune(self, now: float) -> None:

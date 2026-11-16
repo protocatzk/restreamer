@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from asr.counter import (
     PhraseCounter,
+    WatchEntry,
     build_grammar,
     normalize_text,
+    parse_watch_entries,
     parse_watchlist,
 )
 
@@ -79,3 +81,25 @@ def test_parse_watchlist_limits_the_number_of_entries() -> None:
     entries = parse_watchlist([f"wort{i}" for i in range(205)])
 
     assert len(entries) == 200
+
+
+def test_alias_maps_display_label_to_spoken_phrase() -> None:
+    entries = parse_watch_entries(["isso = is so", "Guck ma"])
+
+    assert entries == [
+        WatchEntry("isso", "is so"),
+        WatchEntry("guck ma", "guck ma"),
+    ]
+    grammar = build_grammar(entries)
+    assert "is so" in grammar
+    assert "isso" not in grammar
+
+    counter = PhraseCounter(entries, window_seconds=60)
+    counter.add_words(["is", "so"], now=1.0)
+
+    snapshot = counter.snapshot(now=1.0)
+    assert snapshot["words"] == [{"word": "isso", "count": 1}]
+
+
+def test_parse_watchlist_returns_alias_display_labels() -> None:
+    assert parse_watchlist("isso = is so\nDreck") == ["isso", "dreck"]
