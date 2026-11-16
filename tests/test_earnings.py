@@ -452,7 +452,7 @@ def test_build_overlay_filter_is_disabled_by_default(tmp_path: Path) -> None:
 async def test_monitor_selects_active_streamer_and_switches(
     settings, monkeypatch
 ) -> None:
-    monkeypatch.setattr("app.earnings.EARNINGS_RENDER_INTERVAL_SECONDS", 0.01)
+    monkeypatch.setattr("app.earnings_monitor.EARNINGS_RENDER_INTERVAL_SECONDS", 0.01)
     settings = replace(
         settings,
         earnings_enabled=True,
@@ -491,7 +491,7 @@ async def test_monitor_selects_active_streamer_and_switches(
 async def test_monitor_writes_overlay_and_clears_on_inactive(
     settings, monkeypatch
 ) -> None:
-    monkeypatch.setattr("app.earnings.EARNINGS_RENDER_INTERVAL_SECONDS", 0.01)
+    monkeypatch.setattr("app.earnings_monitor.EARNINGS_RENDER_INTERVAL_SECONDS", 0.01)
     settings = replace(
         settings,
         earnings_enabled=True,
@@ -523,7 +523,7 @@ async def test_monitor_writes_overlay_and_clears_on_inactive(
 async def test_monitor_overlay_text_works_without_standalone_overlay(
     settings, monkeypatch
 ) -> None:
-    monkeypatch.setattr("app.earnings.EARNINGS_RENDER_INTERVAL_SECONDS", 0.01)
+    monkeypatch.setattr("app.earnings_monitor.EARNINGS_RENDER_INTERVAL_SECONDS", 0.01)
     settings = replace(
         settings,
         earnings_enabled=True,
@@ -547,7 +547,7 @@ async def test_monitor_overlay_text_works_without_standalone_overlay(
 
 
 async def test_monitor_keeps_last_values_on_error(settings, monkeypatch) -> None:
-    monkeypatch.setattr("app.earnings.EARNINGS_RENDER_INTERVAL_SECONDS", 0.01)
+    monkeypatch.setattr("app.earnings_monitor.EARNINGS_RENDER_INTERVAL_SECONDS", 0.01)
     settings = replace(
         settings,
         earnings_enabled=True,
@@ -574,7 +574,7 @@ async def test_monitor_keeps_last_values_on_error(settings, monkeypatch) -> None
 
 
 async def test_monitor_reports_missing_streamer(settings, monkeypatch) -> None:
-    monkeypatch.setattr("app.earnings.EARNINGS_RENDER_INTERVAL_SECONDS", 0.01)
+    monkeypatch.setattr("app.earnings_monitor.EARNINGS_RENDER_INTERVAL_SECONDS", 0.01)
     settings = replace(
         settings,
         earnings_enabled=True,
@@ -599,7 +599,7 @@ async def test_monitor_reports_missing_streamer(settings, monkeypatch) -> None:
 async def test_monitor_does_not_fetch_without_active_streamer(
     settings, monkeypatch
 ) -> None:
-    monkeypatch.setattr("app.earnings.EARNINGS_RENDER_INTERVAL_SECONDS", 0.01)
+    monkeypatch.setattr("app.earnings_monitor.EARNINGS_RENDER_INTERVAL_SECONDS", 0.01)
     settings = replace(
         settings,
         earnings_enabled=True,
@@ -618,7 +618,7 @@ async def test_monitor_does_not_fetch_without_active_streamer(
 async def test_monitor_does_not_fetch_when_disabled(
     settings, monkeypatch
 ) -> None:
-    monkeypatch.setattr("app.earnings.EARNINGS_RENDER_INTERVAL_SECONDS", 0.01)
+    monkeypatch.setattr("app.earnings_monitor.EARNINGS_RENDER_INTERVAL_SECONDS", 0.01)
     settings = replace(
         settings,
         earnings_enabled=False,
