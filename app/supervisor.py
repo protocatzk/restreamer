@@ -576,6 +576,12 @@ class Supervisor:
             streamer, playlist_mode=playlist_mode, playlist=playlist
         )
 
+        # Check if the output context (YouTube key or ffmpeg args) changes
+        output_context_changed = (
+            key != self._output_key_value
+            or tuple(streamer.ffmpeg_args) != self._output_args
+        )
+
         async with self._lock:
             if not preferred_switch:
                 self._playlist.preferred_return = None
@@ -597,7 +603,8 @@ class Supervisor:
                 and key == self._output_key_value
                 and self._output_task is not None
             )
-            await self._stop_locked()
+            # Only stop output if context changes
+            await self._stop_locked(stop_output=output_context_changed)
             if not preserve_delay:
                 self._reset_delay_buffer(True)
 
@@ -615,8 +622,6 @@ class Supervisor:
             self._sessions = 0
             self._output_sessions = 0
             self._output_error = ""
-            self._output_key_value = key
-            self._output_args = tuple(streamer.ffmpeg_args)
             self._stream_epoch_monotonic = self._clock.monotonic()
             self._last_pipe_offset_end = 0.0
             self._pipe_offset_started = None
@@ -636,9 +641,13 @@ class Supervisor:
             self._overlays.reset_warnings()
             self._start_chat(streamer)
 
-            self._output_task = asyncio.create_task(
-                self._output_loop(key), name=f"youtube-output-{streamer.id}"
-            )
+            # Only restart output if context changed or no output is running
+            if output_context_changed or self._output_task is None:
+                self._output_key_value = key
+                self._output_args = tuple(streamer.ffmpeg_args)
+                self._output_task = asyncio.create_task(
+                    self._output_loop(key), name=f"youtube-output-{streamer.id}"
+                )
 
             if (
                 bridge_pause
@@ -846,13 +855,14 @@ class Supervisor:
     async def shutdown(self) -> None:
         await self.stop()
 
-    async def _stop_locked(self, *, reset_delay: bool = False) -> None:
+    async def _stop_locked(self, *, reset_delay: bool = False, stop_output: bool = True) -> None:
         await self._cancel_playlist_end()
         task = self._task
         if task is None:
             await self._stop_chat()
-            await self._stop_pause()
-            await self._stop_output()
+            if stop_output:
+                await self._stop_pause()
+                await self._stop_output()
             self._reset_session()
             self._reset_delay_buffer(reset_delay)
             return
@@ -882,8 +892,9 @@ class Supervisor:
         self._task = None
         self._proc = None
         await self._stop_chat()
-        await self._stop_pause()
-        await self._stop_output()
+        if stop_output:
+            await self._stop_pause()
+            await self._stop_output()
         self._reset_session()
         self._reset_delay_buffer(reset_delay)
 
@@ -1181,7 +1192,15 @@ class Supervisor:
             key != self._output_key_value
             or tuple(streamer.ffmpeg_args) != self._output_args
         ):
-            await self._restart_output(key, streamer)
+            if self._output_task is not None:
+                await self._restart_output(key, streamer)
+            else:
+                # Output not running - start directly
+                self._output_key_value = key
+                self._output_args = tuple(streamer.ffmpeg_args)
+                self._output_task = asyncio.create_task(
+                    self._output_loop(key), name=f"youtube-output-{streamer.id}"
+                )
 
     async def _restart_output(
         self, key: str, streamer: StreamerConfig
