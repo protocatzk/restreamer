@@ -11,7 +11,13 @@ from __future__ import annotations
 
 import asyncio
 import time
+from datetime import UTC, datetime
 from typing import Protocol
+
+
+def utc_now_iso() -> str:
+    """Current UTC timestamp in the format used by status payloads."""
+    return datetime.now(UTC).isoformat(timespec="seconds")
 
 
 class Clock(Protocol):

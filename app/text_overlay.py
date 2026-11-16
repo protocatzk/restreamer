@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from app.ffmpeg_filters import quote_filter_value, scaled_font_size
 from app.pause import find_pause_font
 from app.settings import Settings
 
@@ -19,11 +20,6 @@ def _clean_text(value: str) -> str:
     text = _CONTROL_RE.sub(" ", value or "")
     text = text.replace("\r", " ").replace("\n", " ").replace("\t", " ")
     return _WHITESPACE_RE.sub(" ", text).strip()
-
-
-def _quote_filter_value(value: str) -> str:
-    escaped = value.replace("\\", "\\\\").replace("'", "\\'")
-    return f"'{escaped}'"
 
 
 def text_overlay_path(settings: Settings) -> Path:
@@ -60,8 +56,11 @@ def build_text_overlay_filter(settings: Settings) -> str | None:
         return None
 
     width = settings.output_width
-    font_size = settings.text_overlay_font_size or max(
-        20, round(width * TEXT_OVERLAY_DEFAULT_FONT_RATIO)
+    font_size = scaled_font_size(
+        settings.text_overlay_font_size,
+        width,
+        TEXT_OVERLAY_DEFAULT_FONT_RATIO,
+        20,
     )
     margin = max(16, round(width * 0.033))
     box_border = max(8, round(font_size * 0.35))
@@ -84,8 +83,8 @@ def build_text_overlay_filter(settings: Settings) -> str | None:
 
     return (
         "drawtext="
-        f"fontfile={_quote_filter_value(font)}:"
-        f"textfile={_quote_filter_value(str(path))}:"
+        f"fontfile={quote_filter_value(font)}:"
+        f"textfile={quote_filter_value(str(path))}:"
         "expansion=none:"
         "fontcolor=white:"
         f"fontsize={font_size}:"

@@ -1,15 +1,11 @@
 from __future__ import annotations
 
 from app import __version__
+from app.ffmpeg_filters import quote_filter_value
 from app.pause import find_pause_font
 from app.settings import Settings
 
 VERSION_DEFAULT_FONT_RATIO = 0.022
-
-
-def _quote_filter_value(value: str) -> str:
-    escaped = value.replace("\\", "\\\\").replace("'", "\\'")
-    return f"'{escaped}'"
 
 
 def build_version_filter(
@@ -30,8 +26,8 @@ def build_version_filter(
 
     return (
         "drawtext="
-        f"fontfile={_quote_filter_value(font)}:"
-        f"text={_quote_filter_value(label)}:"
+        f"fontfile={quote_filter_value(font)}:"
+        f"text={quote_filter_value(label)}:"
         "expansion=none:"
         "fontcolor=white@0.90:"
         f"fontsize={font_size}:"

@@ -3,14 +3,12 @@ from __future__ import annotations
 from collections import deque
 from collections.abc import Iterable
 
+from app.redaction import redact as _redact
+
 
 def redact(text: str, secrets: Iterable[str]) -> str:
     """Remove known secret values from a string before it is logged or exposed."""
-    result = str(text)
-    for secret in secrets:
-        if secret and len(secret) >= 4:
-            result = result.replace(secret, "***")
-    return result
+    return _redact(text, secrets)
 
 
 class RingLog:

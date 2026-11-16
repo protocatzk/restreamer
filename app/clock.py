@@ -1,14 +1,10 @@
 from __future__ import annotations
 
+from app.ffmpeg_filters import quote_filter_value, scaled_font_size
 from app.pause import find_pause_font
 from app.settings import Settings
 
 CLOCK_DEFAULT_FONT_RATIO = 0.026
-
-
-def _quote_filter_value(value: str) -> str:
-    escaped = value.replace("\\", "\\\\").replace("'", "\\'")
-    return f"'{escaped}'"
 
 
 def _clock_text(show_seconds: bool) -> str:
@@ -26,8 +22,8 @@ def build_clock_filter(settings: Settings) -> str | None:
         return None
 
     width = settings.output_width
-    font_size = settings.clock_font_size or max(
-        18, round(width * CLOCK_DEFAULT_FONT_RATIO)
+    font_size = scaled_font_size(
+        settings.clock_font_size, width, CLOCK_DEFAULT_FONT_RATIO, 18
     )
     margin = max(16, round(width * 0.033))
     box_border = max(10, round(font_size * 0.45))
@@ -38,7 +34,7 @@ def build_clock_filter(settings: Settings) -> str | None:
 
     return (
         "drawtext="
-        f"fontfile={_quote_filter_value(font)}:"
+        f"fontfile={quote_filter_value(font)}:"
         f"text='{_clock_text(settings.clock_show_seconds)}':"
         "fontcolor=white:"
         f"fontsize={font_size}:"

@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from app.ffmpeg_cmd import build_relay_source_url, multiply_bitrate
+from app.ffmpeg_filters import quote_filter_value
 from app.settings import Settings
 
 PAUSE_TEXT_FILENAME = "pause-screen-text.txt"
@@ -32,12 +33,6 @@ def find_pause_font(explicit: str = "") -> str | None:
         if path.is_file():
             return str(path)
     return None
-
-
-def _filter_quote(value: str) -> str:
-    """Quote a value for an ffmpeg filtergraph option."""
-    escaped = value.replace("\\", "\\\\").replace("'", "\\'")
-    return f"'{escaped}'"
 
 
 def _normalize_color(value: str) -> str:
@@ -99,13 +94,13 @@ def build_pause_command(
 
     font = find_pause_font(settings.pause_screen_font)
     if font is not None:
-        fontfile = _filter_quote(font)
+        fontfile = quote_filter_value(font)
         filters = []
         if settings.pause_screen_text.strip():
             filters.append(
                 "drawtext="
                 f"fontfile={fontfile}"
-                f":textfile={_filter_quote(str(text_path))}"
+                f":textfile={quote_filter_value(str(text_path))}"
                 f":fontcolor=white:fontsize={font_size}"
                 ":x=(w-text_w)/2:y=(h-text_h)/2-70"
                 ":shadowcolor=black@0.6:shadowx=3:shadowy=3"
@@ -114,7 +109,7 @@ def build_pause_command(
             filters.append(
                 "drawtext="
                 f"fontfile={fontfile}"
-                f":textfile={_filter_quote(str(subtext_path))}"
+                f":textfile={quote_filter_value(str(subtext_path))}"
                 f":fontcolor=0xB8C0CC:fontsize={subtext_size}"
                 ":x=(w-text_w)/2:y=(h-text_h)/2+70"
                 ":shadowcolor=black@0.6:shadowx=2:shadowy=2"

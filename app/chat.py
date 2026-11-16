@@ -16,8 +16,10 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Protocol
 
+from app.ffmpeg_filters import quote_filter_value
 from app.handles import normalize_handle
 from app.pause import find_pause_font
+from app.redaction import redact_value as _redact
 from app.settings import Settings
 
 logger = logging.getLogger(__name__)
@@ -258,11 +260,6 @@ def ensure_chat_overlay_file(settings: Settings) -> Path:
     return path
 
 
-def _quote_filter_value(value: str) -> str:
-    escaped = value.replace("\\", "\\\\").replace("'", "\\'")
-    return f"'{escaped}'"
-
-
 def chat_margin(settings: Settings) -> int:
     return max(16, round(settings.output_width * 0.033))
 
@@ -310,8 +307,8 @@ def build_overlay_filter(settings: Settings) -> str | None:
 
     return (
         "drawtext="
-        f"fontfile={_quote_filter_value(font)}:"
-        f"textfile={_quote_filter_value(str(path))}:"
+        f"fontfile={quote_filter_value(font)}:"
+        f"textfile={quote_filter_value(str(path))}:"
         "expansion=none:reload=1:"
         "fontcolor=white:"
         f"fontsize={font_size}:"
@@ -551,12 +548,6 @@ class ChatOverlay:
                 logger.warning(
                     "Chat-Overlay konnte nicht geschrieben werden: %s", exc
                 )
-
-
-def _redact(value: str, secret: str = "") -> str:
-    if secret:
-        value = value.replace(secret, "***")
-    return re.sub(r"(api_key=)[^&\s]+", r"\1***", value)
 
 
 def _safe_source(url: str) -> str:
