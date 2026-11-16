@@ -1,0 +1,16 @@
+# Optional deployment-specific settings (reverse proxy, extra networks).
+# Copy to docker-compose.override.yml and adjust the values:
+#   cp docker-compose.override.example.yml docker-compose.override.yml
+services:
+  restreamer:
+    environment:
+      VIRTUAL_HOST: restreamer.example.com
+      VIRTUAL_PORT: "8000"
+      LETSENCRYPT_HOST: restreamer.example.com
+      LETSENCRYPT_EMAIL: admin@example.com
+    networks:
+      toktrackerapp_toktracker_net:
+
+networks:
+  toktrackerapp_toktracker_net:
+    external: true

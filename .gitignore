@@ -14,6 +14,9 @@ venv/
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
+.coverage
+.coverage.*
+htmlcov/
 *.egg-info/
 dist/
 build/
@@ -22,3 +25,9 @@ build/
 .idea/
 .vscode/
 .DS_Store
+
+# Deployment-specific compose settings
+docker-compose.override.yml
+
+# Local font assets (mounted read-only in compose)
+fonts/
