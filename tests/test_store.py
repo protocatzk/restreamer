@@ -769,3 +769,26 @@ def test_build_quick_streamers_supports_env_key() -> None:
 def test_build_quick_streamers_requires_key() -> None:
     with pytest.raises(ConfigError, match="YouTube-Key"):
         build_quick_streamers(["alice"])
+
+
+def test_build_streamer_sets_asr_watchlist(tmp_path: Path) -> None:
+    streamer = build_streamer(
+        {
+            "id": "alice",
+            "name": "Alice",
+            "tiktok": "alice",
+            "youtube_key": "alice-key",
+            "asr_watchlist": "Guck ma\nDreck",
+        }
+    )
+
+    assert streamer.asr_watchlist == "Guck ma\nDreck"
+
+    cleared = build_streamer({"asr_watchlist": ""}, existing=streamer)
+    assert cleared.asr_watchlist == ""
+
+    path = tmp_path / "streamers.yml"
+    StreamerStore(path).save([streamer])
+    loaded = StreamerStore(path).get("alice")
+    assert loaded is not None
+    assert loaded.asr_watchlist == "Guck ma\nDreck"

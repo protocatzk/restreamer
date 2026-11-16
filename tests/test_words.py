@@ -3,7 +3,13 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from app.words import WordCount, WordTracker, parse_watchlist, write_watchlist
+from app.words import (
+    WordCount,
+    WordTracker,
+    parse_watchlist,
+    write_active_streamer,
+    write_watchlist,
+)
 
 
 def test_parse_watchlist_accepts_lines_commas_and_quotes() -> None:
@@ -24,6 +30,21 @@ def test_write_watchlist_writes_atomic_json(tmp_path: Path) -> None:
     assert payload["updated_at"]
 
 
+def test_write_active_streamer_writes_id_and_watchlist(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "asr-active.json"
+
+    write_active_streamer(
+        path, "marco_1986", "marco..1986", "Guck ma\nDreck"
+    )
+
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    assert payload["streamer_id"] == "marco_1986"
+    assert payload["streamer_name"] == "marco..1986"
+    assert payload["watchlist"] == ["guck ma", "dreck"]
+
+
 def test_word_tracker_reads_and_limits(tmp_path: Path) -> None:
     path = tmp_path / "asr-words.json"
     path.write_text(
@@ -32,6 +53,8 @@ def test_word_tracker_reads_and_limits(tmp_path: Path) -> None:
                 "updated_at": "2026-11-16T10:00:00+00:00",
                 "window_seconds": 600,
                 "total": 3,
+                "streamer_id": "marco_1986",
+                "streamer_name": "marco..1986",
                 "words": [
                     {"word": "dreck", "count": 1},
                     {"word": "guck ma", "count": 2},
@@ -47,6 +70,8 @@ def test_word_tracker_reads_and_limits(tmp_path: Path) -> None:
     assert stats.total == 3
     assert stats.updated_at == "2026-11-16T10:00:00+00:00"
     assert stats.window_seconds == 600
+    assert stats.streamer_id == "marco_1986"
+    assert stats.streamer_name == "marco..1986"
     assert tracker.top(1) == (WordCount("guck ma", 2),)
 
 

@@ -435,6 +435,7 @@ ASR_TAP_ENABLED=true
 ASR_WATCHLIST=Guck ma,Dreck,Ich
 ASR_WINDOW_SECONDS=600
 ASR_COUNTS_PATH=/app/data/asr-counts.json
+ASR_ACTIVE_FILE=/app/data/asr-active.json
 CHAT_OVERLAY_SHOW_WORDS=true
 CHAT_OVERLAY_WORDS_TOP=3             # 1-10, mehrzeilig bei vielen Treffern
 ```
@@ -445,26 +446,49 @@ Starten:
 docker compose --profile asr up -d
 ```
 
-Die Watchlist lässt sich im Dashboard unter **Wort-Tracker (Vosk)** bearbeiten –
-ein Wort oder eine Phrase pro Zeile, Kommas sind ebenfalls erlaubt. Änderungen
-werden ohne Neustart übernommen. Groß-/Kleinschreibung wird ignoriert, Phrasen
-mit Leerzeichen sind möglich. Für „Guck ma“ ggf. zusätzlich „Guck mal“ als
-Variante eintragen. Die Watchlist fasst bis zu **200 Einträge** (je bis 120
-Zeichen). Die Anzeige zeigt **1–10 Top-Wörter** und bricht bei Bedarf auf bis
-zu drei Zeilen um.
+Die Watchlist lässt sich **pro Streamer** im Bearbeiten-Dialog des Dashboards
+setzen; die globale Liste unter **Wort-Tracker (Vosk)** ist der Fallback für
+Streamer ohne eigene Liste. Ein Wort oder eine Phrase pro Zeile, Kommas sind
+ebenfalls erlaubt. Änderungen werden ohne Neustart übernommen. Groß-/
+Kleinschreibung wird ignoriert, Phrasen mit Leerzeichen sind möglich. Für
+„Guck ma“ ggf. zusätzlich „Guck mal“ als Variante eintragen. Die Watchlist
+fasst bis zu **200 Einträge** (je bis 120 Zeichen). Die Anzeige zeigt
+**1–10 Top-Wörter** und bricht bei Bedarf auf bis zu drei Zeilen um.
 
-Die Zähler sind **kumulativ und persistent**: Der Worker schreibt sie laufend
-nach `data/asr-counts.json`. Ein Neustart des ASR-Containers setzt sie nicht
-zurück. Entfernte Watchlist-Wörter verschwinden aus der Anzeige, behalten ihren
-Zähler aber in der Datei und erscheinen beim erneuten Hinzufügen wieder.
-Neu hinzugekommene Wörter starten bei null.
+In `config/streamers.yml` sieht eine eigene Liste so aus:
 
-Zähler zurücksetzen:
+```yaml
+streamers:
+  - id: alice
+    name: Alice
+    tiktok: alice
+    youtube_key_env: ALICE_YT_KEY
+    asr_watchlist: |-
+      Guck ma
+      Dreck
+      Ich
+```
+
+Die Zähler sind **pro Streamer, kumulativ und persistent**: Der Worker schreibt
+sie laufend nach `data/asr-counts.json` (`streamers` → `totals`). Beim
+Senderwechsel wird nach dem Relay-Delay auf die Zähler des neuen Streamers
+umgeschaltet, damit die Zuordnung zum verzögerten Audio passt. Ein Neustart des
+ASR-Containers setzt sie nicht zurück. Entfernte Watchlist-Wörter verschwinden
+aus der Anzeige, behalten ihren Zähler aber in der Datei und erscheinen beim
+erneuten Hinzufügen wieder. Neu hinzugekommene Wörter starten bei null.
+
+Der aktive Streamer und seine aufgelöste Watchlist stehen in
+`data/asr-active.json`.
+
+Zähler zurücksetzen (alle Streamer):
 
 ```bash
 rm data/asr-counts.json
 docker compose --profile asr restart asr
 ```
+
+Für einen einzelnen Streamer den Eintrag unter `streamers` in
+`data/asr-counts.json` entfernen und den ASR-Container neu starten.
 
 Eigenschaften:
 

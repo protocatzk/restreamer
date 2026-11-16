@@ -28,6 +28,7 @@ class StreamerConfig:
     own_stream: bool = False
     ytdlp_args: tuple[str, ...] = ()
     ffmpeg_args: tuple[str, ...] = ()
+    asr_watchlist: str = ""
 
     @property
     def live_url(self) -> str:

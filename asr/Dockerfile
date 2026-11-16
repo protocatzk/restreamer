@@ -6,6 +6,7 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     ASR_MODEL_PATH=/models/vosk-model-small-de-0.15 \
     ASR_WATCHLIST_FILE=/app/data/asr-watchlist.json \
+    ASR_ACTIVE_FILE=/app/data/asr-active.json \
     ASR_OUTPUT_PATH=/app/data/asr-words.json
 
 RUN apt-get update \

@@ -9,6 +9,7 @@ from pathlib import Path
 import yaml
 
 from app.models import PlaylistConfig, StreamerConfig
+from app.settings import ASR_WATCHLIST_MAX_LENGTH
 
 logger = logging.getLogger(__name__)
 
@@ -259,6 +260,7 @@ def _parse_streamer(raw: dict, index: int) -> StreamerConfig:
         own_stream=_parse_bool(raw.get("own_stream"), False),
         ytdlp_args=_parse_args(raw.get("ytdlp_args")),
         ffmpeg_args=_parse_args(raw.get("ffmpeg_args")),
+        asr_watchlist=str(raw.get("asr_watchlist", "") or "").strip(),
     )
 
 
@@ -457,6 +459,11 @@ def _validate_streamers(streamers: list[StreamerConfig]) -> None:
             raise ConfigError(
                 f"Streamer {streamer.id}: youtube_key oder youtube_key_env fehlt"
             )
+        if len(streamer.asr_watchlist) > ASR_WATCHLIST_MAX_LENGTH:
+            raise ConfigError(
+                f"Streamer {streamer.id}: asr_watchlist darf höchstens "
+                f"{ASR_WATCHLIST_MAX_LENGTH} Zeichen lang sein"
+            )
 
 
 def _validate_playlist(
@@ -568,6 +575,7 @@ def build_streamer(
         own_stream=_parse_bool(pick("own_stream", False), False),
         ytdlp_args=_coerce_args(pick("ytdlp_args", ()), "ytdlp_args"),
         ffmpeg_args=_coerce_args(pick("ffmpeg_args", ()), "ffmpeg_args"),
+        asr_watchlist=str(pick("asr_watchlist", "") or "").strip(),
     )
     _validate_streamers([streamer])
     return streamer
@@ -690,6 +698,8 @@ def streamers_to_document(
             entry["ytdlp_args"] = list(streamer.ytdlp_args)
         if streamer.ffmpeg_args:
             entry["ffmpeg_args"] = list(streamer.ffmpeg_args)
+        if streamer.asr_watchlist:
+            entry["asr_watchlist"] = streamer.asr_watchlist
         entries.append(entry)
 
     document: dict[str, object] = {}

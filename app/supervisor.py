@@ -672,6 +672,7 @@ class Supervisor:
             "preferred": cfg.preferred,
             "own_stream": cfg.own_stream,
             "youtube_key_env": cfg.youtube_key_env,
+            "asr_watchlist": cfg.asr_watchlist,
             "key_configured": key_source != "missing",
             "key_source": key_source,
             "active": cfg.id == self._active_id,
@@ -1245,9 +1246,21 @@ class Supervisor:
     def words_status(self) -> dict:
         """Return the current ASR word statistics for the dashboard."""
         stats = self._words.read()
+        active = (
+            self.store.get(self._active_id)
+            if self._active_id is not None
+            else None
+        )
+        watchlist = ""
+        if active is not None:
+            watchlist = (
+                active.asr_watchlist
+                if active.asr_watchlist.strip()
+                else self.settings.asr_watchlist
+            )
         return {
             "enabled": self.settings.asr_tap_enabled,
-            "watchlist": parse_watchlist(self.settings.asr_watchlist),
+            "watchlist": parse_watchlist(watchlist),
             "words": [
                 {"word": item.word, "count": item.count}
                 for item in stats.words
@@ -1255,6 +1268,8 @@ class Supervisor:
             "total": stats.total,
             "updated_at": stats.updated_at,
             "window_seconds": stats.window_seconds,
+            "streamer_id": stats.streamer_id,
+            "streamer_name": stats.streamer_name,
         }
 
     def _legacy_overlay_filters(self, *, include_chat: bool = True) -> list[str]:

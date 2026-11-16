@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import logging
 import secrets
-from contextlib import asynccontextmanager
+import time
+from contextlib import asynccontextmanager, suppress
 from dataclasses import replace
 from pathlib import Path
 from urllib.parse import quote, urlsplit
@@ -41,7 +43,7 @@ from app.supervisor import (
     Supervisor,
 )
 from app.telegram_bot import RestreamerBot
-from app.words import write_watchlist
+from app.words import parse_watchlist, write_active_streamer, write_watchlist
 
 logger = logging.getLogger(__name__)
 
@@ -210,6 +212,62 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         await delay_buffer.start()
 
+        async def _asr_active_loop() -> None:
+            applied: tuple[str, str, tuple[str, ...]] | None = None
+            pending: (
+                tuple[tuple[str, str, tuple[str, ...]], float] | None
+            ) = None
+            while True:
+                active_id = supervisor.active_id
+                streamer = store.get(active_id) if active_id else None
+                if streamer is not None:
+                    name = streamer.name
+                    watchlist = (
+                        streamer.asr_watchlist
+                        if streamer.asr_watchlist.strip()
+                        else settings.asr_watchlist
+                    )
+                else:
+                    name = ""
+                    watchlist = ""
+                descriptor = (
+                    active_id or "",
+                    name,
+                    tuple(parse_watchlist(watchlist)),
+                )
+                if descriptor == applied:
+                    pending = None
+                elif pending is None or pending[0] != descriptor:
+                    delay = 0.0
+                    if (
+                        applied is not None
+                        and applied[0]
+                        and settings.relay_delay_seconds > 0
+                    ):
+                        delay = float(settings.relay_delay_seconds)
+                    pending = (descriptor, time.monotonic() + delay)
+                if pending is not None and time.monotonic() >= pending[1]:
+                    applied = pending[0]
+                    try:
+                        write_active_streamer(
+                            settings.asr_active_file,
+                            applied[0],
+                            applied[1],
+                            "\n".join(applied[2]),
+                        )
+                    except OSError:
+                        logger.warning(
+                            "ASR-Active-Datei konnte nicht geschrieben "
+                            "werden",
+                            exc_info=True,
+                        )
+                    pending = None
+                await asyncio.sleep(0.5)
+
+        asr_state_task = asyncio.create_task(
+            _asr_active_loop(), name="asr-active-state"
+        )
+
         if settings.auto_start:
             for candidate in store.streamers:
                 if candidate.enabled and candidate.auto_start:
@@ -226,6 +284,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         yield
 
+        asr_state_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await asr_state_task
         await telegram_bot.stop()
         await online_monitor.stop()
         await earnings_monitor.stop()

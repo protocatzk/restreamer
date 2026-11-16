@@ -35,6 +35,7 @@ def settings(tmp_path: Path) -> Settings:
         cookies_file=tmp_path / "cookies.txt",
         asr_watchlist_file=tmp_path / "asr-watchlist.json",
         asr_words_file=tmp_path / "asr-words.json",
+        asr_active_file=tmp_path / "asr-active.json",
         offline_poll_seconds=1,
         backoff_initial_seconds=1,
         backoff_max_seconds=2,

@@ -242,6 +242,7 @@ class Settings:
     cookies_file: Path = Path("/app/data/cookies.txt")
     asr_watchlist_file: Path = Path("/app/data/asr-watchlist.json")
     asr_words_file: Path = Path("/app/data/asr-words.json")
+    asr_active_file: Path = Path("/app/data/asr-active.json")
     runtime_file: Path = Path("/app/config/settings.yml")
 
     dashboard_password: str = ""
@@ -410,6 +411,11 @@ class Settings:
             asr_words_file=Path(
                 os.getenv(
                     "ASR_WORDS_FILE", "/app/data/asr-words.json"
+                )
+            ).expanduser(),
+            asr_active_file=Path(
+                os.getenv(
+                    "ASR_ACTIVE_FILE", "/app/data/asr-active.json"
                 )
             ).expanduser(),
             runtime_file=runtime_file,
@@ -605,6 +611,7 @@ class Settings:
             "cookies_file",
             "asr_watchlist_file",
             "asr_words_file",
+            "asr_active_file",
         }:
             setattr(self, key, getattr(other, key))
 
@@ -890,6 +897,7 @@ class Settings:
                 "cookies_file_present": self.cookies_file.exists(),
                 "asr_watchlist_file": str(self.asr_watchlist_file),
                 "asr_words_file": str(self.asr_words_file),
+                "asr_active_file": str(self.asr_active_file),
             }
         )
         return data

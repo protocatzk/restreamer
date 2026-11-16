@@ -1072,6 +1072,7 @@ function openStreamerDialog(streamer = null) {
     streamerForm.elements.preferred.checked = Boolean(streamer.preferred);
     streamerForm.elements.own_stream.checked = Boolean(streamer.own_stream);
     streamerForm.elements.youtube_key_env.value = streamer.youtube_key_env || "";
+    streamerForm.elements.asr_watchlist.value = streamer.asr_watchlist || "";
     streamerForm.elements.youtube_key.value = "";
 
     const hint =
@@ -1119,6 +1120,7 @@ streamerForm.addEventListener("submit", async (event) => {
     youtube_key_env: elements.youtube_key_env.value.trim(),
     ytdlp_args: linesToArray(elements.ytdlp_args.value),
     ffmpeg_args: linesToArray(elements.ffmpeg_args.value),
+    asr_watchlist: elements.asr_watchlist.value,
   };
 
   if (elements.youtube_key.value.trim()) {

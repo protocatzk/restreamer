@@ -26,6 +26,8 @@ class WordStats:
     total: int = 0
     updated_at: str = ""
     window_seconds: float = 0.0
+    streamer_id: str = ""
+    streamer_name: str = ""
 
 
 def normalize_text(value: str) -> str:
@@ -58,6 +60,27 @@ def write_watchlist(path: Path, raw: str) -> None:
     payload = {
         "updated_at": datetime.now(UTC).isoformat(timespec="seconds"),
         "words": words,
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(
+        json.dumps(payload, ensure_ascii=False), encoding="utf-8"
+    )
+    os.replace(tmp, path)
+
+
+def write_active_streamer(
+    path: Path,
+    streamer_id: str,
+    streamer_name: str,
+    watchlist: str,
+) -> None:
+    """Write the currently active streamer and its resolved watchlist."""
+    payload = {
+        "updated_at": datetime.now(UTC).isoformat(timespec="seconds"),
+        "streamer_id": str(streamer_id or "").strip(),
+        "streamer_name": str(streamer_name or "").strip(),
+        "watchlist": parse_watchlist(watchlist),
     }
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + ".tmp")
@@ -119,6 +142,8 @@ class WordTracker:
             total=sum(item.count for item in items),
             updated_at=str(payload.get("updated_at", "")),
             window_seconds=window,
+            streamer_id=str(payload.get("streamer_id", "")),
+            streamer_name=str(payload.get("streamer_name", "")),
         )
         return self._stats
 

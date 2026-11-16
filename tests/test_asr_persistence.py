@@ -1,25 +1,40 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
-from asr.counter import PhraseCounter
-from asr.worker import _load_totals, _write_counts
+from asr.worker import _load_counts, _write_counts
 
 
-def test_counts_roundtrip_preserves_removed_words(tmp_path: Path) -> None:
+def test_counts_roundtrip_preserves_streamers(tmp_path: Path) -> None:
     path = tmp_path / "asr-counts.json"
-    counter = PhraseCounter(
-        ["guck ma", "dreck"],
-        window_seconds=600,
-        totals={"ich": 5},
+    counts = {
+        "marco_1986": {"guck ma": 7, "dreck": 3},
+        "supergirl0584": {"ich": 12},
+    }
+
+    _write_counts(path, counts)
+
+    assert _load_counts(path) == counts
+
+
+def test_legacy_global_counts_are_migrated(tmp_path: Path) -> None:
+    path = tmp_path / "asr-counts.json"
+    path.write_text(
+        json.dumps(
+            {
+                "updated_at": "2026-11-16T10:00:00+00:00",
+                "totals": {"ich": 5, "guck ma": 2},
+                "watchlist": ["ich", "guck ma"],
+            }
+        ),
+        encoding="utf-8",
     )
-    counter.add_words(["guck", "ma", "dreck"], now=1.0)
 
-    _write_counts(path, counter, ["guck ma", "dreck"])
+    counts = _load_counts(path)
 
-    totals = _load_totals(path)
-    assert totals == {"ich": 5, "guck ma": 1, "dreck": 1}
+    assert counts == {"__legacy__": {"ich": 5, "guck ma": 2}}
 
 
 def test_missing_counts_file_is_empty(tmp_path: Path) -> None:
-    assert _load_totals(tmp_path / "missing.json") == {}
+    assert _load_counts(tmp_path / "missing.json") == {}

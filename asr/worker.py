@@ -28,6 +28,7 @@ DEFAULT_MODEL_PATH = "/models/vosk-model-small-de-0.15"
 DEFAULT_WATCHLIST_FILE = "/app/data/asr-watchlist.json"
 DEFAULT_OUTPUT_PATH = "/app/data/asr-words.json"
 DEFAULT_COUNTS_PATH = "/app/data/asr-counts.json"
+DEFAULT_ACTIVE_FILE = "/app/data/asr-active.json"
 
 
 def _env_int(name: str, default: int) -> int:
@@ -65,17 +66,11 @@ def _mtime(path: Path) -> int | None:
         return None
 
 
-def _load_totals(path: Path) -> dict[str, int]:
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError, TypeError):
-        return {}
-    if isinstance(payload, dict):
-        payload = payload.get("totals")
-    if not isinstance(payload, dict):
+def _parse_totals(raw: object) -> dict[str, int]:
+    if not isinstance(raw, dict):
         return {}
     totals: dict[str, int] = {}
-    for word, count in payload.items():
+    for word, count in raw.items():
         try:
             value = int(count)
         except (TypeError, ValueError):
@@ -85,13 +80,32 @@ def _load_totals(path: Path) -> dict[str, int]:
     return totals
 
 
-def _write_counts(
-    path: Path, counter: PhraseCounter, watchlist: list[str]
-) -> None:
+def _load_counts(path: Path) -> dict[str, dict[str, int]]:
+    """Load per-streamer totals, migrating the old global format."""
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    streamers = payload.get("streamers")
+    if isinstance(streamers, dict):
+        result: dict[str, dict[str, int]] = {}
+        for streamer_id, entry in streamers.items():
+            totals = entry.get("totals") if isinstance(entry, dict) else entry
+            result[str(streamer_id)] = _parse_totals(totals)
+        return result
+    totals = _parse_totals(payload.get("totals"))
+    return {"__legacy__": totals} if totals else {}
+
+
+def _write_counts(path: Path, counts: dict[str, dict[str, int]]) -> None:
     payload = {
         "updated_at": datetime.now(UTC).isoformat(timespec="seconds"),
-        "totals": dict(counter.totals),
-        "watchlist": watchlist,
+        "streamers": {
+            str(streamer_id): {"totals": dict(totals)}
+            for streamer_id, totals in counts.items()
+        },
     }
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + ".tmp")
@@ -101,11 +115,44 @@ def _write_counts(
     os.replace(tmp, path)
 
 
+def _read_active(
+    active_path: Path,
+    watchlist_path: Path,
+    fallback_watchlist: str,
+    fallback_id: str,
+) -> tuple[str, str, list[str]]:
+    try:
+        payload = json.loads(active_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return (
+            fallback_id,
+            "",
+            _read_watchlist(watchlist_path, fallback_watchlist),
+        )
+    if isinstance(payload, dict):
+        streamer_id = str(payload.get("streamer_id", "")).strip()
+        streamer_name = str(payload.get("streamer_name", "")).strip()
+        raw = payload.get("watchlist")
+        if isinstance(raw, list):
+            return (
+                streamer_id,
+                streamer_name,
+                parse_watchlist([str(item) for item in raw]),
+            )
+    return (
+        fallback_id,
+        "",
+        _read_watchlist(watchlist_path, fallback_watchlist),
+    )
+
+
 def _write_output(
     path: Path,
     counter: PhraseCounter,
     watchlist: list[str],
     model_name: str,
+    streamer_id: str = "",
+    streamer_name: str = "",
 ) -> None:
     payload = counter.snapshot(time.monotonic())
     payload.update(
@@ -113,6 +160,8 @@ def _write_output(
             "updated_at": datetime.now(UTC).isoformat(timespec="seconds"),
             "watchlist": watchlist,
             "source": model_name,
+            "streamer_id": streamer_id,
+            "streamer_name": streamer_name,
         }
     )
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -138,34 +187,70 @@ def _pump(
     stream,
     model,
     watchlist_path: Path,
+    active_path: Path,
     fallback_watchlist: str,
+    fallback_id: str,
     output_path: Path,
     counts_path: Path,
     window_seconds: float,
     model_name: str,
 ) -> None:
-    totals = _load_totals(counts_path)
+    counts = _load_counts(counts_path)
+    active_id = ""
+    active_name = ""
     watchlist: list[str] = []
-    counter = PhraseCounter([], window_seconds, totals=totals)
+    counter = PhraseCounter([], window_seconds)
     recognizer = _make_recognizer(model, watchlist)
-    last_mtime: object = object()
+    last_watch_key: object = object()
     last_output = 0.0
 
     while True:
         now = time.monotonic()
-        mtime = _mtime(watchlist_path)
-        if mtime != last_mtime:
-            last_mtime = mtime
-            watchlist = _read_watchlist(
-                watchlist_path, fallback_watchlist
+        watch_key = (_mtime(active_path), _mtime(watchlist_path))
+        if watch_key != last_watch_key:
+            last_watch_key = watch_key
+            new_id, new_name, new_watchlist = _read_active(
+                active_path,
+                watchlist_path,
+                fallback_watchlist,
+                fallback_id,
             )
-            counter = PhraseCounter(
-                watchlist,
-                window_seconds,
-                totals=dict(counter.totals),
-            )
+            if new_id != active_id:
+                if active_id:
+                    counts[active_id] = dict(counter.totals)
+                if (
+                    new_id
+                    and not counts.get(new_id)
+                    and "__legacy__" in counts
+                ):
+                    counts[new_id] = dict(counts.pop("__legacy__"))
+                active_id = new_id
+                active_name = new_name
+                watchlist = new_watchlist
+                counter = PhraseCounter(
+                    watchlist,
+                    window_seconds,
+                    totals=counts.get(active_id, {}),
+                )
+            else:
+                active_name = new_name
+                if new_watchlist != watchlist:
+                    watchlist = new_watchlist
+                    counter = PhraseCounter(
+                        watchlist,
+                        window_seconds,
+                        totals=dict(counter.totals),
+                    )
             recognizer = _make_recognizer(model, watchlist)
-            _write_counts(counts_path, counter, watchlist)
+            _write_counts(counts_path, counts)
+            _write_output(
+                output_path,
+                counter,
+                watchlist,
+                model_name,
+                active_id,
+                active_name,
+            )
             last_output = 0.0
 
         try:
@@ -175,7 +260,7 @@ def _pump(
         if not chunk:
             return
 
-        if recognizer.AcceptWaveform(chunk):
+        if active_id and recognizer.AcceptWaveform(chunk):
             try:
                 result = json.loads(recognizer.Result())
             except (TypeError, ValueError):
@@ -188,12 +273,30 @@ def _pump(
             counter.add_words(words, now)
 
         if now - last_output >= OUTPUT_INTERVAL_SECONDS:
-            _write_output(output_path, counter, watchlist, model_name)
-            _write_counts(counts_path, counter, watchlist)
+            if active_id:
+                counts[active_id] = dict(counter.totals)
+            _write_output(
+                output_path,
+                counter,
+                watchlist,
+                model_name,
+                active_id,
+                active_name,
+            )
+            _write_counts(counts_path, counts)
             last_output = now
 
-    _write_output(output_path, counter, watchlist, model_name)
-    _write_counts(counts_path, counter, watchlist)
+    if active_id:
+        counts[active_id] = dict(counter.totals)
+    _write_output(
+        output_path,
+        counter,
+        watchlist,
+        model_name,
+        active_id,
+        active_name,
+    )
+    _write_counts(counts_path, counts)
 
 
 def _ffmpeg_command(audio_url: str) -> list[str]:
@@ -221,6 +324,8 @@ def run_stream(
     *,
     audio_url: str,
     watchlist_path: Path,
+    active_path: Path,
+    fallback_id: str,
     fallback_watchlist: str,
     output_path: Path,
     counts_path: Path,
@@ -239,7 +344,9 @@ def run_stream(
                 process.stdout,
                 model,
                 watchlist_path,
+                active_path,
                 fallback_watchlist,
+                fallback_id,
                 output_path,
                 counts_path,
                 window_seconds,
@@ -265,6 +372,8 @@ def run_file(
     *,
     path: Path,
     watchlist_path: Path,
+    active_path: Path,
+    fallback_id: str,
     fallback_watchlist: str,
     output_path: Path,
     counts_path: Path,
@@ -282,7 +391,9 @@ def run_file(
             process.stdout,
             model,
             watchlist_path,
+            active_path,
             fallback_watchlist,
+            fallback_id,
             output_path,
             counts_path,
             window_seconds,
@@ -325,6 +436,16 @@ def main(argv: list[str] | None = None) -> int:
         default=Path(os.getenv("ASR_COUNTS_PATH", DEFAULT_COUNTS_PATH)),
     )
     parser.add_argument(
+        "--active-file",
+        type=Path,
+        default=Path(os.getenv("ASR_ACTIVE_FILE", DEFAULT_ACTIVE_FILE)),
+    )
+    parser.add_argument(
+        "--streamer-id",
+        default="",
+        help="fallback streamer id when no active file exists",
+    )
+    parser.add_argument(
         "--window",
         type=float,
         default=float(_env_int("ASR_WINDOW_SECONDS", 600)),
@@ -339,6 +460,9 @@ def main(argv: list[str] | None = None) -> int:
     SetLogLevel(-1)
     model = Model(args.model)
     model_name = Path(args.model).name
+    fallback_id = args.streamer_id.strip()
+    if args.file is not None and not fallback_id:
+        fallback_id = "file"
 
     try:
         if args.file is not None:
@@ -346,6 +470,8 @@ def main(argv: list[str] | None = None) -> int:
                 model,
                 path=args.file,
                 watchlist_path=args.watchlist_file,
+                active_path=args.active_file,
+                fallback_id=fallback_id,
                 fallback_watchlist=args.watchlist,
                 output_path=args.output,
                 counts_path=args.counts,
@@ -357,6 +483,8 @@ def main(argv: list[str] | None = None) -> int:
                 model,
                 audio_url=args.audio_url,
                 watchlist_path=args.watchlist_file,
+                active_path=args.active_file,
+                fallback_id=fallback_id,
                 fallback_watchlist=args.watchlist,
                 output_path=args.output,
                 counts_path=args.counts,
