@@ -190,6 +190,7 @@ Alle Optionen sind in [`.env.example`](.env.example) dokumentiert.
 - **Pausenscreen**: Ein/Aus, Texte, Hintergrundfarbe, Schriftdatei und Maximaldauer
 - **Chat-Overlay**: Ein/Aus, HTTP-JSON-Quelle, API-Key, Poll-Intervall, Position, Schriftgröße, Chatbreite und maximale Nachrichtenzahl
 - **PNG-Chat-Engine**: Ein/Aus, Bildrate, Farb-Emoji, Stil (Blasen/Panel/Minimal), Deckkraft, Namensfarben, Zeitstempel, Tier-/Neu-/Stammgast-Badges, Chat-Statistik und Live-Vorschau
+- **Wort-Tracker (Vosk)**: optionale, im Dashboard editierbare Watchlist; erkennt Wörter und Phrasen im Stream-Audio und zeigt die Top-Treffer in der Chat-Karte
 - **Uhrzeit-Overlay**: Ein/Aus, Position, Sekunden, Schriftgröße und Schriftdatei; zusätzlich Versionsanzeige oben rechts
 - **Text-Overlay (Laufschrift)**: Ein/Aus, Text, Position oben/unten, Schriftgröße, Schriftdatei und Scroll-Geschwindigkeit
 - **Ausgabeformat**: 720p Hochformat (720×1280) oder Querformat (1280×720). Beim Umschalten im laufenden Betrieb wird nur der YouTube-Output kurz neu aufgebaut; die TikTok-Quelle läuft weiter.
@@ -421,6 +422,46 @@ Eigenschaften:
   Live-Vorschau (`/api/overlay/preview.png`) mit optionalen Beispielnachrichten.
 - Bei `false` oder einem Fehler (z. B. fehlendes Pillow) läuft der bisherige
   `drawtext`-Chat unverändert weiter.
+
+### Wort-Tracker (Vosk)
+
+Optional können ausgewählte Wörter und Phrasen im Live-Audio erkannt und
+gezählt werden. Der ASR-Worker läuft als **eigener Container** mit Vosk Small
+German und liest den verzögerten Audio-Tap des Delay-Buffers. Die Zähler
+erscheinen als schmale `WÖRTER`-Zeile in der festen Chat-Karte.
+
+```dotenv
+ASR_TAP_ENABLED=true
+ASR_WATCHLIST=Guck ma,Dreck,Ich
+ASR_WINDOW_SECONDS=600
+CHAT_OVERLAY_SHOW_WORDS=true
+CHAT_OVERLAY_WORDS_TOP=3
+```
+
+Starten:
+
+```bash
+docker compose --profile asr up -d
+```
+
+Die Watchlist lässt sich im Dashboard unter **Wort-Tracker (Vosk)** bearbeiten –
+ein Wort oder eine Phrase pro Zeile, Kommas sind ebenfalls erlaubt. Änderungen
+werden ohne Neustart übernommen; die Zähler starten dabei neu. Groß-/
+Kleinschreibung wird ignoriert, Phrasen mit Leerzeichen sind möglich. Für
+„Guck ma“ ggf. zusätzlich „Guck mal“ als Variante eintragen.
+
+Eigenschaften:
+
+- Vosk Small German (~50 MB Modell) mit Grammar auf die Watchlist; das hält die
+  CPU-Last niedrig und reduziert Fehlalarme.
+- Der Worker läuft mit **1,0 CPU** und **768 MB** Limit; der Audio-Tap ist so
+  gepuffert, dass ein langsamer ASR-Client den Haupt-Output nie blockiert.
+- Die Zähler laufen über ein rollierendes Fenster (`ASR_WINDOW_SECONDS`,
+  Standard 10 Minuten).
+- Das separate Einnahmen-Overlay bleibt unabhängig; die Wortzeile ist eine
+  zusätzliche Zeile in der Chat-Karte.
+- Ohne Watchlist läuft der Worker weiter, zählt aber nichts. Fehlt der
+  ASR-Container, bleibt die Zeile bei `WÖRTER –`.
 
 ### Uhrzeit-Overlay
 

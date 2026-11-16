@@ -31,6 +31,23 @@ def free_port_pair() -> int:
     raise RuntimeError("kein freies TCP-Portpaar gefunden")
 
 
+def free_port_triple() -> int:
+    for _ in range(50):
+        port = free_tcp_port()
+        if port >= 65533:
+            continue
+        try:
+            for offset in (1, 2):
+                with socket.socket(
+                    socket.AF_INET, socket.SOCK_STREAM
+                ) as sock:
+                    sock.bind(("127.0.0.1", port + offset))
+        except OSError:
+            continue
+        return port
+    raise RuntimeError("kein freies TCP-Porttripel gefunden")
+
+
 async def open_pair(port: int):
     source_reader, source_writer = await asyncio.open_connection(
         "127.0.0.1", port
@@ -179,4 +196,39 @@ async def test_delay_buffer_output_reconnect(settings: Settings) -> None:
         if output_writer2 is not None:
             writers.append(output_writer2)
         await close_writers(*writers)
+        await buffer.stop()
+
+
+async def test_asr_tap_receives_delayed_data(settings: Settings) -> None:
+    port = free_port_triple()
+    buffer = DelayBuffer(
+        replace(
+            settings,
+            relay_port=port,
+            relay_delay_seconds=1,
+            asr_tap_enabled=True,
+        )
+    )
+    await buffer.start()
+    _source_reader, source_writer, output_reader, output_writer = (
+        await open_pair(port)
+    )
+    asr_reader, asr_writer = await asyncio.open_connection(
+        "127.0.0.1", port + 2
+    )
+
+    try:
+        source_writer.write(b"word")
+        await source_writer.drain()
+
+        assert (
+            await asyncio.wait_for(asr_reader.read(4), timeout=2.0)
+            == b"word"
+        )
+        assert (
+            await asyncio.wait_for(output_reader.read(4), timeout=2.0)
+            == b"word"
+        )
+    finally:
+        await close_writers(source_writer, output_writer, asr_writer)
         await buffer.stop()

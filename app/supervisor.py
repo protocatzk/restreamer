@@ -50,6 +50,7 @@ from app.store import StreamerStore
 from app.text_overlay import build_text_overlay_filter
 from app.titles import render_title
 from app.version import build_version_filter
+from app.words import WordTracker, parse_watchlist
 
 try:  # Pillow is optional; the drawtext overlay remains the fallback.
     from app import chat_engine as _chat_engine_module
@@ -249,6 +250,7 @@ class Supervisor:
         self._chat: ChatWorker | None = None
         self._chat_filter_warned = False
         self._chat_engine_warned = False
+        self._words = WordTracker(settings.asr_words_file)
         self._earnings_filter_warned = False
         self._clock_filter_warned = False
         self._version_filter_warned = False
@@ -1196,6 +1198,9 @@ class Supervisor:
                         if self._earnings is not None
                         else None
                     ),
+                    words=lambda: self._words.top(
+                        self.settings.chat_overlay_words_top
+                    ),
                 ),
                 log=self._record,
             )
@@ -1232,9 +1237,25 @@ class Supervisor:
             stats = self._chat.overlay.stats()
             if self._earnings is not None:
                 earnings = self._earnings.overlay_text()
+        words = self._words.top(self.settings.chat_overlay_words_top)
         return _chat_engine_module.preview_png(
-            self.settings, messages, stats, earnings, sample=sample
+            self.settings, messages, stats, earnings, words, sample=sample
         )
+
+    def words_status(self) -> dict:
+        """Return the current ASR word statistics for the dashboard."""
+        stats = self._words.read()
+        return {
+            "enabled": self.settings.asr_tap_enabled,
+            "watchlist": parse_watchlist(self.settings.asr_watchlist),
+            "words": [
+                {"word": item.word, "count": item.count}
+                for item in stats.words
+            ],
+            "total": stats.total,
+            "updated_at": stats.updated_at,
+            "window_seconds": stats.window_seconds,
+        }
 
     def _legacy_overlay_filters(self, *, include_chat: bool = True) -> list[str]:
         """Build the drawtext filters used outside the PNG chat engine."""

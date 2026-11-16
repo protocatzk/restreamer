@@ -28,6 +28,7 @@ from app.chat_render import (
     sample_stats,
 )
 from app.settings import Settings
+from app.words import WordCount
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +52,7 @@ class ChatOverlaySources:
     messages: Callable[[], Iterable[ChatMessage]] | None = None
     stats: Callable[[], ChatStats] | None = None
     earnings: Callable[[], str] | None = None
+    words: Callable[[], Iterable[WordCount]] | None = None
 
 
 class ChatPipeline:
@@ -195,17 +197,29 @@ class ChatPipeline:
             logger.exception("Chat-Einnahmen fehlgeschlagen")
             return ""
 
+    def _words(self) -> tuple[WordCount, ...]:
+        if not self.settings.chat_overlay_show_words:
+            return ()
+        if self.sources.words is None:
+            return ()
+        try:
+            return tuple(self.sources.words())
+        except Exception:  # noqa: BLE001 - words are optional
+            logger.exception("Wort-Tracker-Snapshot fehlgeschlagen")
+            return ()
+
     async def _frame(
         self,
         messages: tuple[ChatMessage, ...],
         stats: ChatStats | None,
         earnings: str,
+        words: tuple[WordCount, ...],
     ) -> bytes:
         if not messages and self.settings.chat_overlay_panel_height <= 0:
             return self._blank
         try:
             return await asyncio.to_thread(
-                self.renderer.render_rgba, messages, stats, earnings
+                self.renderer.render_rgba, messages, stats, earnings, words
             )
         except Exception as exc:  # noqa: BLE001 - never stop the output
             self._log_error(
@@ -228,10 +242,17 @@ class ChatPipeline:
                 messages = self._messages()
                 stats = self._stats()
                 earnings = self._earnings()
-                key = (messages, stats, earnings, self.renderer.signature)
+                words = self._words()
+                key = (
+                    messages,
+                    stats,
+                    earnings,
+                    words,
+                    self.renderer.signature,
+                )
                 if key != self._last_key or self._last_data is None:
                     self._last_data = await self._frame(
-                        messages, stats, earnings
+                        messages, stats, earnings, words
                     )
                     self._last_key = key
                 # Always write a frame at the nominal rate.  ffmpeg's overlay

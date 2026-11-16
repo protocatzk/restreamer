@@ -839,6 +839,29 @@
         </fieldset>
 
         <fieldset>
+          <legend>Wort-Tracker (Vosk)</legend>
+          <div class="check-row">
+            <label class="check"><input type="checkbox" name="chat_overlay_show_words"> Erkannte Wörter im Chat anzeigen</label>
+          </div>
+          <div class="form-grid">
+            <label class="field wide">
+              <span>Watchlist (ein Wort oder eine Phrase pro Zeile)</span>
+              <textarea name="asr_watchlist" rows="6" spellcheck="false"
+                        placeholder="Guck ma&#10;Dreck&#10;Ich"></textarea>
+              <small class="hint">Kommas sind ebenfalls erlaubt. Groß-/Kleinschreibung wird ignoriert; Phrasen mit Leerzeichen sind möglich.</small>
+            </label>
+            <label class="field">
+              <span>Top-Wörter in der Anzeige</span>
+              <input name="chat_overlay_words_top" type="number" min="1" max="5" step="1">
+            </label>
+          </div>
+          <p id="words-status" class="hint">ASR-Status wird geladen …</p>
+          <p class="hint">Der Vosk-Worker läuft separat und liest den verzögerten Audio-Tap.
+            Änderungen an der Watchlist werden ohne Neustart übernommen; die Zähler starten
+            dabei neu. Die Anzeige erscheint als schmale Zeile in der festen Chat-Karte.</p>
+        </fieldset>
+
+        <fieldset>
           <legend>Uhrzeit</legend>
           <div class="check-row">
             <label class="check"><input type="checkbox" name="clock_enabled"> Aktuelle Uhrzeit im Stream anzeigen</label>

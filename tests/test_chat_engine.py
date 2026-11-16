@@ -13,6 +13,7 @@ from app.chat_engine import (
     preview_png,
 )
 from app.settings import Settings
+from app.words import WordCount
 
 
 def _settings(tmp_path: Path, **kwargs) -> Settings:
@@ -133,7 +134,9 @@ async def test_pipeline_survives_render_errors(tmp_path: Path) -> None:
     class BrokenRenderer:
         signature = ("broken",)
 
-        def render_rgba(self, messages):
+        def render_rgba(
+            self, messages, stats=None, earnings="", words=()
+        ):
             raise RuntimeError("kaputt")
 
     pipeline = ChatPipeline(
@@ -171,17 +174,21 @@ def test_preview_png_has_signature(tmp_path: Path) -> None:
     assert png.startswith(b"\x89PNG\r\n\x1a\n")
 
 
-async def test_pipeline_passes_stats_and_earnings_to_renderer(
+async def test_pipeline_passes_stats_earnings_and_words_to_renderer(
     tmp_path: Path,
 ) -> None:
     class RecordingRenderer:
         signature = ("recording",)
 
         def __init__(self) -> None:
-            self.calls: list[tuple[ChatStats | None, str]] = []
+            self.calls: list[
+                tuple[ChatStats | None, str, tuple[WordCount, ...]]
+            ] = []
 
-        def render_rgba(self, messages, stats, earnings=""):
-            self.calls.append((stats, earnings))
+        def render_rgba(
+            self, messages, stats, earnings="", words=()
+        ):
+            self.calls.append((stats, earnings, tuple(words)))
             size = (
                 pipeline.geometry.width * pipeline.geometry.height * 4
             )
@@ -194,6 +201,10 @@ async def test_pipeline_passes_stats_and_earnings_to_renderer(
         total_messages=12,
     )
     earnings_text = "supergirl0584\nHeute: 12,34 €"
+    word_counts = (
+        WordCount("guck ma", 3),
+        WordCount("dreck", 1),
+    )
     renderer = RecordingRenderer()
     pipeline = ChatPipeline(
         ChatOverlaySources(
@@ -201,10 +212,12 @@ async def test_pipeline_passes_stats_and_earnings_to_renderer(
                 tmp_path,
                 chat_overlay_show_stats=True,
                 chat_overlay_show_earnings=True,
+                chat_overlay_show_words=True,
             ),
             messages=lambda: [_message()],
             stats=lambda: stats,
             earnings=lambda: earnings_text,
+            words=lambda: word_counts,
         ),
         renderer=renderer,
         fps=10,
@@ -223,4 +236,4 @@ async def test_pipeline_passes_stats_and_earnings_to_renderer(
     await asyncio.wait_for(reader_task, timeout=2)
 
     assert renderer.calls
-    assert renderer.calls[0] == (stats, earnings_text)
+    assert renderer.calls[0] == (stats, earnings_text, word_counts)

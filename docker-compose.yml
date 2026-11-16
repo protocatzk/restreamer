@@ -40,6 +40,35 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  asr:
+    build:
+      context: .
+      dockerfile: asr/Dockerfile
+    image: restreamer-asr:local
+    container_name: restreamer-asr
+    restart: unless-stopped
+    profiles: ["asr"]
+    depends_on:
+      restreamer:
+        condition: service_started
+    cpus: "1.0"
+    mem_limit: 768m
+    environment:
+      TZ: ${TZ:-Europe/Berlin}
+      RELAY_PORT: ${RELAY_PORT:-19350}
+      ASR_AUDIO_HOST: restreamer
+      ASR_WATCHLIST_FILE: /app/data/asr-watchlist.json
+      ASR_OUTPUT_PATH: /app/data/asr-words.json
+      ASR_WATCHLIST: ${ASR_WATCHLIST:-Guck ma,Dreck,Ich}
+      ASR_WINDOW_SECONDS: ${ASR_WINDOW_SECONDS:-600}
+    volumes:
+      - ./data:/app/data
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
 networks:
   toktrackerapp_toktracker_net:
     external: true

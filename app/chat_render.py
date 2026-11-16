@@ -37,6 +37,7 @@ from app.overlay_text import (
 )
 from app.pause import find_pause_font
 from app.settings import Settings
+from app.words import WordCount
 
 _WHITESPACE_RE = re.compile(r"\s+")
 _SHADOW_PAD = 8
@@ -242,6 +243,8 @@ class ChatRenderer:
             s.chat_overlay_show_tiers,
             s.chat_overlay_show_stats,
             s.chat_overlay_show_earnings,
+            s.chat_overlay_show_words,
+            s.chat_overlay_words_top,
             s.chat_overlay_user_badges,
         )
 
@@ -626,6 +629,50 @@ class ChatRenderer:
         )
         return fonts.line_height + 7
 
+    def _words_text(self, words: tuple[WordCount, ...]) -> str:
+        if not words:
+            return "WÖRTER  –"
+        limit = max(1, self.settings.chat_overlay_words_top)
+        parts = [f"{item.word} ×{item.count}" for item in words[:limit]]
+        return "WÖRTER  " + " · ".join(parts)
+
+    def _words_fonts(self) -> tuple[str, FontSet | None]:
+        path = find_regular_font(
+            find_pause_font(self.settings.chat_overlay_font) or ""
+        )
+        size = max(10, round(chat_font_size(self.settings) * 0.5))
+        return path, self._font_set(path, size)
+
+    def _words_height(self) -> int:
+        _path, fonts = self._words_fonts()
+        return fonts.line_height + 4 if fonts is not None else 0
+
+    def _draw_words(
+        self,
+        tile: Image.Image,
+        words: tuple[WordCount, ...],
+        geometry: ChatTileGeometry,
+        y: int,
+    ) -> int:
+        _path, fonts = self._words_fonts()
+        if fonts is None:
+            return 0
+        text = _fit_text(
+            self._words_text(words), fonts.regular, geometry.content_width
+        )
+        if not text:
+            return 0
+        drawer = ImageDraw.Draw(tile)
+        x = _SHADOW_PAD
+        drawer.text(
+            (x + 1, y + 1),
+            text,
+            font=fonts.regular,
+            fill=(0, 0, 0, 150),
+        )
+        drawer.text((x, y), text, font=fonts.regular, fill=_MUTED_COLOR)
+        return fonts.line_height + 4
+
     def _earnings_surface(
         self, text: str, content_width: int
     ) -> tuple[Image.Image, int, int] | None:
@@ -712,6 +759,7 @@ class ChatRenderer:
         messages: tuple[ChatMessage, ...],
         stats: ChatStats | None,
         earnings: str,
+        words: tuple[WordCount, ...],
         fixed_height: int,
     ) -> None:
         """Draw the fixed-size card with stats, earnings and chat inside."""
@@ -756,6 +804,10 @@ class ChatRenderer:
             _paste(tile, earnings_surface[0], 0, y - _SHADOW_PAD)
             y += earnings_height + gap
 
+        if self.settings.chat_overlay_show_words:
+            drawn = self._draw_words(tile, words, geometry, y)
+            y += drawn + gap
+
         chat_top = y
         chat_height = max(0, content_bottom - chat_top)
         bubbles = self._bubbles(messages, geometry, chat_height)
@@ -774,6 +826,7 @@ class ChatRenderer:
         messages: tuple[ChatMessage, ...],
         stats: ChatStats | None = None,
         earnings: str = "",
+        words: tuple[WordCount, ...] = (),
     ) -> Image.Image:
         """Render the chat tile with a transparent background."""
         self._ensure_caches()
@@ -793,6 +846,7 @@ class ChatRenderer:
                 tuple(messages),
                 stats,
                 earnings,
+                words,
                 fixed_height,
             )
             return tile
@@ -814,15 +868,23 @@ class ChatRenderer:
         earnings_height = (
             earnings_surface[2] if earnings_surface is not None else 0
         )
+        words_height = (
+            self._words_height()
+            if self.settings.chat_overlay_show_words
+            else 0
+        )
         gap = max(6, round(chat_font_size(self.settings) * 0.24))
         stats_gap = gap if stats_height else 0
         earnings_gap = gap if earnings_height else 0
+        words_gap = gap if words_height else 0
         available = (
             geometry.content_height
             - stats_height
             - stats_gap
             - earnings_height
             - earnings_gap
+            - words_height
+            - words_gap
         )
         bubbles = self._bubbles(tuple(messages), geometry, available)
         if not bubbles:
@@ -836,6 +898,8 @@ class ChatRenderer:
             + stats_gap
             + earnings_height
             + earnings_gap
+            + words_height
+            + words_gap
             + bubbles_height
         )
         if self.settings.chat_overlay_position.startswith("top"):
@@ -851,6 +915,10 @@ class ChatRenderer:
         if earnings_surface is not None:
             _paste(tile, earnings_surface[0], 0, y - _SHADOW_PAD)
             y += earnings_height + earnings_gap
+
+        if words_height:
+            drawn = self._draw_words(tile, words, geometry, y)
+            y += drawn + words_gap
 
         if self.settings.chat_overlay_style == "panel":
             opacity = int(255 * self.settings.chat_overlay_opacity / 100)
@@ -874,12 +942,13 @@ class ChatRenderer:
         messages: tuple[ChatMessage, ...],
         stats: ChatStats | None = None,
         earnings: str = "",
+        words: tuple[WordCount, ...] = (),
     ) -> bytes:
         """Return one raw RGBA frame for the FIFO."""
         if not messages and self.settings.chat_overlay_panel_height <= 0:
             geometry = chat_tile_geometry(self.settings)
             return bytes(geometry.width * geometry.height * 4)
-        tile = self.render_tile(tuple(messages), stats, earnings)
+        tile = self.render_tile(tuple(messages), stats, earnings, words)
         return tile.tobytes()
 
     def render_png_preview(
@@ -887,6 +956,7 @@ class ChatRenderer:
         messages: tuple[ChatMessage, ...],
         stats: ChatStats | None = None,
         earnings: str = "",
+        words: tuple[WordCount, ...] = (),
     ) -> bytes:
         """Render the chat tile on a dark output canvas for the dashboard."""
         geometry = chat_tile_geometry(self.settings)
@@ -895,7 +965,7 @@ class ChatRenderer:
             (self.settings.output_width, self.settings.output_height),
             _PREVIEW_BACKGROUND,
         )
-        tile = self.render_tile(tuple(messages), stats, earnings)
+        tile = self.render_tile(tuple(messages), stats, earnings, words)
         _paste(canvas, tile, geometry.x, geometry.y)
         buffer = io.BytesIO()
         canvas.save(buffer, format="PNG", compress_level=1)
@@ -955,11 +1025,21 @@ def sample_earnings() -> str:
     )
 
 
+def sample_words() -> tuple[WordCount, ...]:
+    """Return demo word counts for the dashboard preview."""
+    return (
+        WordCount("guck ma", 12),
+        WordCount("dreck", 8),
+        WordCount("ich", 5),
+    )
+
+
 def preview_png(
     settings: Settings,
     messages: tuple[ChatMessage, ...] = (),
     stats: ChatStats | None = None,
     earnings: str = "",
+    words: tuple[WordCount, ...] = (),
     *,
     sample: bool = False,
 ) -> bytes:
@@ -969,6 +1049,7 @@ def preview_png(
         content = sample_messages()
         stats = sample_stats()
         earnings = sample_earnings()
+        words = sample_words()
     else:
         content = tuple(messages)
-    return renderer.render_png_preview(content, stats, earnings)
+    return renderer.render_png_preview(content, stats, earnings, words)

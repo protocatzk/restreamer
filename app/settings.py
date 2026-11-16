@@ -36,6 +36,7 @@ INT_FIELDS = {
     "chat_overlay_opacity",
     "chat_overlay_max_lines",
     "chat_overlay_panel_height",
+    "chat_overlay_words_top",
     "clock_font_size",
     "text_overlay_font_size",
     "text_overlay_speed",
@@ -56,6 +57,7 @@ BOOL_FIELDS = {
     "chat_overlay_show_tiers",
     "chat_overlay_show_stats",
     "chat_overlay_show_earnings",
+    "chat_overlay_show_words",
     "chat_overlay_user_badges",
     "chat_overlay_name_colors",
     "chat_overlay_show_timestamps",
@@ -66,6 +68,7 @@ BOOL_FIELDS = {
     "online_check_enabled",
     "earnings_enabled",
     "earnings_overlay_enabled",
+    "asr_tap_enabled",
 }
 TUPLE_FIELDS = {"ytdlp_extra_args"}
 SECRET_FIELDS = {
@@ -110,6 +113,7 @@ STRING_FIELDS = {
     "text_overlay_position",
     "text_overlay_font",
     "youtube_title_template",
+    "asr_watchlist",
 }
 EDITABLE_FIELDS = INT_FIELDS | BOOL_FIELDS | TUPLE_FIELDS | STRING_FIELDS
 
@@ -129,6 +133,7 @@ COLOR_PATTERN = re.compile(r"^(?:#|0x|0X)?[0-9a-fA-F]{6}$")
 PAUSE_SCREEN_TEXT_MAX_LENGTH = 120
 PAUSE_SCREEN_SUBTEXT_MAX_LENGTH = 160
 YOUTUBE_TITLE_TEMPLATE_MAX_LENGTH = 200
+ASR_WATCHLIST_MAX_LENGTH = 4000
 CHAT_OVERLAY_POSITIONS = ("bottom-left", "bottom-right", "top-left", "top-right")
 CHAT_OVERLAY_STYLES = ("bubbles", "panel", "minimal")
 CLOCK_POSITIONS = ("top-left", "top-right", "bottom-left", "bottom-right")
@@ -235,6 +240,8 @@ class Settings:
     streamers_file: Path = Path("/app/config/streamers.yml")
     logs_dir: Path = Path("/app/logs")
     cookies_file: Path = Path("/app/data/cookies.txt")
+    asr_watchlist_file: Path = Path("/app/data/asr-watchlist.json")
+    asr_words_file: Path = Path("/app/data/asr-words.json")
     runtime_file: Path = Path("/app/config/settings.yml")
 
     dashboard_password: str = ""
@@ -312,6 +319,13 @@ class Settings:
     chat_overlay_show_timestamps: bool = False
     chat_overlay_max_lines: int = 3
     chat_overlay_panel_height: int = 0
+    chat_overlay_show_words: bool = False
+    chat_overlay_words_top: int = 3
+
+    # Vosk word tracker. The ASR worker runs in a separate container and
+    # writes its results to asr_words_file.
+    asr_tap_enabled: bool = False
+    asr_watchlist: str = ""
 
     # Optional wall-clock overlay rendered directly by ffmpeg.
     clock_enabled: bool = False
@@ -386,6 +400,17 @@ class Settings:
             logs_dir=Path(os.getenv("LOGS_DIR", "/app/logs")).expanduser(),
             cookies_file=Path(
                 os.getenv("COOKIES_FILE", "/app/data/cookies.txt")
+            ).expanduser(),
+            asr_watchlist_file=Path(
+                os.getenv(
+                    "ASR_WATCHLIST_FILE",
+                    "/app/data/asr-watchlist.json",
+                )
+            ).expanduser(),
+            asr_words_file=Path(
+                os.getenv(
+                    "ASR_WORDS_FILE", "/app/data/asr-words.json"
+                )
             ).expanduser(),
             runtime_file=runtime_file,
             dashboard_password=os.getenv("DASHBOARD_PASSWORD", ""),
@@ -473,6 +498,14 @@ class Settings:
             chat_overlay_panel_height=_env_int(
                 "CHAT_OVERLAY_PANEL_HEIGHT", 0
             ),
+            chat_overlay_show_words=_env_bool(
+                "CHAT_OVERLAY_SHOW_WORDS", False
+            ),
+            chat_overlay_words_top=_env_int(
+                "CHAT_OVERLAY_WORDS_TOP", 3
+            ),
+            asr_tap_enabled=_env_bool("ASR_TAP_ENABLED", False),
+            asr_watchlist=os.getenv("ASR_WATCHLIST", ""),
             clock_enabled=_env_bool("CLOCK_ENABLED", False),
             clock_position=os.getenv("CLOCK_POSITION", "top-left").strip().lower(),
             clock_show_seconds=_env_bool("CLOCK_SHOW_SECONDS", False),
@@ -566,7 +599,13 @@ class Settings:
         return candidate
 
     def apply_from(self, other: Settings) -> None:
-        for key in EDITABLE_FIELDS | {"streamers_file", "logs_dir", "cookies_file"}:
+        for key in EDITABLE_FIELDS | {
+            "streamers_file",
+            "logs_dir",
+            "cookies_file",
+            "asr_watchlist_file",
+            "asr_words_file",
+        }:
             setattr(self, key, getattr(other, key))
 
     def _validate(self) -> None:
@@ -700,6 +739,15 @@ class Settings:
             raise ValueError(
                 "chat_overlay_panel_height muss 0 oder zwischen 120 und "
                 "2000 liegen"
+            )
+        if not 1 <= self.chat_overlay_words_top <= 5:
+            raise ValueError(
+                "chat_overlay_words_top muss zwischen 1 und 5 liegen"
+            )
+        if len(self.asr_watchlist) > ASR_WATCHLIST_MAX_LENGTH:
+            raise ValueError(
+                "asr_watchlist darf höchstens "
+                f"{ASR_WATCHLIST_MAX_LENGTH} Zeichen lang sein"
             )
         if self.chat_overlay_style not in CHAT_OVERLAY_STYLES:
             raise ValueError(
@@ -840,6 +888,8 @@ class Settings:
                 "logs_dir": str(self.logs_dir),
                 "cookies_file": str(self.cookies_file),
                 "cookies_file_present": self.cookies_file.exists(),
+                "asr_watchlist_file": str(self.asr_watchlist_file),
+                "asr_words_file": str(self.asr_words_file),
             }
         )
         return data

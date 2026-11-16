@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import time
 from dataclasses import replace
 
@@ -775,3 +776,42 @@ def test_overlay_preview_endpoint(settings, streamers_file) -> None:
     assert response.status_code == 200
     assert response.headers["content-type"] == "image/png"
     assert response.content.startswith(b"\x89PNG\r\n\x1a\n")
+
+
+def test_words_endpoint(settings, streamers_file) -> None:
+    app = create_app(replace(settings, streamers_file=streamers_file))
+
+    with TestClient(app) as client:
+        response = client.get("/api/words")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is True
+    assert payload["words"] == []
+    assert payload["enabled"] is False
+
+
+def test_settings_update_writes_asr_watchlist(
+    settings, streamers_file, tmp_path
+) -> None:
+    app = create_app(
+        replace(
+            settings,
+            streamers_file=streamers_file,
+            offline_poll_seconds=60,
+            runtime_file=tmp_path / "settings.yml",
+        )
+    )
+
+    with TestClient(app) as client:
+        response = client.put(
+            "/api/settings",
+            json={"asr_watchlist": "Guck ma\nDreck"},
+        )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["asr_watchlist"] == "Guck ma\nDreck"
+    payload = json.loads(
+        settings.asr_watchlist_file.read_text(encoding="utf-8")
+    )
+    assert payload["words"] == ["guck ma", "dreck"]

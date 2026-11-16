@@ -106,6 +106,10 @@ def test_new_defaults_are_present(tmp_path: Path) -> None:
     assert data["chat_overlay_show_earnings"] is False
     assert data["chat_overlay_user_badges"] is False
     assert data["chat_overlay_panel_height"] == 0
+    assert data["chat_overlay_show_words"] is False
+    assert data["chat_overlay_words_top"] == 3
+    assert data["asr_tap_enabled"] is False
+    assert data["asr_watchlist"] == ""
     assert data["chat_overlay_max_lines"] == 3
     assert data["youtube_title_template"] == "{name} live: {title}"
 
@@ -474,6 +478,9 @@ def test_chat_overlay_engine_values_are_validated(tmp_path: Path) -> None:
             "chat_overlay_show_tiers": False,
             "chat_overlay_show_stats": True,
             "chat_overlay_show_earnings": True,
+            "chat_overlay_show_words": True,
+            "chat_overlay_words_top": 4,
+            "asr_watchlist": "Guck ma\nDreck\nIch",
             "chat_overlay_user_badges": True,
             "chat_overlay_max_lines": 5,
             "chat_overlay_panel_height": 460,
@@ -490,6 +497,9 @@ def test_chat_overlay_engine_values_are_validated(tmp_path: Path) -> None:
     assert updated.chat_overlay_show_tiers is False
     assert updated.chat_overlay_show_stats is True
     assert updated.chat_overlay_show_earnings is True
+    assert updated.chat_overlay_show_words is True
+    assert updated.chat_overlay_words_top == 4
+    assert updated.asr_watchlist == "Guck ma\nDreck\nIch"
     assert updated.chat_overlay_user_badges is True
     assert updated.chat_overlay_max_lines == 5
     assert updated.chat_overlay_panel_height == 460
@@ -513,5 +523,11 @@ def test_chat_overlay_engine_values_are_validated(tmp_path: Path) -> None:
         .chat_overlay_panel_height
         == 0
     )
+    with pytest.raises(ValueError, match="chat_overlay_words_top"):
+        settings.updated({"chat_overlay_words_top": 0})
+    with pytest.raises(ValueError, match="chat_overlay_words_top"):
+        settings.updated({"chat_overlay_words_top": 6})
+    with pytest.raises(ValueError, match="asr_watchlist"):
+        settings.updated({"asr_watchlist": "x" * 4001})
     with pytest.raises(ValueError, match="chat_overlay_style"):
         settings.updated({"chat_overlay_style": "huge"})

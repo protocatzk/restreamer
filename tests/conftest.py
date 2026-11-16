@@ -33,6 +33,8 @@ def settings(tmp_path: Path) -> Settings:
         streamers_file=tmp_path / "streamers.yml",
         logs_dir=logs,
         cookies_file=tmp_path / "cookies.txt",
+        asr_watchlist_file=tmp_path / "asr-watchlist.json",
+        asr_words_file=tmp_path / "asr-words.json",
         offline_poll_seconds=1,
         backoff_initial_seconds=1,
         backoff_max_seconds=2,

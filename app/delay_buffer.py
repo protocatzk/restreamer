@@ -21,6 +21,7 @@ MAX_PACING_BURST_BYTES = 256 * 1024
 MIN_BUFFER_SECONDS = 2.0
 MAX_EXTRA_DELAY_SECONDS = 5.0
 TCP_CHUNK_SIZE = 65536
+ASR_TAP_QUEUE_ITEMS = 64
 
 
 class TokenBucket:
@@ -70,12 +71,17 @@ class DelayBuffer:
         self._pacing_rate_bps: float | None = None
         self._source_server: asyncio.Server | None = None
         self._output_server: asyncio.Server | None = None
+        self._asr_server: asyncio.Server | None = None
         self._source_writer: asyncio.StreamWriter | None = None
         self._output_writer: asyncio.StreamWriter | None = None
+        self._asr_writer: asyncio.StreamWriter | None = None
+        self._asr_queue: asyncio.Queue[bytes] | None = None
+        self._asr_task: asyncio.Task | None = None
         self._forward_task: asyncio.Task | None = None
         self._dropped = 0
         self._source_addr = (RELAY_HOST, settings.relay_port)
         self._output_addr = (RELAY_HOST, settings.relay_port + 1)
+        self._asr_addr = ("0.0.0.0", settings.relay_port + 2)
 
     async def start(self) -> None:
         self._source_server = await asyncio.start_server(
@@ -88,6 +94,14 @@ class DelayBuffer:
             *self._output_addr,
             limit=1024 * 1024,
         )
+        if self.settings.asr_tap_enabled:
+            self._asr_queue = asyncio.Queue(maxsize=ASR_TAP_QUEUE_ITEMS)
+            self._asr_server = await asyncio.start_server(
+                self._handle_asr,
+                *self._asr_addr,
+                limit=1024 * 1024,
+            )
+            self._asr_task = asyncio.create_task(self._asr_forward_loop())
         self._forward_task = asyncio.create_task(self._forward_loop())
         logger.info(
             "Delay-Puffer: %d s, TCP %s:%d -> %s:%d",
@@ -95,6 +109,12 @@ class DelayBuffer:
             *self._source_addr,
             *self._output_addr,
         )
+        if self._asr_server is not None:
+            logger.info(
+                "ASR-Tap: TCP %s:%d (max. %d Pakete Puffer)",
+                *self._asr_addr,
+                ASR_TAP_QUEUE_ITEMS,
+            )
 
     async def stop(self) -> None:
         if self._forward_task is not None:
@@ -104,22 +124,40 @@ class DelayBuffer:
             except asyncio.CancelledError:
                 pass
             self._forward_task = None
+        if self._asr_task is not None:
+            self._asr_task.cancel()
+            try:
+                await self._asr_task
+            except asyncio.CancelledError:
+                pass
+            self._asr_task = None
 
-        for writer in (self._source_writer, self._output_writer):
+        for writer in (
+            self._source_writer,
+            self._output_writer,
+            self._asr_writer,
+        ):
             if writer is not None:
                 writer.close()
                 with suppress(Exception):
                     await writer.wait_closed()
         self._source_writer = None
         self._output_writer = None
+        self._asr_writer = None
+        self._asr_queue = None
 
-        for server in (self._source_server, self._output_server):
+        for server in (
+            self._source_server,
+            self._output_server,
+            self._asr_server,
+        ):
             if server is not None:
                 server.close()
                 with suppress(Exception):
                     await server.wait_closed()
         self._source_server = None
         self._output_server = None
+        self._asr_server = None
 
     def reset(self) -> None:
         if self._queue:
@@ -217,6 +255,43 @@ class DelayBuffer:
             if self._output_writer is writer:
                 self._output_writer = None
 
+    async def _handle_asr(
+        self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+    ) -> None:
+        old = self._asr_writer
+        if old is not None and old is not writer:
+            old.close()
+        self._asr_writer = writer
+        try:
+            # The ASR ffmpeg only reads; wait for disconnect/EOF.
+            while await reader.read(4096):
+                pass
+        except (ConnectionError, asyncio.CancelledError):
+            pass
+        finally:
+            writer.close()
+            with suppress(Exception):
+                await writer.wait_closed()
+            if self._asr_writer is writer:
+                self._asr_writer = None
+
+    async def _asr_forward_loop(self) -> None:
+        queue = self._asr_queue
+        if queue is None:
+            return
+        while True:
+            data = await queue.get()
+            writer = self._asr_writer
+            if writer is None or writer.is_closing():
+                continue
+            try:
+                writer.write(data)
+                await writer.drain()
+            except (ConnectionError, RuntimeError):
+                writer.close()
+                if self._asr_writer is writer:
+                    self._asr_writer = None
+
     async def _forward_loop(self) -> None:
         while True:
             now = time.monotonic()
@@ -264,6 +339,11 @@ class DelayBuffer:
                 if writer is not None:
                     writer.write(data)
                     wrote = True
+                if self._asr_queue is not None:
+                    try:
+                        self._asr_queue.put_nowait(data)
+                    except asyncio.QueueFull:
+                        pass
                 sent += 1
 
             if wrote and writer is not None:

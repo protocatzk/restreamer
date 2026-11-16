@@ -17,6 +17,7 @@ from app.chat_render import (
 from app.overlay_text import find_emoji_font, load_font_set
 from app.pause import find_pause_font
 from app.settings import Settings
+from app.words import WordCount
 
 
 def _settings(tmp_path: Path, **kwargs) -> Settings:
@@ -370,3 +371,23 @@ def test_fixed_card_contains_stats_and_earnings(tmp_path: Path) -> None:
 
     assert with_content.tobytes() != without_content.tobytes()
     assert with_content.getbbox() == without_content.getbbox()
+
+
+def test_words_line_is_drawn_and_keeps_width(tmp_path: Path) -> None:
+    _requires_font()
+    message = _message("1", "Hallo")
+    words = (WordCount("guck ma", 12), WordCount("dreck", 8))
+
+    with_words = ChatRenderer(
+        _settings(tmp_path, chat_overlay_show_words=True)
+    ).render_tile((message,), None, "", words)
+    without_words = ChatRenderer(
+        _settings(tmp_path, chat_overlay_show_words=False)
+    ).render_tile((message,))
+
+    assert with_words.tobytes() != without_words.tobytes()
+    with_box = with_words.getbbox()
+    without_box = without_words.getbbox()
+    assert with_box is not None and without_box is not None
+    assert with_box[0] == without_box[0]
+    assert with_box[2] == without_box[2]

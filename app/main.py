@@ -41,6 +41,7 @@ from app.supervisor import (
     Supervisor,
 )
 from app.telegram_bot import RestreamerBot
+from app.words import write_watchlist
 
 logger = logging.getLogger(__name__)
 
@@ -197,6 +198,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             settings.tiktok_target_idc,
         ):
             logger.info("cookies.txt aus den Einstellungen geschrieben")
+
+        try:
+            write_watchlist(
+                settings.asr_watchlist_file, settings.asr_watchlist
+            )
+        except OSError:
+            logger.warning(
+                "ASR-Watchlist konnte nicht geschrieben werden", exc_info=True
+            )
 
         await delay_buffer.start()
 
@@ -401,6 +411,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         earnings_monitor.request_check()
         return {"ok": True, "earnings": earnings_monitor.summary()}
 
+    @app.get("/api/words")
+    async def api_words():
+        return {"ok": True, **supervisor.words_status()}
+
     @app.get("/api/overlay/preview.png")
     async def api_overlay_preview(sample: bool = Query(False)):
         try:
@@ -524,6 +538,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         settings.apply_from(candidate)
         online_monitor.request_check()
         earnings_monitor.request_check()
+        try:
+            write_watchlist(
+                settings.asr_watchlist_file, settings.asr_watchlist
+            )
+        except OSError:
+            logger.warning(
+                "ASR-Watchlist konnte nicht geschrieben werden", exc_info=True
+            )
 
         if output_needs_reload:
             await supervisor.reload_output()

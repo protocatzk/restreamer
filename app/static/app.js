@@ -1555,6 +1555,25 @@ function refreshChatOverlayPreview() {
   if (!image) return;
   const sample = $("chat-overlay-preview-sample")?.checked ? "1" : "0";
   image.src = `/api/overlay/preview.png?sample=${sample}&t=${Date.now()}`;
+  refreshWordsStatus();
+}
+
+async function refreshWordsStatus() {
+  const element = $("words-status");
+  if (!element) return;
+  try {
+    const data = await api("/api/words");
+    const words = (data.words || [])
+      .map((item) => `${item.word} ×${item.count}`)
+      .join(" · ");
+    const total = Number(data.total || 0);
+    const state = data.enabled ? "aktiv" : "Tap aus";
+    element.textContent = `ASR: ${state} · ${total} Treffer${
+      words ? ` · ${words}` : ""
+    }`;
+  } catch (error) {
+    element.textContent = `ASR-Status nicht abrufbar: ${error.message}`;
+  }
 }
 
 function startChatOverlayPreview() {
