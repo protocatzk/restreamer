@@ -688,8 +688,15 @@ Der `output-ffmpeg` lebt für die gesamte Session (bzw. solange der YouTube-Key 
 - `app/status_view.py` – Dashboard-/Telegram-Ansichten auf einem Status-Snapshot
 - `app/timing.py` – injizierbare Uhr (`WallClock`, `FakeClock`) für deterministische Tests
 - `app/keys.py` – Auflösung von YouTube-Keys aus Konfiguration und Umgebung
+- `app/progress.py` – ffmpeg-Fortschritt, Bitrate und Codec-Fehlererkennung
+- `app/polling.py` – gemeinsame Polling-Schleife für Online- und Earnings-Monitor
+- `app/ffmpeg_filters.py` – gemeinsames Quoting und Font-Skalierung für drawtext
+- `app/redaction.py` – Secret- und `api_key=`-Redaction für Logs und Fehler
+- `app/telegram_views.py` – reine Formatierung und Inline-Keyboards des Bots
+- `app/earnings.py` – Fassade für `earnings_parse`, `earnings_monitor`, `earnings_overlay`
+- `app/web/` – FastAPI-Router, `AppContext` und Request-Helfer
 - `app/store.py` – YAML-Validierung mit Hot-Reload
-- `app/main.py` – FastAPI, Auth, Dashboard
+- `app/main.py` – FastAPI-App, Auth-Middleware, Seiten und Lifespan
 
 TikTok liefert bei manchen Lives **nur FLV-Formate**. yt-dlp ruft dann zusätzlich die inzwischen abgeschaltete `api/live/detail`-API auf und meldet fälschlich „not live“. Das Image startet yt-dlp deshalb über `yt-dlp-live` (`YTDLP_BIN`), das genau diesen Fehler ignoriert und die bereits gefundenen FLV-Formate behält.
 
