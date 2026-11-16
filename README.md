@@ -1,6 +1,10 @@
 # Restreamer
 
 [![CI](https://github.com/protocatzk/restreamer/actions/workflows/ci.yml/badge.svg?branch=stream)](https://github.com/protocatzk/restreamer/actions/workflows/ci.yml)
+[![Coverage](https://codecov.io/gh/protocatzk/restreamer/branch/stream/graph/badge.svg)](https://codecov.io/gh/protocatzk/restreamer)
+![Python](https://img.shields.io/badge/python-3.11-blue)
+![mypy](https://img.shields.io/badge/type--checked-mypy-blue)
+![License](https://img.shields.io/badge/license-MIT-blue)
 
 Restream einzelner TikTok-Live-Streamer auf YouTube – aufgelöst mit **yt-dlp**, übertragen mit **ffmpeg**. Ein dauerhafter Ausgabe-ffmpeg hält die YouTube-RTMP-Verbindung, während TikTok-Quellen und Pausenscreen intern über einen MPEG-TS-Relay ausgetauscht werden. Läuft als Docker-Container mit Web-Dashboard, Senderliste und ist für **einen gleichzeitigen Stream** ausgelegt.
 

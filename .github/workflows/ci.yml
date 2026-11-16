@@ -37,7 +37,7 @@ jobs:
       - name: Tests
         run: |
           set +e
-          pytest --junitxml=/tmp/pytest.xml
+          pytest --junitxml=/tmp/pytest.xml --cov-report=xml:coverage.xml
           rc=$?
           if [ "$rc" -ne 0 ]; then
             python - <<'PY'
@@ -65,6 +65,15 @@ jobs:
           PY
           fi
           exit $rc
+      - name: Coverage zu Codecov hochladen
+        if: always()
+        uses: codecov/codecov-action@v7
+        with:
+          files: ./coverage.xml
+          flags: pytest
+          name: restreamer
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false
 
   docker:
     runs-on: ubuntu-latest
