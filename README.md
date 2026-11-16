@@ -48,6 +48,9 @@ cd restreamer
 
 cp .env.example .env
 
+# Optional: Reverse-Proxy-/Netzwerk-Einstellungen (VIRTUAL_HOST, Let's Encrypt)
+# cp docker-compose.override.example.yml docker-compose.override.yml
+
 # Optional: Streamer lieber per YAML pflegen?
 # cp config/streamers.example.yml config/streamers.yml
 
@@ -625,7 +628,7 @@ Das Dashboard ist unter **https://restreamer.positronium.dev** erreichbar (nginx
 
 Ablauf: `POST /auth/request` → Deep-Link `t.me/<bot>?start=login_<token>` → Freigabe im Bot → `POST /auth/check` → Cookie. Tokens sind einmalig und 10 Minuten gültig. Sessions liegen im RAM und enden mit einem Neustart. `DASHBOARD_PASSWORD` funktioniert weiterhin parallel; ohne Passwort und ohne Telegram-Login bleibt der Zugriff offen (nur für lokale Entwicklung gedacht). Der **Logout**-Button im Dashboard ruft `POST /auth/logout` auf.
 
-Die Subdomain wird über den vorhandenen `nginx-proxy`/`acme-companion` im Netz `toktrackerapp_toktracker_net` bereitgestellt; der DNS-A-Record `restreamer.positronium.dev` zeigt auf den Server. Bei einer anderen Domain die `VIRTUAL_HOST`/`LETSENCRYPT_HOST`-Werte in `docker-compose.yml` anpassen.
+Die Subdomain wird über den vorhandenen `nginx-proxy`/`acme-companion` im Netz `toktrackerapp_toktracker_net` bereitgestellt; die deployment-spezifischen Werte (`VIRTUAL_HOST`, `LETSENCRYPT_HOST`, `LETSENCRYPT_EMAIL`, externes Netz) stehen in `docker-compose.override.yml` (Vorlage: `docker-compose.override.example.yml`). Der DNS-A-Record `restreamer.positronium.dev` zeigt auf den Server. Bei einer anderen Domain die `VIRTUAL_HOST`/`LETSENCRYPT_HOST`-Werte dort anpassen.
 
 **Sicherheit:** Der Bot akzeptiert nur Private Chats von numerischen IDs aus `TELEGRAM_ALLOWED_USER_IDS`. Ist die Liste leer, startet der Bot nicht (fail-closed). `@username` werden bewusst nicht verwendet, weil sie sich ändern lassen. Der Token gehört nur in `.env`; `httpx`/`httpcore`-Logging ist gedrosselt, damit er nicht in den Container-Logs landet.
 
@@ -676,6 +679,11 @@ Der `output-ffmpeg` lebt für die gesamte Session (bzw. solange der YouTube-Key 
 - `app/ytdlp_wrapper.py` – Workaround für TikToks deprecated Live-Detail-API (FLV-only-Streams)
 - `app/ffmpeg_cmd.py` – Command-Builder für Quelle, Pause und dauerhaften Output
 - `app/supervisor.py` – Single-Session-Lock, getrennte Quellen-/Output-Prozesse, Reconnect, Backoff, Logs
+- `app/playlist.py` – Senderlisten-Auswahl und Preferred-Rückkehr als reine Entscheidungen
+- `app/overlay_stack.py` – Overlay-Filter und optionale PNG-Chat-Pipeline
+- `app/status_view.py` – Dashboard-/Telegram-Ansichten auf einem Status-Snapshot
+- `app/timing.py` – injizierbare Uhr (`WallClock`, `FakeClock`) für deterministische Tests
+- `app/keys.py` – Auflösung von YouTube-Keys aus Konfiguration und Umgebung
 - `app/store.py` – YAML-Validierung mit Hot-Reload
 - `app/main.py` – FastAPI, Auth, Dashboard
 
@@ -697,10 +705,20 @@ source .venv/bin/activate
 pip install -r requirements-dev.txt
 
 ruff check .
+mypy app asr
 pytest
 ```
 
-Tests laufen ohne ffmpeg/yt-dlp (gemockt). Der Docker-Build installiert beides.
+Abhängigkeiten: `requirements.in` listet die direkten Pakete, `requirements.lock` die vollständig aufgelösten Versionen (vom Dockerfile und von `requirements-dev.txt` genutzt). Nach Änderungen neu erzeugen:
+
+```bash
+pip install pip-tools
+pip-compile requirements.in -o requirements.lock
+# yt-dlp gezielt aktualisieren, wenn YouTube-Extraktion bricht:
+pip-compile --upgrade-package yt-dlp requirements.in -o requirements.lock
+```
+
+Tests laufen ohne ffmpeg/yt-dlp (gemockt). Der Docker-Build installiert beides. Die Coverage-Schwelle liegt bei 80 % (`pytest --cov` läuft automatisch).
 
 ## Troubleshooting
 
