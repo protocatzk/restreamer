@@ -1,0 +1,64 @@
+        <section id="settings-panel-quality" class="settings-panel" role="tabpanel"
+                 aria-labelledby="settings-tab-quality" data-settings-panel="quality" hidden>
+          <fieldset>
+            <legend>Qualität</legend>
+            <div class="form-grid">
+              <label class="field">
+                <span>Audio-Bitrate</span>
+                <input name="audio_bitrate" placeholder="192k">
+              </label>
+              <label class="field">
+                <span>Video-Bitrate (Ausgabe / Re-Encode)</span>
+                <input name="reencode_video_bitrate" placeholder="5000k">
+              </label>
+              <label class="field">
+                <span>Ausgabeformat</span>
+                <select name="output_orientation">
+                  <option value="portrait">720p Hochformat (720×1280)</option>
+                  <option value="landscape">720p Querformat (1280×720)</option>
+                  <option value="landscape-900p">900p Querformat (1600×900) · 20 FPS</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>Ausgabe-FPS</span>
+                <input name="output_fps" type="number" min="15" max="60" step="1">
+              </label>
+              <label class="field">
+                <span>Horizontale Streckung (%, 0 = aus)</span>
+                <input name="output_stretch_percent" type="number" min="0" max="50" step="1">
+              </label>
+            </div>
+          </fieldset>
+
+          <fieldset>
+            <legend>Pausenscreen</legend>
+            <div class="check-row">
+              <label class="check"><input type="checkbox" name="pause_screen_enabled"> Pausenscreen bei Verbindungsverlust einspielen</label>
+            </div>
+            <div class="form-grid" data-show-when="pause_screen_enabled:on">
+              <label class="field">
+                <span>Haupttext</span>
+                <input name="pause_screen_text" placeholder="Stream pausiert">
+              </label>
+              <label class="field">
+                <span>Untertitel</span>
+                <input name="pause_screen_subtext" placeholder="Gleich geht's weiter">
+              </label>
+              <label class="field">
+                <span>Hintergrundfarbe (Hex)</span>
+                <input name="pause_screen_background" placeholder="101418">
+              </label>
+              <label class="field">
+                <span>Schriftdatei (optional)</span>
+                <input name="pause_screen_font" placeholder="leer = automatisch">
+              </label>
+              <label class="field">
+                <span>Maximale Dauer (Minuten, 0 = unbegrenzt)</span>
+                <input name="pause_screen_max_minutes" type="number" min="0" step="1">
+              </label>
+            </div>
+            <p class="hint" data-show-when="pause_screen_enabled:off">
+              Pausenscreen aktivieren, um Texte, Farbe und Dauer zu bearbeiten.
+            </p>
+          </fieldset>
+        </section>

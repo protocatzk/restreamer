@@ -1,0 +1,44 @@
+  <!-- Globale Einstellungen -->
+  <dialog id="settings-dialog" class="modal wide settings-modal" aria-labelledby="settings-dialog-title">
+    <form id="settings-form" novalidate>
+      <div class="modal-head">
+        <h2 id="settings-dialog-title">Einstellungen</h2>
+        <button type="button" class="icon-btn" data-close aria-label="Schließen">×</button>
+      </div>
+
+      <div class="settings-shell">
+        <div class="settings-tabs" role="tablist" aria-label="Einstellungsbereiche">
+          <button type="button" class="settings-tab active" id="settings-tab-stream"
+                  role="tab" aria-selected="true" aria-controls="settings-panel-stream"
+                  data-settings-tab="stream" tabindex="0">Stream</button>
+          <button type="button" class="settings-tab" id="settings-tab-quality"
+                  role="tab" aria-selected="false" aria-controls="settings-panel-quality"
+                  data-settings-tab="quality" tabindex="-1">Qualität &amp; Pause</button>
+          <button type="button" class="settings-tab" id="settings-tab-overlays"
+                  role="tab" aria-selected="false" aria-controls="settings-panel-overlays"
+                  data-settings-tab="overlays" tabindex="-1">Overlays</button>
+          <button type="button" class="settings-tab" id="settings-tab-sources"
+                  role="tab" aria-selected="false" aria-controls="settings-panel-sources"
+                  data-settings-tab="sources" tabindex="-1">Status &amp; Einnahmen</button>
+          <button type="button" class="settings-tab" id="settings-tab-system"
+                  role="tab" aria-selected="false" aria-controls="settings-panel-system"
+                  data-settings-tab="system" tabindex="-1">System</button>
+        </div>
+
+        <div class="settings-panels">
+          {% include "partials/settings/stream.html" %}
+          {% include "partials/settings/quality.html" %}
+          {% include "partials/settings/overlays.html" %}
+          {% include "partials/settings/sources.html" %}
+          {% include "partials/settings/system.html" %}
+        </div>
+      </div>
+
+      <p id="settings-error" class="form-error" hidden></p>
+
+      <div class="modal-actions">
+        <button type="button" class="btn ghost" data-close>Abbrechen</button>
+        <button type="submit" class="btn primary" id="settings-save">Speichern</button>
+      </div>
+    </form>
+  </dialog>

@@ -1,0 +1,44 @@
+    <section class="box" aria-labelledby="streamer-title">
+      <div class="box-header">
+        <h2 id="streamer-title">Streamer</h2>
+        <div class="toolbar-controls">
+          <div class="streamer-filter" role="group" aria-label="Streamer-Filter">
+            <button type="button" id="streamer-filter-live" class="filter-btn active" data-streamer-filter="live" aria-pressed="true">
+              Live <span class="tab-badge" id="streamer-live-count">0</span>
+            </button>
+            <button type="button" id="streamer-filter-all" class="filter-btn" data-streamer-filter="all" aria-pressed="false">
+              Alle <span class="tab-badge" id="streamer-all-count">0</span>
+            </button>
+          </div>
+          <button id="add-streamer-btn" class="btn primary sm" type="button">+ Streamer</button>
+          <button id="online-check-btn" class="btn ghost sm" type="button">Status prüfen</button>
+          <button id="settings-btn" class="btn ghost sm" type="button">Einstellungen</button>
+          <button id="reload-btn" class="btn ghost sm" type="button">Config neu laden</button>
+        </div>
+      </div>
+      <form id="quick-add-form" class="quick-add" novalidate>
+        <div class="quick-add-main">
+          <label class="field quick-add-input">
+            <span>Streamer schnell hinzufügen</span>
+            <textarea id="quick-tiktok" name="tiktoks" rows="2" spellcheck="false"
+                      placeholder="TikTok-Handle oder Live-URL – mehrere per Zeile oder Komma"></textarea>
+            <small class="hint">ID und Name werden automatisch vom Handle abgeleitet · Strg/Cmd+Enter zum Anlegen</small>
+          </label>
+          <div class="quick-add-options">
+            <label class="field">
+              <span>Auch in Senderliste</span>
+              <select id="quick-playlist" name="playlist_id"></select>
+            </label>
+            <label class="field" id="quick-key-row" hidden>
+              <span>YouTube-Stream-Key</span>
+              <input id="quick-key" name="youtube_key" type="password"
+                     autocomplete="new-password"
+                     placeholder="erforderlich, kein gemeinsamer Listen-Key">
+            </label>
+            <button type="submit" class="btn primary" id="quick-add-btn">+ Hinzufügen</button>
+          </div>
+        </div>
+        <p id="quick-add-error" class="form-error" hidden></p>
+      </form>
+      <div id="streamers" class="grid"></div>
+    </section>

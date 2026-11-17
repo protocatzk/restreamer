@@ -124,7 +124,7 @@
 }
 
 /* =========================================================
-   STATUS-PUNKTE (Klassen werden von app.js gesetzt)
+   STATUS-PUNKTE (Klassen werden von den JS-Modulen gesetzt)
    ========================================================= */
 
 .dot {
@@ -157,7 +157,7 @@
 }
 
 /* =========================================================
-   BADGES (Klassen werden von app.js gesetzt)
+   BADGES (Klassen werden von den JS-Modulen gesetzt)
    ========================================================= */
 
 .badge.ok,
@@ -808,6 +808,9 @@
 }
 
 .modal-head {
+    position: sticky;
+    top: 0;
+    z-index: 1;
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -815,6 +818,7 @@
     margin-bottom: var(--space-4);
     padding-bottom: var(--space-2);
     border-bottom: var(--line-subtle);
+    background: var(--surface);
 }
 
 .modal-head h2 {
@@ -900,11 +904,6 @@ input[type="time"]:focus {
 
 .form-grid {
     grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-}
-
-.form-sections {
-    display: grid;
-    gap: var(--space-4);
 }
 
 fieldset {
@@ -1108,4 +1107,106 @@ legend {
     margin: 0 auto;
     object-fit: contain;
     background: var(--bg);
+}
+
+/* =========================================================
+   EINSTELLUNGEN / REITER
+   ========================================================= */
+
+.modal.settings-modal {
+    width: min(1080px, calc(100vw - 32px));
+}
+
+.settings-shell {
+    display: grid;
+    grid-template-columns: 180px minmax(0, 1fr);
+    gap: var(--space-5);
+    align-items: start;
+}
+
+.settings-tabs {
+    position: sticky;
+    top: 52px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding-right: var(--space-3);
+    border-right: var(--line-subtle);
+}
+
+.settings-tab {
+    display: block;
+    width: 100%;
+    padding: 9px 10px;
+    border: 0;
+    border-left: 2px solid transparent;
+    background: transparent;
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    line-height: 1.35;
+    text-align: left;
+    text-transform: uppercase;
+    cursor: pointer;
+}
+
+.settings-tab:hover {
+    color: var(--text-strong);
+    background: var(--surface-2);
+}
+
+.settings-tab.active {
+    border-left-color: var(--accent);
+    background: var(--accent-soft);
+    color: var(--accent);
+}
+
+.settings-tab:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+}
+
+.settings-panels {
+    min-width: 0;
+}
+
+.settings-panel {
+    display: grid;
+    gap: var(--space-4);
+}
+
+.settings-panel[hidden] {
+    display: none;
+}
+
+@media (max-width: 760px) {
+    .settings-shell {
+        grid-template-columns: 1fr;
+        gap: var(--space-3);
+    }
+
+    .settings-tabs {
+        position: static;
+        flex-direction: row;
+        gap: 0;
+        overflow-x: auto;
+        padding: 0 0 var(--space-2);
+        border-right: 0;
+        border-bottom: var(--line-subtle);
+        scrollbar-width: thin;
+    }
+
+    .settings-tab {
+        width: auto;
+        flex: 0 0 auto;
+        border-left: 0;
+        border-bottom: 2px solid transparent;
+        white-space: nowrap;
+    }
+
+    .settings-tab.active {
+        border-bottom-color: var(--accent);
+    }
 }

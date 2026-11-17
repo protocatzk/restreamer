@@ -1,0 +1,34 @@
+    <section class="box" aria-labelledby="sender-title">
+      <div class="box-header">
+        <h2 id="sender-title">Sender</h2>
+        <div class="toolbar-controls">
+          <button id="playlist-new-btn" class="btn ghost sm" type="button">+ Senderliste</button>
+          <button id="playlist-edit-btn" class="btn ghost sm" type="button">Senderliste bearbeiten</button>
+        </div>
+      </div>
+      <div class="channel-mixer">
+        <div id="playlist-tabs" class="playlist-tabs" role="group" aria-label="Senderlisten"></div>
+        <div class="now-playing">
+          <div class="now-number">
+            <span class="kpi-label">Jetzt läuft</span>
+            <strong id="now-number">–</strong>
+          </div>
+          <div class="now-info">
+            <strong id="now-name">Kein Sender</strong>
+            <p id="now-meta" class="muted">Noch keine Senderliste angelegt.</p>
+            <div id="now-title-row" class="now-title-row" hidden>
+              <span id="now-title" class="now-title"></span>
+              <button id="copy-title-btn" class="btn ghost sm" type="button">Titel kopieren</button>
+            </div>
+          </div>
+          <span id="now-badge" class="badge offline">bereit</span>
+        </div>
+        <div class="transport">
+          <button id="channel-prev" class="btn ghost" type="button">◀ Vorheriger</button>
+          <button id="channel-play" class="btn primary" type="button">▶ Playlist starten</button>
+          <button id="channel-next" class="btn ghost" type="button">Nächster ▶</button>
+        </div>
+        <div id="channel-strip" class="channel-strip"></div>
+        <p id="playlist-hint" class="hint"></p>
+      </div>
+    </section>

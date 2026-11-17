@@ -22,6 +22,19 @@ jobs:
       - name: Typen prüfen
         run: mypy app asr
 
+  js:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: JS-Syntax prüfen
+        run: |
+          for file in app/static/js/*.js app/static/theme.js; do
+            node --input-type=module --check < "$file"
+          done
+
   test:
     runs-on: ubuntu-latest
     steps:

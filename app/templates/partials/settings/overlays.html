@@ -1,0 +1,202 @@
+        <section id="settings-panel-overlays" class="settings-panel" role="tabpanel"
+                 aria-labelledby="settings-tab-overlays" data-settings-panel="overlays" hidden>
+          <fieldset>
+            <legend>Chat</legend>
+            <div class="check-row">
+              <label class="check"><input type="checkbox" name="chat_enabled"> Chat im Stream anzeigen</label>
+              <label class="check"><input type="checkbox" name="chat_overlay_engine_enabled"> Chat als PNG-Overlay rendern</label>
+              <label class="check"><input type="checkbox" name="chat_overlay_emoji_enabled"> Farb-Emoji anzeigen</label>
+            </div>
+
+            <div class="form-grid" data-show-when="chat_enabled:on">
+              <label class="field">
+                <span>Chatquelle (HTTP-JSON)</span>
+                <input name="chat_source_url" placeholder="https://toktracker.cc/api/chat-logs">
+              </label>
+              <label class="field">
+                <span>API-Key</span>
+                <input name="chat_source_api_key" type="password" autocomplete="new-password"
+                       placeholder="leer lassen = unverändert">
+                <small id="chat-key-hint" class="hint"></small>
+              </label>
+              <label class="field">
+                <span>Poll-Intervall (Sekunden)</span>
+                <input name="chat_poll_seconds" type="number" min="2" max="60" step="1">
+              </label>
+              <label class="field">
+                <span>Position</span>
+                <select name="chat_overlay_position">
+                  <option value="bottom-left">unten links</option>
+                  <option value="bottom-right">unten rechts</option>
+                  <option value="top-left">oben links</option>
+                  <option value="top-right">oben rechts</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>Chatbreite (px, 0 = volle Breite)</span>
+                <input name="chat_overlay_width" type="number" min="0" max="1000" step="1">
+              </label>
+              <label class="field">
+                <span>Schriftgröße (0 = automatisch)</span>
+                <input name="chat_overlay_font_size" type="number" min="0" max="200" step="1">
+              </label>
+              <label class="field">
+                <span>Schriftdatei (optional)</span>
+                <input name="chat_overlay_font" placeholder="leer = automatisch">
+              </label>
+            </div>
+
+            <div class="check-row" data-show-when="chat_enabled:on">
+              <label class="check"><input type="checkbox" name="clear_chat_source_api_key"> Chat-API-Key entfernen</label>
+            </div>
+
+            <div class="form-grid" data-show-when="chat_overlay_engine_enabled:off">
+              <label class="field">
+                <span>Max. Nachrichten (klassische Darstellung)</span>
+                <input name="chat_overlay_max_messages" type="number" min="1" max="12" step="1">
+              </label>
+              <label class="field">
+                <span>Max. Alter (Sekunden, klassische Darstellung)</span>
+                <input name="chat_overlay_max_age_seconds" type="number" min="5" max="120" step="1">
+              </label>
+            </div>
+
+            <div data-show-when="chat_overlay_engine_enabled:on">
+              <div class="form-grid">
+                <label class="field">
+                  <span>Bildrate (FPS)</span>
+                  <input name="chat_overlay_render_fps" type="number" min="5" max="30" step="1">
+                </label>
+                <label class="field">
+                  <span>Stil</span>
+                  <select name="chat_overlay_style">
+                    <option value="bubbles">Blasen</option>
+                    <option value="panel">Ein Panel</option>
+                    <option value="minimal">Minimal</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>Deckkraft (%)</span>
+                  <input name="chat_overlay_opacity" type="number" min="0" max="100" step="1">
+                </label>
+                <label class="field">
+                  <span>Max. Zeilen pro Nachricht</span>
+                  <input name="chat_overlay_max_lines" type="number" min="1" max="6" step="1">
+                </label>
+                <label class="field">
+                  <span>Feste Kartenhöhe (px, 0 = automatisch)</span>
+                  <input name="chat_overlay_panel_height" type="number" min="0" max="2000" step="10">
+                </label>
+              </div>
+              <div class="check-row">
+                <label class="check"><input type="checkbox" name="chat_overlay_name_colors"> Namen farbig hervorheben</label>
+                <label class="check"><input type="checkbox" name="chat_overlay_show_timestamps"> Uhrzeit der Nachricht anzeigen</label>
+                <label class="check"><input type="checkbox" name="chat_overlay_show_tiers"> Tier-Badges (🐬/🦈/🐋)</label>
+                <label class="check"><input type="checkbox" name="chat_overlay_user_badges"> Neu-/Stammgast-Badges</label>
+                <label class="check"><input type="checkbox" name="chat_overlay_show_stats"> Chat-Statistik (Chatter/Minute, Top-Chatter)</label>
+                <label class="check"><input type="checkbox" name="chat_overlay_show_earnings"> Einnahmen im Chatfenster anzeigen</label>
+              </div>
+              <div class="overlay-preview-header">
+                <span>Vorschau</span>
+                <label class="check"><input type="checkbox" id="chat-overlay-preview-sample" checked> Beispielnachrichten</label>
+              </div>
+              <div class="overlay-preview-wrap">
+                <img id="chat-overlay-preview" class="overlay-preview" alt="Chat-Overlay-Vorschau">
+              </div>
+            </div>
+
+            <p class="hint">Die PNG-Engine rendert den Chat ohne zusätzlichen Encoder. Alle Blasen
+              verwenden die eingestellte Chatbreite, damit das Overlay stabil bleibt. Stil, Deckkraft,
+              Farben und Inhalte wirken live; Aktivierung, Bildrate, Breite, Position und Schriftgröße
+              bauen den YouTube-Ausgang einmal kurz neu auf. Ohne PNG-Engine wird der Chat klassisch
+              per <code>drawtext</code> gerendert.</p>
+          </fieldset>
+
+          <fieldset>
+            <legend>Wort-Tracker (Vosk)</legend>
+            <div class="check-row">
+              <label class="check"><input type="checkbox" name="chat_overlay_show_words"> Erkannte Wörter im Chat anzeigen</label>
+            </div>
+            <div class="form-grid">
+              <label class="field wide">
+                <span>Globale Watchlist (Fallback)</span>
+                <textarea name="asr_watchlist" rows="6" spellcheck="false"
+                          placeholder="Guck ma&#10;Dreck&#10;Ich"></textarea>
+                <small class="hint">Gilt für Streamer ohne eigene Watchlist. Alias mit <code>=</code>, z. B. <code>isso = is so</code> (links Anzeige, rechts gesprochen). Kommas sind ebenfalls erlaubt; Phrasen mit Leerzeichen sind möglich.</small>
+              </label>
+              <label class="field">
+                <span>Top-Wörter in der Anzeige (1–10)</span>
+                <input name="chat_overlay_words_top" type="number" min="1" max="10" step="1">
+              </label>
+            </div>
+            <p id="words-status" class="hint">ASR-Status wird geladen …</p>
+            <p class="hint">Der Vosk-Worker läuft separat und liest den verzögerten Audio-Tap.
+              Jeder Streamer kann im Bearbeiten-Dialog eine eigene Watchlist bekommen; die Zähler
+              werden pro Streamer geführt. Ohne eigene Liste gilt diese globale. Änderungen werden
+              ohne Neustart übernommen.</p>
+          </fieldset>
+
+          <fieldset>
+            <legend>Uhrzeit &amp; Version</legend>
+            <div class="check-row">
+              <label class="check"><input type="checkbox" name="clock_enabled"> Aktuelle Uhrzeit im Stream anzeigen</label>
+              <label class="check"><input type="checkbox" name="clock_show_seconds"> Sekunden anzeigen</label>
+              <label class="check"><input type="checkbox" name="version_overlay_enabled"> Version oben rechts anzeigen</label>
+            </div>
+            <div class="form-grid" data-show-when="clock_enabled:on">
+              <label class="field">
+                <span>Position</span>
+                <select name="clock_position">
+                  <option value="top-left">oben links</option>
+                  <option value="top-right">oben rechts</option>
+                  <option value="bottom-left">unten links</option>
+                  <option value="bottom-right">unten rechts</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>Schriftgröße (0 = automatisch)</span>
+                <input name="clock_font_size" type="number" min="0" max="200" step="1">
+              </label>
+              <label class="field">
+                <span>Schriftdatei (optional)</span>
+                <input name="clock_font" placeholder="leer = automatisch">
+              </label>
+            </div>
+            <p class="hint">Die Uhrzeit wird direkt von ffmpeg gerendert. „Oben links“ liegt bei der
+              Querformat-Ausgabe im schwarzen Balken über dem Chat.</p>
+          </fieldset>
+
+          <fieldset>
+            <legend>Text-Overlay / Laufschrift</legend>
+            <div class="check-row">
+              <label class="check"><input type="checkbox" name="text_overlay_enabled"> Text im Stream anzeigen</label>
+            </div>
+            <div class="form-grid" data-show-when="text_overlay_enabled:on">
+              <label class="field wide">
+                <span>Text</span>
+                <input name="text_overlay_text" maxlength="500" placeholder="z. B. Heute Abend ab 20 Uhr: Community-Stream">
+              </label>
+              <label class="field">
+                <span>Position</span>
+                <select name="text_overlay_position">
+                  <option value="bottom">unten</option>
+                  <option value="top">oben</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>Schriftgröße (0 = automatisch)</span>
+                <input name="text_overlay_font_size" type="number" min="0" max="200" step="1">
+              </label>
+              <label class="field">
+                <span>Schriftdatei (optional)</span>
+                <input name="text_overlay_font" placeholder="leer = automatisch">
+              </label>
+              <label class="field">
+                <span>Scroll-Geschwindigkeit (px/s)</span>
+                <input name="text_overlay_speed" type="number" min="10" max="1000" step="10">
+              </label>
+            </div>
+            <p class="hint">Passt der Text in die Ausgabebreite, bleibt er stehen. Ist er länger,
+              läuft er als Laufschrift von rechts nach links.</p>
+          </fieldset>
+        </section>

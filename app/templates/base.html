@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="de" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0b0e13" id="metaThemeColor">
+  <meta name="color-scheme" content="dark light">
+  <title>{% block title %}Restreamer{% endblock %}</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%230b0e13'/%3E%3Cpath d='M11 7l14 9-14 9z' fill='%233fb950'/%3E%3C/svg%3E">
+  <link rel="preload" href="/static/fonts/inter-latin-var.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/static/fonts/jetbrains-mono-latin-var.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/static/brand.css?v={{ version }}">
+  {% block styles %}{% endblock %}
+  <script src="/static/theme.js?v={{ version }}"></script>
+</head>
+<body>
+{% block body %}{% endblock %}
+{% block scripts %}{% endblock %}
+</body>
+</html>

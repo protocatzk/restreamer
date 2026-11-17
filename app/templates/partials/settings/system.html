@@ -1,0 +1,50 @@
+        <section id="settings-panel-system" class="settings-panel" role="tabpanel"
+                 aria-labelledby="settings-tab-system" data-settings-panel="system" hidden>
+          <fieldset>
+            <legend>Dashboard</legend>
+            <div class="form-grid">
+              <label class="field">
+                <span>Passwort (HTTP-Basic-Auth)</span>
+                <input name="dashboard_password" type="password" autocomplete="new-password"
+                       placeholder="leer lassen = unverändert">
+                <small id="password-hint" class="hint"></small>
+              </label>
+              <label class="check"><input type="checkbox" name="clear_dashboard_password"> Passwort entfernen</label>
+            </div>
+          </fieldset>
+
+          <fieldset>
+            <legend>Erweitert</legend>
+            <div class="form-grid">
+              <label class="field">
+                <span>yt-dlp Binary</span>
+                <input name="ytdlp_bin" placeholder="yt-dlp">
+              </label>
+              <label class="field">
+                <span>ffmpeg Binary</span>
+                <input name="ffmpeg_bin" placeholder="ffmpeg">
+              </label>
+              <label class="field">
+                <span>Resolver-Timeout (Sekunden)</span>
+                <input name="resolve_timeout_seconds" type="number" min="5" step="1">
+              </label>
+              <label class="field">
+                <span>Stop-Timeout (Sekunden)</span>
+                <input name="terminate_timeout_seconds" type="number" min="1" step="1">
+              </label>
+              <label class="field">
+                <span>Log-Puffer (Zeilen)</span>
+                <input name="log_buffer_lines" type="number" min="50" step="50">
+              </label>
+              <label class="field">
+                <span>yt-dlp Extra-Argumente (eine Zeile pro Argument)</span>
+                <textarea name="ytdlp_extra_args" rows="2" spellcheck="false"></textarea>
+              </label>
+            </div>
+            <dl class="paths">
+              <dt>Streamer-Datei</dt><dd id="path-streamers">–</dd>
+              <dt>Einstellungsdatei</dt><dd id="path-settings">–</dd>
+              <dt>Cookie-Datei</dt><dd id="path-cookies">–</dd>
+            </dl>
+          </fieldset>
+        </section>

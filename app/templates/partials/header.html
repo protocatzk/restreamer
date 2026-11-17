@@ -1,0 +1,35 @@
+  <a class="skip-link" href="#main">Zum Inhalt springen</a>
+
+  <header class="app-header">
+    <div class="header-inner">
+      <a href="/" class="brand-block">
+        <span class="brand-logo brand-logo-mark" aria-hidden="true">▶</span>
+        <span class="brand-text">
+          <span class="brand-title-row">
+            <span class="brand-title">Restreamer</span>
+            <span class="brand-mode-tag">Control</span>
+          </span>
+          <span class="brand-subtitle">TikTok Live → YouTube · yt-dlp + ffmpeg Relay</span>
+        </span>
+      </a>
+      <div class="header-side">
+        <div class="status-strip">
+          <span class="pill">
+            <span id="global-dot" class="dot idle"></span>
+            <span id="global-state">bereit</span>
+          </span>
+          <span class="pill">Version <strong>v{{ version }}</strong></span>
+          {% if password_required %}
+          <span class="pill">Zugang <strong>geschützt</strong></span>
+          {% endif %}
+          {% if telegram_auth_enabled %}
+          <span class="pill">Zugang <strong>Telegram</strong></span>
+          {% endif %}
+          <button type="button" class="app-nav-link" data-theme-toggle>Theme: DARK</button>
+          {% if telegram_auth_enabled %}
+          <button type="button" class="app-nav-link danger" id="logout-button" data-auth-logout>Logout</button>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </header>

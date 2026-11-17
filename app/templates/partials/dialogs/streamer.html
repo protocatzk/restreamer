@@ -1,0 +1,88 @@
+  <!-- Streamer bearbeiten / anlegen -->
+  <dialog id="streamer-dialog" class="modal" aria-labelledby="streamer-dialog-title">
+    <form id="streamer-form" novalidate>
+      <div class="modal-head">
+        <h2 id="streamer-dialog-title">Streamer hinzufügen</h2>
+        <button type="button" class="icon-btn" data-close aria-label="Schließen">×</button>
+      </div>
+
+      <div class="form-grid">
+        <label class="field">
+          <span>ID</span>
+          <input name="id" required maxlength="64" pattern="[a-z0-9][a-z0-9_-]{0,63}"
+                 placeholder="z. B. alice" autocomplete="off">
+          <small class="hint">Kleinbuchstaben, Zahlen, _ und -</small>
+        </label>
+
+        <label class="field">
+          <span>Anzeigename</span>
+          <input name="name" required maxlength="120" placeholder="z. B. Alice" autocomplete="off">
+        </label>
+
+        <label class="field">
+          <span>TikTok-Handle oder Live-URL</span>
+          <input name="tiktok" required placeholder="alice oder https://www.tiktok.com/@alice/live"
+                 autocomplete="off">
+        </label>
+
+        <label class="field">
+          <span>YouTube-Stream-Key</span>
+          <input name="youtube_key" type="password" autocomplete="new-password"
+                 placeholder="leer lassen = unverändert">
+          <small id="key-hint" class="hint"></small>
+        </label>
+
+        <label class="field wide">
+          <span>Wort-Tracker-Watchlist (optional)</span>
+          <textarea name="asr_watchlist" rows="4" spellcheck="false"
+                    placeholder="Leer = globale Watchlist aus den Einstellungen"></textarea>
+          <small class="hint">Ein Wort oder eine Phrase pro Zeile. Alias mit <code>=</code>, z. B. <code>isso = is so</code> (links Anzeige, rechts gesprochen). Gilt nur für diesen Streamer; leer = globale Watchlist.</small>
+        </label>
+      </div>
+
+      <div class="check-row">
+        <label class="check"><input type="checkbox" name="enabled" checked> Aktiv</label>
+        <label class="check"><input type="checkbox" name="auto_start"> Beim Containerstart automatisch starten</label>
+        <label class="check"><input type="checkbox" name="preferred"> Bevorzugt: bei Online automatisch umschalten</label>
+        <label class="check"><input type="checkbox" name="own_stream"> Eigener YouTube-Stream (eigener Key)</label>
+        <label class="check" id="clear-key-row" hidden>
+          <input type="checkbox" name="clear_youtube_key"> Gespeicherten Key entfernen
+        </label>
+      </div>
+      <p class="hint">
+        „Bevorzugt“ schaltet automatisch auf diesen Streamer um, sobald der
+        Online-Check ihn als live meldet – auch aus dem Einzelmodus. Läuft
+        bereits ein bevorzugter Streamer, bleibt dieser aktiv. Endet der
+        bevorzugte Stream, wird automatisch zu dem Sender zurückgeschaltet,
+        der vorher lief.
+        „Eigener YouTube-Stream“ verwendet diesen Key auch in Senderlisten mit
+        gemeinsamem Key. Beim Umschalten wird der aktuelle YouTube-Stream beendet
+        und mit dem eigenen Key neu aufgebaut.
+      </p>
+
+      <details class="advanced">
+        <summary>Erweitert</summary>
+        <div class="form-grid">
+          <label class="field">
+            <span>Alternativ: Env-Variablenname für den Key</span>
+            <input name="youtube_key_env" placeholder="z. B. ALICE_YT_KEY" autocomplete="off">
+          </label>
+          <label class="field">
+            <span>yt-dlp zusätzliche Argumente (eine Zeile pro Argument)</span>
+            <textarea name="ytdlp_args" rows="3" spellcheck="false"></textarea>
+          </label>
+          <label class="field">
+            <span>ffmpeg zusätzliche Argumente (eine Zeile pro Argument)</span>
+            <textarea name="ffmpeg_args" rows="3" spellcheck="false"></textarea>
+          </label>
+        </div>
+      </details>
+
+      <p id="streamer-error" class="form-error" hidden></p>
+
+      <div class="modal-actions">
+        <button type="button" class="btn ghost" data-close>Abbrechen</button>
+        <button type="submit" class="btn primary" id="streamer-save">Speichern</button>
+      </div>
+    </form>
+  </dialog>

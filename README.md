@@ -185,28 +185,13 @@ Alle Optionen sind in [`.env.example`](.env.example) dokumentiert.
 
 ### Dashboard-Einstellungen
 
-Über **Einstellungen** im Dashboard lassen sich alle Laufzeitwerte pflegen:
+Über **Einstellungen** im Dashboard lassen sich alle Laufzeitwerte pflegen. Der Dialog ist in fünf Reiter gegliedert: **Stream**, **Qualität & Pause**, **Overlays**, **Status & Einnahmen** und **System**.
 
-- TikTok-Session-ID und Target IDC (Cookie wird sofort neu geschrieben)
-- YouTube-RTMP-URL und Backup-RTMP
-- Offline-Poll, Backoff, **Auto-Refresh-Intervall**, **Stall-Timeout**, **Watchdog-Intervall**
-- **Online-Status**: Ein/Aus, HTTP-JSON-Quelle, optionaler API-Key, Prüfintervall und Timeout; der Live-Status aller aktivierten Streamer wird im Hintergrund aus einer TokTracker-kompatiblen API gelesen
-- **Einnahmen**: Ein/Aus, HTTP-JSON-Quelle, optionaler API-Key, Zeitraum, Dashboard-Anzeigeform (kompakt/standard/ausführlich), Aktualisierungsintervall, Timeout sowie optionales Overlay mit Template, Position und Schrift
-- **YouTube-Titel-Template**: lokale Vorschau mit Platzhaltern und Kopierbutton im Dashboard
-- Auto-Start, Reencode-Fallback
-- **Pausenscreen**: Ein/Aus, Texte, Hintergrundfarbe, Schriftdatei und Maximaldauer
-- **Chat-Overlay**: Ein/Aus, HTTP-JSON-Quelle, API-Key, Poll-Intervall, Position, Schriftgröße, Chatbreite und maximale Nachrichtenzahl
-- **PNG-Chat-Engine**: Ein/Aus, Bildrate, Farb-Emoji, Stil (Blasen/Panel/Minimal), Deckkraft, Namensfarben, Zeitstempel, Tier-/Neu-/Stammgast-Badges, Chat-Statistik und Live-Vorschau
-- **Wort-Tracker (Vosk)**: optionale, im Dashboard editierbare Watchlist; erkennt Wörter und Phrasen im Stream-Audio und zeigt die Top-Treffer in der Chat-Karte
-- **Uhrzeit-Overlay**: Ein/Aus, Position, Sekunden, Schriftgröße und Schriftdatei; zusätzlich Versionsanzeige oben rechts
-- **Text-Overlay (Laufschrift)**: Ein/Aus, Text, Position oben/unten, Schriftgröße, Schriftdatei und Scroll-Geschwindigkeit
-- **Ausgabeformat**: 720p Hochformat (720×1280), 720p Querformat (1280×720) oder 900p Querformat (1600×900, empfohlen mit 20 FPS). Beim Umschalten im laufenden Betrieb wird nur der YouTube-Output kurz neu aufgebaut; die TikTok-Quelle läuft weiter.
-- ffmpeg Log-Level, Ausgabe-FPS (Default 25), horizontale Streckung (Default 10 %), Audio-/Video-Bitrate (Default 5000k/192k; Änderungen bauen den Ausgabe-Encoder automatisch neu auf)
-- Delay-Puffer (`RELAY_DELAY_SECONDS`, 0–60 s; 0 = aus)
-- Mindest-Quellrate (`SOURCE_MIN_RATE_PERCENT`, 0–100 %; 0 = Auto-Neustart aus)
-- Ausgabeformat (`OUTPUT_ORIENTATION`, `OUTPUT_FPS`, `OUTPUT_STRETCH_PERCENT`) und Relay-Port sind per `.env` konfigurierbar; das Format kann zusätzlich im Dashboard umgeschaltet werden
-- Dashboard-Passwort
-- Binärpfade, Timeouts, Log-Puffer, yt-dlp-Extra-Argumente
+- **Stream**: TikTok-Session-ID und Target IDC (Cookie wird sofort neu geschrieben), YouTube-RTMP-URL und Backup-RTMP, Offline-Poll, Backoff, **Auto-Refresh-Intervall**, **Stall-Timeout**, **Watchdog-Intervall**, Delay-Puffer, Mindest-Quellrate, Auto-Start und Reencode-Fallback
+- **Qualität & Pause**: Ausgabeformat (720p Hochformat, 720p Querformat oder 900p Querformat mit 20 FPS), Ausgabe-FPS, horizontale Streckung, Audio-/Video-Bitrate sowie Pausenscreen mit Texten, Hintergrundfarbe, Schriftdatei und Maximaldauer
+- **Overlays**: Chat (klassisch per `drawtext` oder als PNG-Engine), PNG-Stil, Deckkraft, Badges, Chat-Statistik, Live-Vorschau, Wort-Tracker (Vosk), Uhrzeit-/Versionsanzeige und Text-Overlay/Laufschrift
+- **Status & Einnahmen**: Online-Status (HTTP-JSON-Quelle, API-Key, Prüfintervall, Timeout), Einnahmen (Quelle, API-Key, Zeitraum, Anzeigeform, Intervall, Timeout, optionales Overlay) sowie das YouTube-Titel-Template
+- **System**: Dashboard-Passwort, Binärpfade, Timeouts, Log-Puffer und yt-dlp-Extra-Argumente
 
 Secrets werden nie im Klartext an den Browser zurückgegeben; die API meldet nur, ob ein Wert gesetzt ist. Leere Passwort-/Cookie-Felder bedeuten „unverändert“. Zum Entfernen gibt es eigene Checkboxen.
 
@@ -425,7 +410,7 @@ Eigenschaften:
 - Stil, Deckkraft, Farben, Zeitstempel, Badges, Statistik und Inhalte wirken
   live. Nur Aktivierung, Bildrate, Chatbreite, Position und Schriftgröße bauen
   den YouTube-Output einmal kurz neu auf.
-- Im Dashboard unter **Einstellungen → PNG-Chat-Engine** gibt es eine
+- Im Dashboard unter **Einstellungen → Overlays → Chat** gibt es eine
   Live-Vorschau (`/api/overlay/preview.png`) mit optionalen Beispielnachrichten.
 - Bei `false` oder einem Fehler (z. B. fehlendes Pillow) läuft der bisherige
   `drawtext`-Chat unverändert weiter.
@@ -580,7 +565,7 @@ Eine eigene `data/cookies.txt` (Netscape-Format, z. B. per Browser-Export) funkt
 - **Senderliste bearbeiten**: ID, Name, Reihenfolge, Auto-Weiter, Wrap-around, Verzögerung, automatisches Ende (Dauer oder Uhrzeit) und optional ein gemeinsamer YouTube-Key. Über „+ Senderliste“ lassen sich weitere Listen anlegen; Löschen entfernt nur die Liste, nicht die Streamer.
 - **Auto-Refresh**: Alle `auto_refresh_minutes` (Default 20, `0` = aus) wird die TikTok-URL im Hintergrund neu aufgelöst und nur die Quelle neu gestartet. Die YouTube-RTMP-Verbindung bleibt bestehen; der Stream buffert höchstens kurz.
 - **Stall-Watchdog**: 30 s ohne Fortschritt bei `out_time`/`total_size` der Quelle → Quelle wird neu gestartet, der Pausenscreen überbrückt. Einstellbar über `stall_timeout_seconds`.
-- **Pausenscreen**: Endet der TikTok-Stream oder meldet der Resolver „offline“, startet der Bot einen zweiten ffmpeg, der einen aus Hintergrundfarbe und Text generierten Screen samt stiller Audiospur über denselben internen Relay sendet. Kommt der Streamer zurück, wird der Pause-ffmpeg beendet und die Live-Quelle gestartet – ohne die YouTube-RTMP-Verbindung neu aufzubauen. Kein Pausenscreen bei manuellem Stopp/Wechsel, Auto-Refresh, Stall-Neustart oder `watch=false`. Texte, Farbe, Schrift und Maximaldauer sind im Dashboard unter **Einstellungen → Pausenscreen** konfigurierbar (`PAUSE_SCREEN_*` in `.env`).
+- **Pausenscreen**: Endet der TikTok-Stream oder meldet der Resolver „offline“, startet der Bot einen zweiten ffmpeg, der einen aus Hintergrundfarbe und Text generierten Screen samt stiller Audiospur über denselben internen Relay sendet. Kommt der Streamer zurück, wird der Pause-ffmpeg beendet und die Live-Quelle gestartet – ohne die YouTube-RTMP-Verbindung neu aufzubauen. Kein Pausenscreen bei manuellem Stopp/Wechsel, Auto-Refresh, Stall-Neustart oder `watch=false`. Texte, Farbe, Schrift und Maximaldauer sind im Dashboard unter **Einstellungen → Qualität & Pause → Pausenscreen** konfigurierbar (`PAUSE_SCREEN_*` in `.env`).
 - **Stoppen**: SIGINT an Quelle/Pause und Output, danach SIGTERM/SIGKILL als Fallback.
 - **Wechseln**: beendet den aktiven Stream und startet den ausgewählten Streamer.
 - **Log**: letzte 400 Zeilen, aktualisiert alle 1,5 s.
@@ -695,6 +680,8 @@ Der `output-ffmpeg` lebt für die gesamte Session (bzw. solange der YouTube-Key 
 - `app/telegram_views.py` – reine Formatierung und Inline-Keyboards des Bots
 - `app/earnings.py` – Fassade für `earnings_parse`, `earnings_monitor`, `earnings_overlay`
 - `app/web/` – FastAPI-Router, `AppContext` und Request-Helfer
+- `app/templates/` – Basislayout, Seiten und Partials für Dashboard und Login
+- `app/static/js/` – ES-Module für Status, Streamer, Senderlisten, Einstellungen und Log
 - `app/store.py` – YAML-Validierung mit Hot-Reload
 - `app/main.py` – FastAPI-App, Auth-Middleware, Seiten und Lifespan
 

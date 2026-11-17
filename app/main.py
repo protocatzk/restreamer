@@ -373,6 +373,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             request=request,
             name="login.html",
             context={
+                "version": __version__,
                 "next": target,
                 "telegram_enabled": auth_manager.telegram_enabled,
             },

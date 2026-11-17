@@ -1,0 +1,83 @@
+        <section id="settings-panel-stream" class="settings-panel" role="tabpanel"
+                 aria-labelledby="settings-tab-stream" data-settings-panel="stream">
+          <fieldset>
+            <legend>TikTok</legend>
+            <div class="form-grid">
+              <label class="field">
+                <span>Session-ID (sessionid-Cookie)</span>
+                <input name="tiktok_session_id" type="password" autocomplete="new-password"
+                       placeholder="leer lassen = unverändert">
+                <small id="session-hint" class="hint"></small>
+              </label>
+              <label class="field">
+                <span>Target IDC (optional)</span>
+                <input name="tiktok_target_idc" placeholder="z. B. useast5" autocomplete="off">
+              </label>
+              <label class="check"><input type="checkbox" name="clear_tiktok_session"> TikTok-Cookie löschen</label>
+            </div>
+          </fieldset>
+
+          <fieldset>
+            <legend>YouTube</legend>
+            <div class="form-grid">
+              <label class="field">
+                <span>RTMP-Basis-URL</span>
+                <input name="youtube_rtmp_url" placeholder="rtmp://a.rtmp.youtube.com/live2">
+              </label>
+              <label class="check"><input type="checkbox" name="youtube_backup"> Zusätzlich YouTube-Backup-RTMP nutzen</label>
+            </div>
+          </fieldset>
+
+          <fieldset>
+            <legend>Verhalten</legend>
+            <div class="form-grid">
+              <label class="field">
+                <span>Offline-Poll (Sekunden)</span>
+                <input name="offline_poll_seconds" type="number" min="5" step="1">
+              </label>
+              <label class="field">
+                <span>Backoff Start (Sekunden)</span>
+                <input name="backoff_initial_seconds" type="number" min="1" step="1">
+              </label>
+              <label class="field">
+                <span>Backoff Maximum (Sekunden)</span>
+                <input name="backoff_max_seconds" type="number" min="1" step="1">
+              </label>
+              <label class="field">
+                <span>ffmpeg Log-Level</span>
+                <select name="ffmpeg_loglevel">
+                  <option value="quiet">quiet</option>
+                  <option value="error">error</option>
+                  <option value="warning">warning</option>
+                  <option value="info">info</option>
+                  <option value="verbose">verbose</option>
+                  <option value="debug">debug</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>Auto-Refresh (Minuten, 0 = aus)</span>
+                <input name="auto_refresh_minutes" type="number" min="0" step="1">
+              </label>
+              <label class="field">
+                <span>Stall-Timeout (Sekunden)</span>
+                <input name="stall_timeout_seconds" type="number" min="10" step="1">
+              </label>
+              <label class="field">
+                <span>Watchdog-Intervall (Sekunden)</span>
+                <input name="watchdog_interval_seconds" type="number" min="2" step="1">
+              </label>
+              <label class="field">
+                <span>Delay-Puffer (Sekunden, 0 = aus)</span>
+                <input name="relay_delay_seconds" type="number" min="0" max="60" step="1">
+              </label>
+              <label class="field">
+                <span>Mindest-Quellrate (%, 0 = aus)</span>
+                <input name="source_min_rate_percent" type="number" min="0" max="100" step="1">
+              </label>
+            </div>
+            <div class="check-row">
+              <label class="check"><input type="checkbox" name="auto_start"> Auto-Start beim Containerstart</label>
+              <label class="check"><input type="checkbox" name="auto_reencode_fallback"> Automatischer Re-Encode-Fallback</label>
+            </div>
+          </fieldset>
+        </section>
